@@ -1,0 +1,86 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mcpip-redis
+  namespace: mcpip
+  labels:
+    app.kubernetes.io/name: mcpip
+    app.kubernetes.io/component: redis
+spec:
+  serviceName: mcpip-redis
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: mcpip
+      app.kubernetes.io/component: redis
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: mcpip
+        app.kubernetes.io/component: redis
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        # redis:8-alpine ships the `redis` user as uid/gid 999.
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: redis
+          # CVE-2025-60876 (busybox) + CVE-2026-27456 (util-linux) are patched in
+          # Alpine 3.23, shipped by redis:8-alpine (busybox 1.37.0-r30, setpriv 2.41.4-r0).
+          # For immutability, pin by digest: redis:8-alpine@sha256:<amd64-digest>.
+          image: redis:8-alpine
+          imagePullPolicy: IfNotPresent
+          command:
+            - redis-server
+            - /etc/redis/redis.conf
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          ports:
+            - name: redis
+              containerPort: 6379
+              protocol: TCP
+          livenessProbe:
+            tcpSocket:
+              port: redis
+            periodSeconds: 30
+          readinessProbe:
+            exec:
+              command:
+                - redis-cli
+                - ping
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          volumeMounts:
+            - name: config
+              mountPath: /etc/redis
+              readOnly: true
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: config
+          configMap:
+            name: mcpip-redis-config
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 5Gi

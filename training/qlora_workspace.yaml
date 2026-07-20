@@ -1,0 +1,67 @@
+# MCPIP — QLoRA fine-tune recipe for the Workspace-Generate model (Tier 2).
+#
+# axolotl config. Fine-tunes an Apache-2.0 base on the synthetic brief→plan dataset so the
+# policy is baked into the weights (reliable JSON + our conventions). Runs on a single
+# consumer GPU in ~an hour; export to GGUF and run in Ollama.
+#
+#   python scripts/gen_workspace_dataset.py --out training/data/workspace.jsonl -n 2000 --split
+#   accelerate launch -m axolotl.cli.train training/qlora_workspace.yaml
+#   # then convert the merged adapter → GGUF (llama.cpp convert) and `ollama create`.
+#
+# Base = Qwen2.5-1.5B-Instruct (Apache-2.0) — clean to fine-tune AND redistribute, no
+# Llama-license strings. See docs/MODEL_TRAINING.md for the license rationale.
+
+base_model: Qwen/Qwen2.5-1.5B-Instruct
+model_type: AutoModelForCausalLM
+tokenizer_type: AutoTokenizer
+
+load_in_4bit: true          # QLoRA — 4-bit base, trainable LoRA adapters.
+adapter: qlora
+lora_r: 16
+lora_alpha: 32
+lora_dropout: 0.05
+lora_target_modules:
+  - q_proj
+  - k_proj
+  - v_proj
+  - o_proj
+  - gate_proj
+  - up_proj
+  - down_proj
+
+# The synthetic dataset (chat format). Regenerate with gen_workspace_dataset.py.
+datasets:
+  - path: training/data/workspace.jsonl
+    type: chat_template
+    field_messages: messages
+    roles_to_train: ["assistant"]     # train on the plan output only.
+
+test_datasets:
+  - path: training/data/workspace.eval.jsonl
+    type: chat_template
+    field_messages: messages
+    split: train
+
+chat_template: qwen_25
+sequence_len: 2048
+sample_packing: true
+pad_to_sequence_len: true
+
+# Small, focused task → few epochs, gentle LR. Watch eval loss for over-fit.
+num_epochs: 3
+micro_batch_size: 2
+gradient_accumulation_steps: 8
+learning_rate: 0.0002
+lr_scheduler: cosine
+warmup_ratio: 0.03
+optimizer: adamw_bnb_8bit
+bf16: auto
+gradient_checkpointing: true
+
+output_dir: training/out/workspace-qwen2.5-1.5b
+save_strategy: epoch
+logging_steps: 10
+
+# After training: merge the adapter, convert to GGUF, then
+#   ollama create mcpip-workspace -f <(printf 'FROM ./model.gguf\n')  # + the SYSTEM block
+# Keep the SYSTEM prompt from Modelfile.workspace so inference matches training.

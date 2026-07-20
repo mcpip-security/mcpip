@@ -1,0 +1,26 @@
+# WORM audit durability profile — mirrors repo redis.conf. appendfsync=always
+# is asserted by the gateway at boot (assert_persistence_posture); the gateway
+# refuses to start in production if this posture is not met.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mcpip-redis-config
+  namespace: mcpip
+  labels:
+    app.kubernetes.io/name: mcpip
+    app.kubernetes.io/component: redis
+data:
+  redis.conf: |
+    appendonly yes
+    appendfsync always
+    save ""
+    auto-aof-rewrite-percentage 100
+    auto-aof-rewrite-min-size 64mb
+    aof-load-truncated no
+    # Never evict: the WORM audit buffer + one-time-PIN replay guard live in
+    # Redis; eviction would break the write-before-execute / no-replay invariants.
+    maxmemory-policy noeviction
+    # Reachability is enforced by the NetworkPolicy (gateway pods only);
+    # protected-mode off matches the single-tenant internal topology.
+    protected-mode no
+    dir /data

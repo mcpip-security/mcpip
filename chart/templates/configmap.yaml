@@ -1,0 +1,31 @@
+# Non-secret gateway configuration. Secret material (JWT public key, WORM
+# epoch-signing key, license file) is NEVER placed here — it arrives via the
+# pre-created Secret referenced by .Values.secrets.existingSecret and is
+# mounted read-only at /etc/mcpip/keys.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "mcpip.fullname" . }}-config
+  labels:
+    {{- include "mcpip.labels" . | nindent 4 }}
+    app.kubernetes.io/component: gateway
+data:
+  {{- if not .Values.redis.external.enabled }}
+  # Bundled Redis. When redis.external.enabled=true this is omitted and
+  # MCPIP_REDIS_URL is injected from a Secret (see deployment.yaml) so AUTH/TLS
+  # credentials never land in this ConfigMap.
+  MCPIP_REDIS_URL: "redis://{{ include "mcpip.redis.fullname" . }}:6379/0"
+  {{- end }}
+  MCPIP_WORM_PATH: "/var/lib/mcpip/mcpip_worm.jsonl"
+  MCPIP_JWT_PUBLIC_KEY_PATH: "/etc/mcpip/keys/jwt_public.pem"
+  MCPIP_WORM_SIGNING_KEY_PATH: "/etc/mcpip/keys/worm_signing.pem"
+  MCPIP_LICENSE_PATH: "/etc/mcpip/keys/license.json"
+  MCPIP_LICENSE_PUBLIC_KEY_PATH: "/app/release/keys/license_root_ed25519.pub.pem"
+  MCPIP_INTEGRITY_MANIFEST_PATH: "/app/release/integrity_manifest.json"
+  MCPIP_INTEGRITY_PUBLIC_KEY_PATH: "/app/release/keys/release_root_ed25519.pub.pem"
+  MCPIP_WORKERS: {{ .Values.workers | quote }}
+  MCPIP_API_PORT: "8080"
+  PROMETHEUS_MULTIPROC_DIR: "/tmp/prometheus"
+  {{- range $key, $value := .Values.env }}
+  {{ $key }}: {{ $value | quote }}
+  {{- end }}

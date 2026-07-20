@@ -1,0 +1,73 @@
+{
+  "format": "anthropic_tool_use",
+  "vectors": [
+    {
+      "name": "happy_tool_use",
+      "payload": {
+        "type": "tool_use",
+        "id": "toolu_01",
+        "name": "skill_lookup_invoice",
+        "input": {"invoice_id": "INV-42", "limit": 5}
+      },
+      "expect": "intent",
+      "alias": "skill_lookup_invoice",
+      "arguments": {"invoice_id": "INV-42", "limit": 5}
+    },
+    {
+      "name": "capabilities_key_in_input",
+      "payload": {
+        "type": "tool_use",
+        "id": "toolu_02",
+        "name": "skill_lookup_invoice",
+        "input": {"capabilities": ["9c2b6f14-7a3d-4e8b-b1c0-2f5a9d3e4c71"]}
+      },
+      "expect": "deny",
+      "deny_reason": "identity_injection"
+    },
+    {
+      "name": "bidi_override_in_value",
+      "payload": {
+        "type": "tool_use",
+        "id": "toolu_03",
+        "name": "skill_lookup_invoice",
+        "input": {"note": "abc‮xyz"}
+      },
+      "expect": "deny",
+      "deny_reason": "illegal_character"
+    },
+    {
+      "name": "input_as_string",
+      "payload": {
+        "type": "tool_use",
+        "id": "toolu_04",
+        "name": "skill_lookup_invoice",
+        "input": "not an object"
+      },
+      "expect": "deny",
+      "deny_reason": "schema_violation"
+    },
+    {
+      "name": "extra_top_level_key",
+      "payload": {
+        "type": "tool_use",
+        "id": "toolu_05",
+        "name": "skill_lookup_invoice",
+        "input": {"invoice_id": "INV-42"},
+        "cache_control": {"type": "ephemeral"}
+      },
+      "expect": "deny",
+      "deny_reason": "schema_violation"
+    },
+    {
+      "name": "tool_result_type_rejected",
+      "payload": {
+        "type": "tool_result",
+        "id": "toolu_06",
+        "name": "skill_lookup_invoice",
+        "input": {"invoice_id": "INV-42"}
+      },
+      "expect": "deny",
+      "deny_reason": "schema_violation"
+    }
+  ]
+}

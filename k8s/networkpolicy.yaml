@@ -1,0 +1,83 @@
+# ---------------------------------------------------------------------------
+# Redis: default-deny. Ingress ONLY from gateway pods on 6379; NO egress at
+# all (an empty egress list with Egress in policyTypes denies everything).
+# ---------------------------------------------------------------------------
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: mcpip-redis
+  namespace: mcpip
+  labels:
+    app.kubernetes.io/name: mcpip
+    app.kubernetes.io/component: redis
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: mcpip
+      app.kubernetes.io/component: redis
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: mcpip
+              app.kubernetes.io/component: gateway
+      ports:
+        - protocol: TCP
+          port: 6379
+  egress: []
+---
+# ---------------------------------------------------------------------------
+# Gateway: ingress only on 8080 from within the mcpip namespace plus the
+# monitoring namespace (Prometheus /metrics scrapes). Adjust the caller
+# namespaceSelector to your ingress/edge namespace. Egress locked down to
+# Redis and cluster DNS — nothing else (no phone-home; the gateway never
+# calls vendor LLM APIs and never self-updates).
+# ---------------------------------------------------------------------------
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: mcpip-gateway
+  namespace: mcpip
+  labels:
+    app.kubernetes.io/name: mcpip
+    app.kubernetes.io/component: gateway
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: mcpip
+      app.kubernetes.io/component: gateway
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: mcpip
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 8080
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: mcpip
+              app.kubernetes.io/component: redis
+      ports:
+        - protocol: TCP
+          port: 6379
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53

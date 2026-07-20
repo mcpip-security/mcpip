@@ -1,0 +1,77 @@
+name: Desktop Release (DMG · MSI · DEB · AppImage)
+
+# Bundles the MCPIP Operator Console natively per OS. DMG/.app and MSI can ONLY be
+# built on macOS / Windows runners respectively — this matrix does exactly that.
+on:
+  workflow_dispatch: {}
+  push:
+    tags: ["desktop-v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  bundle:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest       # → .dmg + .app (universal)
+            args: "--target universal-apple-darwin"
+          - platform: ubuntu-22.04       # → .deb + .AppImage
+            args: ""
+          - platform: windows-latest     # → .msi (WiX Toolset)
+            args: ""
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - name: Cache cargo + target
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: dashboard/src-tauri -> target
+
+      - name: Linux bundling dependencies (webkit2gtk for .deb/.AppImage)
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev patchelf \
+            libappindicator3-dev
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: dashboard
+        run: npm ci
+
+      - name: Generate platform icon set from source (◐)
+        working-directory: dashboard
+        run: npm run desktop:icons
+
+      # `tauri build` runs the frontend build (beforeBuildCommand) then bundles
+      # per tauri.conf.json targets, in --release (stripped, LTO, panic=abort).
+      - name: Build & bundle
+        working-directory: dashboard
+        run: npm run tauri -- build ${{ matrix.args }}
+
+      - name: Upload installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: mcpip-operator-${{ matrix.platform }}
+          if-no-files-found: error
+          path: |
+            dashboard/src-tauri/target/**/release/bundle/dmg/*.dmg
+            dashboard/src-tauri/target/**/release/bundle/macos/*.app
+            dashboard/src-tauri/target/**/release/bundle/msi/*.msi
+            dashboard/src-tauri/target/**/release/bundle/deb/*.deb
+            dashboard/src-tauri/target/**/release/bundle/appimage/*.AppImage

@@ -1,0 +1,34 @@
+{
+  "format": "raw_mcp",
+  "vectors": [
+    {
+      "name": "happy_raw_mcp",
+      "payload": {
+        "tool": "skill_lookup_invoice",
+        "arguments": {"invoice_id": "INV-42"}
+      },
+      "expect": "intent",
+      "alias": "skill_lookup_invoice",
+      "arguments": {"invoice_id": "INV-42"}
+    },
+    {
+      "name": "entitlements_in_arguments",
+      "payload": {
+        "tool": "skill_lookup_invoice",
+        "arguments": {"entitlements": ["all"]}
+      },
+      "expect": "deny",
+      "deny_reason": "identity_injection"
+    },
+    {
+      "name": "extra_key_rejected",
+      "payload": {
+        "tool": "skill_lookup_invoice",
+        "arguments": {"invoice_id": "INV-42"},
+        "metadata": {}
+      },
+      "expect": "deny",
+      "deny_reason": "schema_violation"
+    }
+  ]
+}

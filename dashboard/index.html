@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Ccircle cx='12' cy='12' r='10' fill='%23fff' stroke='%23111' stroke-width='1.5'/%3E%3Cpath d='M12 2 A 10 10 0 0 0 12 22 Z' fill='%23111'/%3E%3C/svg%3E" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover"
+    />
+    <meta name="color-scheme" content="light" />
+    <meta name="theme-color" content="#f9f9f9" />
+    <meta
+      name="description"
+      content="MCPIP — The Authorization Layer for Autonomous AI. Authorize every AI action before execution."
+    />
+    <!-- Installable PWA (mobile-first: add to home screen on phone or desktop). -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="/icon.svg" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="MCPIP" />
+    <title>MCPIP · Authorization Layer for Autonomous AI</title>
+    <!-- Pre-paint theme: apply the operator's stored choice (or the OS default)
+         onto <html> BEFORE first paint so a dark console never flashes light.
+         Mirrors src/lib/theme.ts, which is the source of truth once React runs. -->
+    <script>
+      (function () {
+        try {
+          var stored = localStorage.getItem('mcpip:theme');
+          var dark =
+            stored === 'dark' ||
+            (stored !== 'light' &&
+              window.matchMedia &&
+              window.matchMedia('(prefers-color-scheme: dark)').matches);
+          if (dark) {
+            document.documentElement.setAttribute('data-theme', 'dark');
+            var tc = document.querySelector('meta[name="theme-color"]');
+            if (tc) tc.setAttribute('content', '#0c0c0e');
+            var cs = document.querySelector('meta[name="color-scheme"]');
+            if (cs) cs.setAttribute('content', 'dark');
+          }
+        } catch (e) {
+          /* No storage / matchMedia (sandboxed frame) — default to light. */
+        }
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

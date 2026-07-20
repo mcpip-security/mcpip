@@ -1,0 +1,64 @@
+{
+  "format": "gemini_function_call",
+  "vectors": [
+    {
+      "name": "happy_with_args",
+      "payload": {
+        "functionCall": {
+          "name": "skill_lookup_invoice",
+          "args": {"invoice_id": "INV-42", "filters": {"status": "open"}}
+        }
+      },
+      "expect": "intent",
+      "alias": "skill_lookup_invoice",
+      "arguments": {"invoice_id": "INV-42", "filters": {"status": "open"}}
+    },
+    {
+      "name": "args_absent_normalizes_to_empty",
+      "payload": {"functionCall": {"name": "skill_ping"}},
+      "expect": "intent",
+      "alias": "skill_ping",
+      "arguments": {}
+    },
+    {
+      "name": "optional_id_present_and_discarded",
+      "payload": {
+        "functionCall": {"name": "skill_ping", "args": {"a": 1}, "id": "fc_001"}
+      },
+      "expect": "intent",
+      "alias": "skill_ping",
+      "arguments": {"a": 1}
+    },
+    {
+      "name": "role_key_in_args",
+      "payload": {
+        "functionCall": {"name": "skill_lookup_invoice", "args": {"role": "admin"}}
+      },
+      "expect": "deny",
+      "deny_reason": "identity_injection"
+    },
+    {
+      "name": "missing_function_call_wrapper",
+      "payload": {"name": "skill_lookup_invoice", "args": {"invoice_id": "INV-42"}},
+      "expect": "deny",
+      "deny_reason": "schema_violation"
+    },
+    {
+      "name": "parts_array_wrapper_rejected",
+      "payload": {"parts": [{"functionCall": {"name": "skill_ping"}}]},
+      "expect": "deny",
+      "deny_reason": "schema_violation"
+    },
+    {
+      "name": "nfkc_confusable_fullwidth_role",
+      "payload": {
+        "functionCall": {
+          "name": "skill_lookup_invoice",
+          "args": {"ｒｏｌｅ": "admin"}
+        }
+      },
+      "expect": "deny",
+      "deny_reason": "identity_injection"
+    }
+  ]
+}

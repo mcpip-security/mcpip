@@ -1,0 +1,134 @@
+# =============================================================================
+# MCPIP gateway chart values.
+#
+# SECURITY INVARIANTS (do not weaken):
+#   * The chart NEVER creates or embeds secret material. All key/license data
+#     comes from a pre-created Secret named by `secrets.existingSecret`, holding
+#     the keys: jwt_public.pem, worm_signing.pem, license.json. Populate it
+#     out-of-band (kubectl create secret generic ... --from-file=...).
+#   * There is deliberately NO value that maps to MCPIP_SANDBOX_MODE or
+#     MCPIP_INTEGRITY_DEV_BYPASS — production pods always boot fail-closed
+#     with the integrity self-check and license gate enforced.
+#   * Deploy by digest: set image.digest to the release-manifest-pinned digest
+#     (sha256:...). When set it takes precedence over image.tag.
+# =============================================================================
+
+image:
+  repository: mcpip-gateway
+  # Mutable tag fallback for dev clusters only. Production deploys pin the
+  # immutable digest recorded in release/manifest.json.
+  tag: "3.0.0"
+  # e.g. "sha256:0123...". When non-empty the pod spec uses repository@digest.
+  digest: ""
+  pullPolicy: IfNotPresent
+
+replicaCount: 2
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 256Mi
+  limits:
+    cpu: "1"
+    memory: 512Mi
+
+# Extra NON-SECRET environment variables merged into the gateway ConfigMap.
+# Never put keys, tokens, or license bodies here — use secrets.existingSecret.
+env: {}
+
+# Number of uvicorn workers inside the container (MCPIP_WORKERS).
+workers: 4
+
+service:
+  type: ClusterIP
+  port: 8080
+
+serviceAccount:
+  # If empty, a name is derived from the release fullname.
+  name: ""
+  automountServiceAccountToken: false
+
+secrets:
+  # Name of a PRE-CREATED Secret in the release namespace with keys:
+  #   jwt_public.pem   — trusted IdP JWT verification public key
+  #   worm_signing.pem — Ed25519 PKCS8 audit epoch-signing private key
+  #   license.json     — signed MCPIP license file
+  # The chart mounts it read-only at /etc/mcpip/keys and never renders its data.
+  existingSecret: mcpip-keys
+
+# Durable volume for the WORM audit log (mounted at /var/lib/mcpip).
+persistence:
+  enabled: true
+  size: 5Gi
+  storageClassName: ""
+  accessModes:
+    - ReadWriteOnce
+
+redis:
+  # Bundled single-writer Redis StatefulSet (dev / self-contained deploys).
+  enabled: true
+  # ---------------------------------------------------------------------------
+  # Managed / external Redis (cloud tier). To point the gateway at a managed
+  # Redis (Elasticache, Memorystore, Redis Cloud, ...) instead of the bundled
+  # StatefulSet:
+  #   1. redis.enabled=false            (drop the bundled StatefulSet/Service/ConfigMap)
+  #   2. redis.external.enabled=true
+  #   3. redis.external.existingSecret=<secret>  holding key `secretKey` whose
+  #      value is a FULL connection URL. Put AUTH + TLS there, e.g.
+  #        rediss://:<password>@my-redis.example:6380/0
+  #      redis-py parses auth + rediss:// (TLS) straight from the URL, so no
+  #      gateway-code change is needed and no plaintext creds land in a ConfigMap.
+  #   4. redis.external.egressCidr=<cidr>  so the default-deny NetworkPolicy
+  #      permits egress to the managed endpoint on redis.external.port.
+  external:
+    enabled: false
+    # Pre-created Secret holding the connection URL (never rendered by this chart).
+    existingSecret: ""
+    # Key within existingSecret whose value is the rediss://... / redis://... URL.
+    secretKey: "MCPIP_REDIS_URL"
+    # Informational (URL in the Secret is authoritative); used for the egress rule port.
+    host: ""
+    port: 6379
+    tls: false
+    # CIDR (e.g. 10.0.0.5/32) allowed as gateway egress to the managed Redis.
+    egressCidr: ""
+  image:
+    repository: redis
+    # 8-alpine (Alpine 3.23) patches CVE-2025-60876 (busybox) + CVE-2026-27456 (util-linux),
+    # both present in 7-alpine. Pin a digest (tag@sha256:...) for immutable deploys.
+    tag: 8-alpine
+    pullPolicy: IfNotPresent
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+  persistence:
+    size: 5Gi
+    storageClassName: ""
+
+hpa:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+
+metrics:
+  # Adds prometheus.io/scrape annotations to the gateway pods.
+  scrapeAnnotations: true
+  # NamespaceSelector granted NetworkPolicy ingress to :8080 for /metrics
+  # scrapes (typically the monitoring namespace).
+  prometheusNamespaceSelector:
+    matchLabels:
+      kubernetes.io/metadata.name: monitoring
+
+ingress:
+  # NamespaceSelector for callers allowed to reach the gateway on :8080.
+  # Empty matchLabels ({}) selects all namespaces; narrow it in production.
+  allowedNamespaceSelector:
+    matchLabels: {}
+
+networkPolicy:
+  enabled: true

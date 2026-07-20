@@ -1,0 +1,186 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ---------------------------------------------------------------------------
+   MCPIP operator dashboard — porcelain/ink light theme.
+   Matches the marketing site: #f9f9f9 canvas, #111 ink, hairline borders.
+--------------------------------------------------------------------------- */
+
+@layer base {
+  /* LIGHT theme (default) — the porcelain/ink scale, now as RGB triples so the
+     Tailwind tokens (rgb(var(--c-*) / <alpha>)) resolve and opacity still works. */
+  :root {
+    color-scheme: light;
+    --c-canvas: 249 249 249;
+    --c-surface: 255 255 255;
+    --c-elevated: 249 249 249;
+    --c-hairline: 229 229 229;
+    --c-ink: 17 17 17;
+    --c-verified: 5 150 105;
+    --c-denied: 220 38 38;
+    --c-staged: 217 119 6;
+    /* Inverted slate ramp — reads correctly on the light canvas. */
+    --c-slate-50: 17 17 17;
+    --c-slate-100: 17 17 17;
+    --c-slate-200: 23 23 23;
+    --c-slate-300: 64 64 64;
+    --c-slate-400: 82 82 82;
+    --c-slate-500: 115 115 115;
+    --c-slate-600: 163 163 163;
+    --c-slate-700: 212 212 212;
+    --c-slate-800: 229 229 229;
+    --c-slate-900: 245 245 245;
+    --c-scrollbar: 212 212 212;
+    --c-selection: 17 17 17;
+    --c-selection-text: 249 249 249;
+  }
+
+  /* DARK theme — a considered neutral-ink canvas with a porcelain foreground.
+     Status hues lift to the 400-step for contrast on the dark surface. The slate
+     ramp re-steps so slate-400/500/600 stay "muted → fainter" against dark. */
+  :root[data-theme='dark'] {
+    color-scheme: dark;
+    --c-canvas: 12 12 14;
+    --c-surface: 24 24 27;
+    --c-elevated: 32 32 36;
+    --c-hairline: 42 42 48;
+    --c-ink: 244 244 245;
+    --c-verified: 52 211 153;
+    --c-denied: 248 113 113;
+    --c-staged: 251 191 36;
+    --c-slate-50: 244 244 245;
+    --c-slate-100: 240 240 242;
+    --c-slate-200: 228 228 231;
+    --c-slate-300: 200 200 206;
+    --c-slate-400: 161 161 170;
+    --c-slate-500: 130 130 139;
+    --c-slate-600: 100 100 110;
+    --c-slate-700: 63 63 70;
+    --c-slate-800: 45 45 51;
+    --c-slate-900: 30 30 34;
+    --c-scrollbar: 63 63 70;
+    --c-selection: 244 244 245;
+    --c-selection-text: 12 12 14;
+  }
+
+  html,
+  body {
+    height: 100%;
+  }
+
+  body {
+    margin: 0;
+    background-color: rgb(var(--c-canvas));
+    color: rgb(var(--c-ink));
+    font-family: theme('fontFamily.sans');
+    /* Inter stylistic sets: refined digits (cv03), single-story a (cv11),
+       and disambiguated l (cv08) — the details that read as "designed". */
+    font-feature-settings: 'cv03', 'cv04', 'cv08', 'cv11', 'ss03';
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Aligned figures for all data/metrics so columns never jitter. */
+  .tabular {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: 'tnum', 'cv03';
+  }
+
+  h1, h2, h3, h4 {
+    letter-spacing: -0.011em;
+  }
+
+  ::selection {
+    background: rgb(var(--c-selection) / 0.9);
+    color: rgb(var(--c-selection-text));
+  }
+
+  /* Slim scrollbars that follow the theme. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgb(var(--c-scrollbar)) transparent;
+  }
+
+  *::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  *::-webkit-scrollbar-thumb {
+    background-color: rgb(var(--c-scrollbar));
+    border-radius: 9999px;
+  }
+
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}
+
+@layer components {
+  /* Hairline card — the recurring panel surface. */
+  .panel {
+    @apply rounded-xl border border-hairline bg-surface shadow-panel;
+  }
+
+  .panel-header {
+    @apply flex items-center justify-between gap-3 border-b border-hairline px-5 py-3.5;
+  }
+
+  /* Section eyebrow — refined sans small-caps, not mono. */
+  .eyebrow {
+    @apply text-[10.5px] font-semibold uppercase tracking-[0.13em] text-slate-500;
+  }
+
+  /* Metric tile — the charter's KPI-tile recipe, applied directly by views. */
+  .metric {
+    @apply flex flex-col gap-1 rounded-lg border border-hairline bg-surface px-3.5 py-2.5 shadow-card;
+  }
+  .metric-label {
+    @apply text-[10.5px] font-medium uppercase tracking-[0.1em] text-slate-500;
+  }
+  .metric-value {
+    @apply tabular text-[19px] font-semibold leading-none tracking-tightest text-ink;
+  }
+
+  /* Chip — the one consistent pill for status/labels. */
+  .chip {
+    @apply inline-flex items-center gap-1.5 rounded-full border border-hairline bg-elevated px-2 py-0.5 text-[11px] font-medium text-slate-400;
+  }
+
+  /* Primary / secondary buttons — one refined button language. */
+  .btn {
+    @apply inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-[12.5px] font-medium transition-colors focus:outline-none focus-visible:shadow-focus-ring disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .btn-primary {
+    @apply btn bg-ink text-surface hover:bg-ink/90;
+  }
+  .btn-ghost {
+    @apply btn border border-hairline bg-surface text-ink hover:bg-canvas;
+  }
+
+  /* Monospace ID token — the ONLY place mono belongs now. */
+  .id {
+    @apply font-mono text-[11px] text-slate-400;
+  }
+
+  /* Faint dot grid used as a texture behind hero content — ink token so the
+     dots stay faint-but-present on both the porcelain and the dark canvas. */
+  .dotgrid {
+    background-image: radial-gradient(rgb(var(--c-ink) / 0.07) 1px, transparent 1px);
+    background-size: 22px 22px;
+  }
+}
+
+/* Respect the OS "reduce motion" preference: kill all decorative animation. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}

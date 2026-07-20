@@ -1,0 +1,48 @@
+# MCPIP — packaging metadata (setuptools backend).
+#
+# Version truth lives in the VERSION file (single source, read dynamically below
+# and at runtime by core/version.py). Do NOT add a [tool.mypy] section here —
+# mypy is invoked as `.venv/bin/mypy --strict <targets>` and a config section
+# would silently change flag semantics.
+
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mcpip"
+dynamic = ["version"]
+description = "MCPIP — enterprise authorization gateway for agentic tool calls, with signed immutable releases"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "pydantic>=2.6,<3",
+    "redis>=5.0,<6",
+    "PyJWT>=2.8,<3",
+    "cryptography>=42.0",
+    "fastapi>=0.111,<1",
+    "uvicorn[standard]>=0.30,<1",
+    "pydantic-settings>=2.2,<3",
+    "prometheus-client>=0.20,<1",
+]
+
+[project.scripts]
+mcpip = "mcpip_verify.cli:main"
+
+[tool.setuptools]
+packages = [
+    "app",
+    "core",
+    "auth",
+    "audit",
+    "bridge",
+    "bridge.connectors",
+    "services",
+    "models",
+    "obfuscator",
+    "mcpip_verify",
+]
+py-modules = ["interfaces", "main"]
+
+[tool.setuptools.dynamic]
+version = { file = "VERSION" }

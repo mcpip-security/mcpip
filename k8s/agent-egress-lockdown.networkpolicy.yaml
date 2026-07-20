@@ -1,0 +1,149 @@
+# ---------------------------------------------------------------------------
+# AGENT-SIDE EGRESS LOCKDOWN  —  "MCPIP is the agent's only reachable dependency"
+# ===========================================================================
+# The primary non-bypass argument is NOT this file — it is "no standing key":
+# a `cloud_iam` target is unreachable without a short-lived scoped credential
+# only MCPIP mints (services/cloud_broker.py), so for that transport the agent
+# has nothing to reach directly even with wide-open egress. This NetworkPolicy
+# closes the residual gap for the PROXY transports (`cloud_rest` /
+# `legacy_mainframe` / `grant_issue`), where the real target IS a reachable
+# host: an app-layer authorizer the agent CHOOSES to call can be skipped, and a
+# direct call never touches the WORM log. L3/L4 default-deny converts that
+# choice into a network impossibility.
+#
+# The asymmetry this closes: k8s/networkpolicy.yaml locks the GATEWAY's egress
+# (it may reach only Redis + DNS — no phone-home), but nothing today locks the
+# AGENT's reach. This template is the mirror image: it locks the agent pods so
+# their ONLY permitted egress is (a) cluster DNS and (b) the MCPIP gateway
+# Service. Everything else — the internet, cloud metadata (169.254.169.254),
+# databases, SaaS APIs, the real proxy targets — is denied by default.
+#
+# SCOPE: this policy lives in the AGENT workload namespace, NOT `mcpip`. Deploy
+# it alongside your agent/orchestrator workloads. Fill the <PLACEHOLDERS> with
+# your site's real namespace, pod labels, and (if your gateway runs in a
+# different namespace than shown) the gateway namespace label.
+#
+# REQUIRES a CNI that enforces NetworkPolicy (Cilium, Calico, Antrea, …). On a
+# CNI that ignores NetworkPolicy this file is INERT — verify enforcement (an
+# egress-deny smoke test: `kubectl exec <agent-pod> -- curl -m5 https://example.com`
+# must fail) before you rely on it for non-bypassability.
+#
+# TWO RESOURCES, applied together (the second alone FAILS OPEN):
+#   1. `default-deny-egress` — a namespace-wide baseline that denies ALL egress
+#      for EVERY pod in the agent namespace. NetworkPolicy is a positive, additive
+#      allowlist with no deny primitive: a pod's permitted egress is the UNION of
+#      every policy that selects it, and a pod selected by NO egress policy is
+#      unrestricted. So the agent-only policy below, on its own, would leave any
+#      pod that lacks the agent label (a sidecar, a debug shell, a relabeled or
+#      compromised pod) with wide-open egress — the exact bypass this file exists
+#      to close. The blanket default-deny removes that hole: nothing egresses
+#      unless a later policy explicitly re-permits it.
+#   2. `agent-egress-lockdown` — re-permits ONLY DNS + the MCPIP gateway, and only
+#      for the labeled agent pods (union with the default-deny baseline).
+# Because the baseline denies the whole namespace, treat the agent namespace as
+# DEDICATED to agents; any other workload that shares it needs its OWN narrow
+# egress policy or it will have no egress at all.
+# ---------------------------------------------------------------------------
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-egress
+  # <PLACEHOLDER> — the SAME namespace your agent/orchestrator pods run in.
+  namespace: <AGENT_NAMESPACE>
+  labels:
+    app.kubernetes.io/part-of: mcpip
+    app.kubernetes.io/component: agent-egress-lockdown
+spec:
+  # Empty podSelector = EVERY pod in the namespace. Egress-only, with NO egress
+  # rules → deny all egress as the namespace baseline. `agent-egress-lockdown`
+  # below then adds back DNS + gateway for the labeled agent pods (union).
+  podSelector: {}
+  policyTypes:
+    - Egress
+  # (no `egress:` key → zero allowed destinations for the baseline)
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: agent-egress-lockdown
+  # <PLACEHOLDER> — the namespace your agent/orchestrator pods run in.
+  namespace: <AGENT_NAMESPACE>
+  labels:
+    app.kubernetes.io/part-of: mcpip
+    app.kubernetes.io/component: agent-egress-lockdown
+spec:
+  # Select the AGENT workload pods this lockdown applies to. Narrow this to the
+  # agent's own label so you don't accidentally cage unrelated pods sharing the
+  # namespace. An empty `matchLabels: {}` would select EVERY pod in the
+  # namespace — use that only if the namespace is dedicated to agents.
+  podSelector:
+    matchLabels:
+      # <PLACEHOLDER> — your agent workload's identifying label(s).
+      app.kubernetes.io/component: agent
+  # Egress-only policy. A pod's allowed egress is the UNION of every policy that
+  # selects it: paired with the `default-deny-egress` baseline above, the net
+  # effect for these agent pods is "deny all egress EXCEPT the rules below". This
+  # policy does not itself deny anything — it only ADDS the DNS + gateway lanes;
+  # the deny comes from the baseline. (Ingress is intentionally NOT constrained
+  # here — this file governs the agent's REACH outward, which is the non-bypass
+  # concern; constrain ingress separately if your threat model needs it.)
+  policyTypes:
+    - Egress
+  egress:
+    # -----------------------------------------------------------------------
+    # RULE (a) — DNS. The agent must resolve the MCPIP gateway Service name;
+    # without this the pod cannot look up `mcpip-gateway.mcpip.svc` and even the
+    # one allowed dependency is unreachable. Scoped to the kube-dns pods in
+    # kube-system on 53/UDP+TCP (TCP covers large/truncated answers) — NOT a
+    # blanket "port 53 anywhere", so the agent cannot point at an attacker's OWN
+    # resolver. NOTE this does NOT by itself defeat DNS tunnelling: a determined
+    # agent can still exfiltrate over queries to the legitimate cluster resolver
+    # (which recurses outbound). Closing that residual needs DNS-layer controls
+    # (a filtering resolver / egress DNS policy / query monitoring), out of scope
+    # for L3/L4 NetworkPolicy. If your cluster runs CoreDNS under different labels,
+    # adjust the podSelector to match `kubectl -n kube-system get pods --show-labels`.
+    # -----------------------------------------------------------------------
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # -----------------------------------------------------------------------
+    # RULE (b) — the MCPIP gateway, and NOTHING else. This is the whole point:
+    # the agent's only non-DNS egress is to MCPIP's gateway pods on 8080. Every
+    # tool call must therefore traverse the gate (normalize → obfuscate → authz
+    # → WORM-before-execute); a direct call to a real proxy target has no route.
+    # Selected by the gateway's own pod labels (from k8s/service.yaml /
+    # k8s/deployment.yaml) inside the `mcpip` namespace. If your gateway runs in
+    # a namespace other than `mcpip`, change the namespaceSelector label value.
+    # -----------------------------------------------------------------------
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              # <PLACEHOLDER if not `mcpip`> — the gateway's namespace.
+              kubernetes.io/metadata.name: mcpip
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: mcpip
+              app.kubernetes.io/component: gateway
+      ports:
+        - protocol: TCP
+          port: 8080
+    # -----------------------------------------------------------------------
+    # NO OTHER EGRESS RULE. Deliberately absent (each would reopen the bypass):
+    #   * no 0.0.0.0/0 internet egress,
+    #   * no 169.254.169.254 cloud-metadata reach (an SSRF-to-IMDS lane that
+    #     could forge a workload attestation — see docs/INTEGRATIONS.md §6),
+    #   * no direct database / SaaS / mainframe egress (those are the proxy
+    #     targets MCPIP fronts — reaching them directly is exactly the bypass).
+    # Adding any broad allow here voids the "every action goes through the gate"
+    # claim. If a workload legitimately needs another dependency, give it its
+    # OWN pod label + a narrow rule — never widen this one.
+    # -----------------------------------------------------------------------

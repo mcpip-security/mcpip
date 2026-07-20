@@ -1,0 +1,191 @@
+# =============================================================================
+# MCPIP — SINGLE-HOST PRODUCTION Compose (fail-closed, MCPIP_SANDBOX_MODE=false).
+#
+#   docker compose -f docker-compose.prod.yml up --build
+#
+# This is the production single-host shape. Unlike the default docker-compose.yml
+# (which leaves the key/license/integrity paths UNWIRED so a non-sandbox boot fails
+# closed — that file is the sandbox/demo surface), this file wires EVERY startup gate
+# and mounts a host secret directory, so a correctly-provisioned host boots a real,
+# fail-closed gateway.
+#
+# ----------------------------------------------------------------------------
+# BEFORE YOU RUN: place these SIX files in ./secrets (mounted read-only at
+# /etc/mcpip). The gateway refuses to boot if any is missing/invalid — that is the
+# intended safety net, not a bug.
+#
+#   Operator-supplied secret material (from your secret store / offline signer):
+#     ./secrets/idp_signing_ed25519.pub.pem   PUBLIC IdP key (SubjectPublicKeyInfo PEM);
+#                                              the gateway verifies principal JWTs with it.
+#     ./secrets/worm_signing_ed25519.key       PRIVATE Ed25519 PKCS8 PEM — the WORM epoch
+#                                              signer. Keep host perms tight (see note).
+#     ./secrets/license.json                    Your signed MCPIP license document.
+#
+#   Non-secret files — COPY them out of the image's in-repo release/ directory
+#   (they ship with the release; they are public, but must be present on the host):
+#     ./secrets/integrity_manifest.json         <- release/integrity_manifest.json
+#     ./secrets/release_root_ed25519.pub.pem    <- release/keys/release_root_ed25519.pub.pem
+#     ./secrets/license_root_ed25519.pub.pem    <- release/keys/license_root_ed25519.pub.pem
+#
+#   And set your IdP issuer (must match the `iss` of your minted principal tokens),
+#   e.g. in a `.env` file beside this compose file:  MCPIP_JWT_ISSUER=prod-idp.example
+#
+# File permissions: the gateway runs as uid/gid 10001 (non-root). Every file in
+# ./secrets must be READABLE by that uid — the three .pub.pem / manifest / license
+# files may be world-readable; the private worm_signing key should be readable by
+# uid 10001 only (e.g. `chown 10001:10001 secrets/worm_signing_ed25519.key &&
+# chmod 0640 ...`). Prefer `/etc/mcpip` or a tmpfs over a repo-relative dir on a
+# shared host, and never commit ./secrets (add it to .gitignore).
+# ----------------------------------------------------------------------------
+#
+# Network exposure (identical to docker-compose.yml, by design):
+#   * gateway publishes 8080 -> 8080 on the host edge (the API surface only).
+#   * redis is reachable ONLY at the internal service DNS name `redis:6379`; it has
+#     no host port and is not on the edge network.
+# =============================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  # Redis — internal-only synchronization state. DURABLE AOF (appendfsync=always)
+  # via the shared redis.conf, so the WORM buffer XADD is fsync-durable before
+  # /v1/authorize returns. The gateway ASSERTS this posture at boot and a
+  # non-sandbox gateway REFUSES to start against a Redis that is not durably
+  # persisted — so this bundled, durable service is required for a passing boot.
+  # (Mirrors the redis service in docker-compose.yml.)
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:8-alpine
+    container_name: mcpip-prod-redis
+    command: ["redis-server", "/etc/redis/redis.conf"]
+    restart: unless-stopped
+    # Attach ONLY to the internal network -> unreachable from the host/internet.
+    networks:
+      - mcpip-internal
+    security_opt:
+      - no-new-privileges:true
+    # Root filesystem is immutable; Redis writes ONLY the durable AOF under /data.
+    read_only: true
+    volumes:
+      # The required durability profile (appendonly yes / appendfsync always), read-only.
+      - ./redis.conf:/etc/redis/redis.conf:ro
+      # Durable AOF must live on a real volume (NOT tmpfs) to survive a crash/restart.
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    # cap_drop:[ALL] is deliberately omitted — the stock redis entrypoint runs as
+    # root, chowns /data, then drops to the `redis` user via su-exec (needs
+    # CAP_SETUID/CAP_SETGID). no-new-privileges still blocks setuid escalation.
+
+  # ---------------------------------------------------------------------------
+  # Gateway — the MCPIP authorization API, booted FAIL-CLOSED in production.
+  # sandbox_mode is hard-pinned false: the sandbox affordances stay unmounted and
+  # every startup gate (verified boot, license, WORM durability) must pass BEFORE a
+  # socket is bound. Key material is supplied by the ./secrets bind mount below.
+  # ---------------------------------------------------------------------------
+  gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: mcpip-gateway:v2
+    container_name: mcpip-prod-gateway
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      # Wired to the redis SERVICE over the internal network (not a host port).
+      MCPIP_REDIS_URL: "redis://redis:6379/0"
+      # WORM audit log + anchor land on the mounted, writable data volume below.
+      MCPIP_WORM_PATH: "/var/lib/mcpip/mcpip_worm.jsonl"
+
+      # PRODUCTION POSTURE — hard false. Never set this true here; the sandbox
+      # affordances (dev-token forge oracle + OTP disclosure) must never mount in prod.
+      MCPIP_SANDBOX_MODE: "false"
+
+      # Identity sovereignty — MUST match the iss/aud of your minted principal tokens.
+      # Set MCPIP_JWT_ISSUER (e.g. in a .env file beside this compose file); boot is
+      # refused if it is unset, on purpose.
+      MCPIP_JWT_ISSUER: "${MCPIP_JWT_ISSUER:?set MCPIP_JWT_ISSUER to your IdP issuer (e.g. in a .env file beside this compose file)}"
+      MCPIP_JWT_AUDIENCE: "${MCPIP_JWT_AUDIENCE:-mcpip-gateway}"
+
+      # --- The startup-gate key/license/integrity paths (all under the ./secrets
+      #     bind mount at /etc/mcpip). Every one must resolve to a present, valid
+      #     file or the gateway fails closed at boot. ---
+      # Identity (verify-only) + WORM epoch signer — operator secret material:
+      MCPIP_JWT_PUBLIC_KEY_PATH: "/etc/mcpip/idp_signing_ed25519.pub.pem"
+      MCPIP_WORM_SIGNING_KEY_PATH: "/etc/mcpip/worm_signing_ed25519.key"
+      # License gate (Ed25519-signed entitlement + its license-root public key):
+      MCPIP_LICENSE_PATH: "/etc/mcpip/license.json"
+      MCPIP_LICENSE_PUBLIC_KEY_PATH: "/etc/mcpip/license_root_ed25519.pub.pem"
+      # Verified boot (signed source-set manifest + release-root public key):
+      MCPIP_INTEGRITY_MANIFEST_PATH: "/etc/mcpip/integrity_manifest.json"
+      MCPIP_INTEGRITY_PUBLIC_KEY_PATH: "/etc/mcpip/release_root_ed25519.pub.pem"
+      # The dev bypass must stay false in production (a non-sandbox boot that sees
+      # it true refuses to start). Left at its secure default — do not enable.
+
+      # PIN_REQUIRED step-up (OPTIONAL): an AUTO-only deployment leaves BOTH unset.
+      # To enable PIN_REQUIRED skills, set BOTH MCPIP_AUTHN_WEBHOOK_URL and
+      # MCPIP_AUTHN_WEBHOOK_SECRET_PATH (setting exactly one is a fail-closed boot error).
+
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONUNBUFFERED: "1"
+    # Straddle both networks: internal (to reach redis) + edge (to be published).
+    networks:
+      - mcpip-internal
+      - mcpip-edge
+    # Publish ONLY the API port, ONLY on the gateway. Redis stays internal.
+    ports:
+      - "8080:8080"
+    security_opt:
+      - no-new-privileges:true
+    # The gateway image is already non-root and needs no Linux capabilities.
+    cap_drop:
+      - ALL
+    # Immutable root filesystem: code is read-only, only declared mounts write.
+    read_only: true
+    tmpfs:
+      - /tmp:mode=1777,size=32m
+    volumes:
+      # Host secret directory, READ-ONLY. Place the six files documented at the top
+      # of this file here; they surface inside the container under /etc/mcpip.
+      - ./secrets:/etc/mcpip:ro
+      # Durable, tamper-evident WORM audit log + anchor survive container restarts.
+      - worm-data:/var/lib/mcpip
+    healthcheck:
+      # Liveness: hit GET /healthz with the stdlib (curl is absent in -slim).
+      test:
+        - "CMD"
+        - "python"
+        - "-c"
+        - "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/healthz',timeout=3).status==200 else 1)"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+# -----------------------------------------------------------------------------
+# Networks (identical two-network design to docker-compose.yml):
+#   * mcpip-internal — `internal: true` blocks all host/egress routing, so redis
+#     is reachable exclusively by co-attached services (the gateway).
+#   * mcpip-edge     — a normal bridge (NOT internal) carrying only the gateway's
+#     published API port. Redis is never attached here.
+# -----------------------------------------------------------------------------
+networks:
+  mcpip-internal:
+    driver: bridge
+    internal: true
+  mcpip-edge:
+    driver: bridge
+
+# -----------------------------------------------------------------------------
+# Named volumes: the WORM audit log/anchor path and the durable Redis AOF.
+# -----------------------------------------------------------------------------
+volumes:
+  worm-data:
+    driver: local
+  redis-data:
+    driver: local

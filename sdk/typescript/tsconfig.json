@@ -1,0 +1,30 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    // DOM lib is included ONLY for the universal-runtime globals the SDK uses
+    // (fetch/Response/Headers/AbortSignal/URL/atob) — no document/window usage
+    // anywhere. "types": [] keeps the check hermetic: never auto-pull whatever
+    // @types happen to be installed (same discipline as dashboard/tsconfig.json).
+    "lib": ["ES2022", "DOM"],
+    "types": [],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "moduleDetection": "force",
+    "isolatedModules": true,
+
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": false,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,
+
+    "declaration": true,
+    "sourceMap": false,
+    "outDir": "dist",
+    "rootDir": "src"
+  },
+  "include": ["src"]
+}

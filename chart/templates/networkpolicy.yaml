@@ -1,0 +1,92 @@
+{{- if .Values.networkPolicy.enabled }}
+{{- if .Values.redis.enabled }}
+# ---------------------------------------------------------------------------
+# Redis: default-deny. Ingress ONLY from gateway pods on 6379; NO egress at
+# all (an empty egress list with Egress in policyTypes denies everything).
+# Only rendered for the bundled Redis; a managed/external Redis is governed by
+# its own provider network controls.
+# ---------------------------------------------------------------------------
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "mcpip.redis.fullname" . }}
+  labels:
+    {{- include "mcpip.labels" . | nindent 4 }}
+    app.kubernetes.io/component: redis
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "mcpip.redis.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "mcpip.selectorLabels" . | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: 6379
+  egress: []
+---
+{{- end }}
+# ---------------------------------------------------------------------------
+# Gateway: ingress only on 8080 from the allowed caller namespaces plus the
+# Prometheus namespace (for /metrics scrapes). Egress locked down to Redis
+# (bundled pod-selector, or the external CIDR when redis.external is used) and
+# cluster DNS — nothing else (no phone-home; the gateway never calls vendor
+# LLM APIs and never self-updates).
+# ---------------------------------------------------------------------------
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "mcpip.fullname" . }}
+  labels:
+    {{- include "mcpip.labels" . | nindent 4 }}
+    app.kubernetes.io/component: gateway
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "mcpip.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            {{- toYaml .Values.ingress.allowedNamespaceSelector | nindent 12 }}
+        - namespaceSelector:
+            {{- toYaml .Values.metrics.prometheusNamespaceSelector | nindent 12 }}
+      ports:
+        - protocol: TCP
+          port: 8080
+  egress:
+    {{- if .Values.redis.enabled }}
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "mcpip.redis.selectorLabels" . | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: 6379
+    {{- end }}
+    {{- if and .Values.redis.external.enabled .Values.redis.external.egressCidr }}
+    # Managed/external Redis endpoint.
+    - to:
+        - ipBlock:
+            cidr: {{ .Values.redis.external.egressCidr | quote }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.redis.external.port }}
+    {{- end }}
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+{{- end }}

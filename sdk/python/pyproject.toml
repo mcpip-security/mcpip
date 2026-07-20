@@ -1,0 +1,46 @@
+# mcpip-sdk — packaging metadata (setuptools backend, src layout).
+#
+# This is a SEPARATE distribution from the gateway's root `mcpip` package: agent
+# hosts install the client only, never fastapi/redis/uvicorn. httpx is the single
+# runtime dependency; wire models are frozen dataclasses (no pydantic, so the SDK
+# never conflicts with a host framework's pydantic v1/v2 pin). Do NOT add a
+# [tool.mypy] section — mypy is invoked as `mypy --strict <targets>` and a config
+# section would silently change flag semantics (repo convention).
+
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mcpip-sdk"
+version = "0.1.0"
+description = "Typed Python client for the MCPIP authorization gateway — authorize every AI action before execution"
+readme = "README.md"
+# The SDK is permissively licensed (Apache-2.0), independent of the gateway
+# core's source-available BSL 1.1 — integration surfaces stay frictionless.
+license = { text = "Apache-2.0" }
+# The gateway itself is 3.12-only, but agent hosts vary; 3.10 is the floor for
+# the modern typing the SDK uses (PEP 604 unions, dataclass slots).
+requires-python = ">=3.10"
+dependencies = [
+    "httpx>=0.27,<1",
+    # The CLI parses its TOML config with the stdlib `tomllib` on 3.11+. On the
+    # 3.10 floor `tomllib` does not exist (PEP 680 landed it in 3.11), so pull the
+    # `tomli` backport ONLY there — httpx stays the sole dependency on 3.11+.
+    "tomli>=2; python_version < '3.11'",
+]
+
+# The `mcpip` CLI ships in this same distribution — argparse is stdlib, so it
+# adds NO new runtime dependency on 3.11+ (httpx stays the only one; `tomli`
+# is pulled in exclusively on the legacy 3.10 path — see above).
+[project.scripts]
+mcpip = "mcpip_sdk.cli:main"
+
+[project.urls]
+Documentation = "https://github.com/mcpip/mcpip/blob/main/docs/SDK.md"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+mcpip_sdk = ["py.typed"]

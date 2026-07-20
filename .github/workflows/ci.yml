@@ -1,0 +1,67 @@
+name: CI
+
+# The merge gate a security product must wear: every PR and every push to main
+# runs the full backend suite against a REAL Redis, the SDK's strict typecheck,
+# and both client builds. Scope is exactly what is verifiably green today —
+# repo-wide `mypy --strict .` is stub-version-sensitive and is tracked as
+# follow-up work, not encoded here to rot as a red badge.
+on:
+  push:
+    branches: [main]
+  pull_request: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend (pytest + SDK mypy --strict)
+    runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7-alpine
+        ports: ["63790:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+      - name: Full test suite (real Redis, sandbox namespaces)
+        run: python -m pytest -q
+      - name: SDK strict typecheck
+        run: PYTHONPATH=sdk/python/src python -m mypy --strict sdk/python/src/mcpip_sdk
+
+  clients:
+    name: Console + TS SDK builds
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - name: Console typecheck + production build
+        working-directory: dashboard
+        run: |
+          npm ci
+          npm run build
+      - name: TypeScript SDK build (incl. the mcpip bin)
+        # Self-contained: cli.ts uses Node globals (process/Buffer), so the SDK
+        # needs @types/node in scope — install locally (no lockfile in sdk/ts).
+        working-directory: sdk/typescript
+        run: |
+          npm i --no-save typescript @types/node
+          ./node_modules/.bin/tsc -p tsconfig.json

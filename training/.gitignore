@@ -1,0 +1,4 @@
+# Generated datasets + fine-tune outputs — reproduce with gen_workspace_dataset.py / axolotl.
+data/
+out/
+*.gguf

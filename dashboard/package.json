@@ -1,0 +1,46 @@
+{
+  "name": "mcpip-operator-dashboard",
+  "private": true,
+  "version": "3.0.0",
+  "type": "module",
+  "description": "MCPIP — The Authorization Layer for Autonomous AI. Operator console (porcelain/ink).",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "build:staging": "tsc --noEmit && vite build --mode staging",
+    "build:internal": "tsc --noEmit && vite build --mode internal",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "tauri": "tauri",
+    "desktop:icons": "tauri icon src-tauri/app-icon.png",
+    "predesktop:dev": "npm run desktop:icons",
+    "desktop:dev": "tauri dev",
+    "predesktop:build": "npm run desktop:icons",
+    "desktop:build": "tauri build",
+    "predesktop:build:mac": "npm run desktop:icons",
+    "desktop:build:mac": "tauri build --target universal-apple-darwin",
+    "predesktop:build:win": "npm run desktop:icons",
+    "desktop:build:win": "tauri build",
+    "predesktop:build:linux": "npm run desktop:icons",
+    "desktop:build:linux": "tauri build"
+  },
+  "dependencies": {
+    "@fontsource-variable/inter": "^5.2.8",
+    "framer-motion": "11.11.17",
+    "lucide-react": "0.454.0",
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.1.0",
+    "@types/node": "^20.19.0",
+    "@types/react": "18.3.12",
+    "@types/react-dom": "18.3.1",
+    "@vitejs/plugin-react": "^6.0.3",
+    "autoprefixer": "10.4.20",
+    "postcss": "8.5.19",
+    "tailwindcss": "3.4.14",
+    "typescript": "5.6.3",
+    "vite": "^8.1.4"
+  }
+}

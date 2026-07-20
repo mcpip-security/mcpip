@@ -1,0 +1,122 @@
+{
+  "format": "mcp_jsonrpc",
+  "vectors": [
+    {
+      "name": "happy_tools_call",
+      "payload": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {
+          "name": "skill_lookup_invoice",
+          "arguments": {"invoice_id": "INV-42"}
+        }
+      },
+      "expect": "intent",
+      "alias": "skill_lookup_invoice",
+      "arguments": {"invoice_id": "INV-42"}
+    },
+    {
+      "name": "arguments_absent_normalizes_to_empty",
+      "payload": {
+        "jsonrpc": "2.0",
+        "id": "req-2",
+        "method": "tools/call",
+        "params": {"name": "skill_ping"}
+      },
+      "expect": "intent",
+      "alias": "skill_ping",
+      "arguments": {}
+    },
+    {
+      "name": "meta_progress_token_accepted_and_discarded",
+      "payload": {
+        "jsonrpc": "2.0",
+        "id": 3,
+        "method": "tools/call",
+        "params": {
+          "name": "skill_ping",
+          "arguments": {"a": 1},
+          "_meta": {"progressToken": "tok-1"}
+        }
+      },
+      "expect": "intent",
+      "alias": "skill_ping",
+      "arguments": {"a": 1}
+    },
+    {
+      "name": "meta_identity_keys_are_inert",
+      "payload": {
+        "jsonrpc": "2.0",
+        "id": 4,
+        "method": "tools/call",
+        "params": {
+          "name": "skill_ping",
+          "arguments": {"a": 1},
+          "_meta": {"tenant_id": "tenant-evil"}
+        }
+      },
+      "expect": "intent",
+      "alias": "skill_ping",
+      "arguments": {"a": 1}
+    },
+    {
+      "name": "grants_key_inside_arguments",
+      "payload": {
+        "jsonrpc": "2.0",
+        "id": 5,
+        "method": "tools/call",
+        "params": {"name": "skill_ping", "arguments": {"grants": ["*"]}}
+      },
+      "expect": "deny",
+      "deny_reason": "identity_injection"
+    },
+    {
+      "name": "method_tools_list_rejected",
+      "payload": {
+        "jsonrpc": "2.0",
+        "id": 6,
+        "method": "tools/list",
+        "params": {"name": "skill_ping"}
+      },
+      "expect": "deny",
+      "deny_reason": "schema_violation"
+    },
+    {
+      "name": "jsonrpc_1_0_rejected",
+      "payload": {
+        "jsonrpc": "1.0",
+        "id": 7,
+        "method": "tools/call",
+        "params": {"name": "skill_ping"}
+      },
+      "expect": "deny",
+      "deny_reason": "schema_violation"
+    },
+    {
+      "name": "missing_id_rejected",
+      "payload": {
+        "jsonrpc": "2.0",
+        "method": "tools/call",
+        "params": {"name": "skill_ping"}
+      },
+      "expect": "deny",
+      "deny_reason": "schema_violation"
+    },
+    {
+      "name": "params_extra_key_mcpip_pin_rejected",
+      "payload": {
+        "jsonrpc": "2.0",
+        "id": 9,
+        "method": "tools/call",
+        "params": {
+          "name": "skill_ping",
+          "arguments": {},
+          "mcpip_pin": "123456"
+        }
+      },
+      "expect": "deny",
+      "deny_reason": "schema_violation"
+    }
+  ]
+}

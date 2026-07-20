@@ -1,0 +1,39 @@
+[package]
+name = "mcpip_fastwalk"
+version = "0.1.0"
+edition = "2021"
+description = "MCPIP opt-in fast walker: byte-identical canonical-JSON + safety-walk + SHA-256, mirroring the pure-Python engine."
+license = "Proprietary"
+publish = false
+
+[lib]
+name = "mcpip_fastwalk"
+# cdylib -> a Python extension module (.so/.pyd) loadable via `import mcpip_fastwalk`.
+crate-type = ["cdylib"]
+
+[dependencies]
+# PyO3 with the abi3-py312 stable ABI so a single wheel loads on CPython 3.12+.
+pyo3 = { version = "0.23", features = ["extension-module", "abi3-py312"] }
+# NFC / NFKC — must match Python `unicodedata.normalize` BYTE-FOR-BYTE, which means the
+# crate's bundled UCD must be the SAME Unicode version as the deployed CPython's
+# `unicodedata.unidata_version`. CPython 3.12.7 ships Unicode 15.0.0, so this is PINNED
+# (exact `=`) to unicode-normalization 0.1.22, the release whose `UNICODE_VERSION` is
+# (15,0,0). A newer release (0.1.23 -> 15.1.0, 0.1.25 -> 17.0.0) reorders combining marks
+# in the U+1AB0..U+1AFF block differently and would break the payload-lock TOCTOU binding.
+# The version is re-exported to Python as `mcpip_fastwalk.UNICODE_VERSION` and asserted
+# equal to `unicodedata.unidata_version` at import (bridge/fastwalk.py) — fail-closed.
+unicode-normalization = "=0.1.22"
+# SHA-256 — must match Python `hashlib.sha256`.
+sha2 = "0.10"
+
+# NOTE: the `caseless` crate was DELIBERATELY REMOVED. Full Unicode case folding is
+# Unicode-version-dependent and no `caseless` release is pinned to the deployed CPython's
+# Unicode version (0.2.2 ships 16.0.0, not 15.0.0), so trusting it would reintroduce a
+# canonicalizer skew. The identity-injection key fold now uses NFKC (matched, above) plus
+# ASCII-only lowercasing — version-independent — and DEFERS any key whose NFKC form is
+# non-ASCII to the pure-Python source of truth. See `is_identity_key` in src/lib.rs.
+
+[profile.release]
+lto = true
+codegen-units = 1
+opt-level = 3

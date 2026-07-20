@@ -1,0 +1,60 @@
+# =============================================================================
+# Build context exclusions — keep the image to "app + venv" only, no secrets.
+# =============================================================================
+
+# Version control
+.git
+.gitignore
+.gitattributes
+
+# Local virtualenvs (the image builds its own at /opt/venv)
+.venv
+venv
+env
+
+# Python bytecode / caches
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Documentation & infra manifests are not needed at runtime
+docs/
+*.md
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Runtime data / audit artefacts must never bake into the image
+*.jsonl
+mcpip_worm.jsonl
+
+# Static demo page (not imported by the gateway)
+index.html
+
+# Secrets — belt and suspenders (none are committed, keep it that way)
+.env
+*.env
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+secrets/
+
+# OS / editor cruft
+.DS_Store
+*.swp
+.idea/
+.vscode/
+
+# Release build outputs + offline signing keys must never enter the image
+dist/
+.keys/
+
+# ...but the PUBLIC verification keys MUST land in the image (verified boot +
+# license gate read them at /app/release/keys/). Negation must follow *.pem.
+!release/keys/*.pub.pem

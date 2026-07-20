@@ -1,0 +1,33 @@
+[package]
+name = "mcpip-operator"
+version = "3.0.0"
+description = "MCPIP Operator Console — native desktop shell for the zero-trust gateway"
+authors = ["MCPIP"]
+edition = "2021"
+rust-version = "1.77"
+publish = false
+
+# The desktop binary + a lib target (Tauri v2 mobile entry point convention).
+[lib]
+name = "mcpip_operator_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# Core Tauri only — NO shell/fs/process/http plugins. The console renders the
+# bundled frontend and reaches the gateway itself over HTTPS/WSS; the native shell
+# is deliberately inert to keep the attack surface minimal (Tier-1 posture).
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Minimal-footprint release: strip symbols, thin LTO, size-optimized, abort on panic.
+[profile.release]
+strip = true
+lto = true
+opt-level = "s"
+codegen-units = 1
+panic = "abort"
+incremental = false

@@ -1,0 +1,47 @@
+{
+  "name": "@mcpip/sdk",
+  "version": "0.1.0",
+  "description": "Zero-dependency TypeScript/ESM client for the MCPIP authorization gateway: authorize, PIN step-up ceremony, MCP edge, catalog, audit, and the operator admin surface. Opaque, fail-closed, never retries an authorize.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "sideEffects": false,
+  "engines": {
+    "node": ">=18"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "mcpip": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "smoke": "node smoke.mjs"
+  },
+  "keywords": [
+    "mcpip",
+    "mcp",
+    "authorization",
+    "gateway",
+    "zero-trust",
+    "agent"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.1",
+    "typescript": "~5.6.3"
+  }
+}

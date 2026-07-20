@@ -1,0 +1,17 @@
+apiVersion: v2
+name: mcpip
+description: >-
+  MCPIP enterprise authorization gateway — fail-closed /v1/authorize edge with
+  Merkle-epoch WORM audit, UUID-capability compartments, and verified-boot
+  release integrity. Deploys the gateway plus a durability-hardened Redis
+  (AOF appendfsync=always) on an internal-only network path.
+type: application
+version: 3.0.0
+appVersion: "3.0.0"
+keywords:
+  - authorization
+  - gateway
+  - audit
+  - mcp
+maintainers:
+  - name: MCPIP Release Engineering

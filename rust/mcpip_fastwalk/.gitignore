@@ -1,0 +1,7 @@
+# Rust build artifacts — the compiled extension is installed into the venv via
+# `maturin develop`; nothing here needs to be tracked. Cargo.lock IS kept (below) for
+# reproducible builds of this application crate.
+/target/
+*.so
+*.pyd
+*.whl

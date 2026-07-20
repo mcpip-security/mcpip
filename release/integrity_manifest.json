@@ -1,0 +1,213 @@
+{
+  "schema": "mcpip-integrity-manifest/1",
+  "version": "2.0.0",
+  "generated_at": "2026-07-14T12:38:40Z",
+  "files": [
+    {
+      "path": "VERSION",
+      "sha256": "c28fcca53637bc88e124af1725df13cb98c69dedefd62fb3cdbe1cdb6b760624"
+    },
+    {
+      "path": "app/__init__.py",
+      "sha256": "ce6a335062e56d9a77190ea6013365facd42659f6322c532cfd5ace4691048f0"
+    },
+    {
+      "path": "app/main.py",
+      "sha256": "46a33670efd7b60f9ce4670db89d675c92be72cea67e7db979a80315baf329ce"
+    },
+    {
+      "path": "audit/__init__.py",
+      "sha256": "bb4ee3ffd36c6a8a842b76fff00d53d84ede067c88534715ae1e48cb2087e13b"
+    },
+    {
+      "path": "audit/anchor.py",
+      "sha256": "8bef5dd8321a819c7b13b718969205b92911afd4cf149d2c3ea81f679ee461c7"
+    },
+    {
+      "path": "audit/merkle.py",
+      "sha256": "3cde13dd46b41e81390ad5987a91ccff7b04ec8981d1a52666282f7a015e7125"
+    },
+    {
+      "path": "audit/worm_logger.py",
+      "sha256": "5bd71020c950ba51d2d1cb585933a8226d41d4a626a7f45b030a40d8398a3bd3"
+    },
+    {
+      "path": "auth/__init__.py",
+      "sha256": "c6c5cf6fa66a1daa1bca55df1ff2fcb0719fbdb273e58f9c083099a683320b9d"
+    },
+    {
+      "path": "auth/pin_validator.py",
+      "sha256": "7f16a0b9bafe020073c66e970c806afd6a9c3ad574ad1752a308cd0d15b3c2f1"
+    },
+    {
+      "path": "auth/token_resolver.py",
+      "sha256": "d87c567c868565a455e0219de5ab1eaebfbe5a3efab6c1661f6bf0d528de93bf"
+    },
+    {
+      "path": "bridge/__init__.py",
+      "sha256": "0040b20918ff8e3edeb7cc51f0d03a4267c7da75a4f9acd194d387f00c708c00"
+    },
+    {
+      "path": "bridge/connectors/__init__.py",
+      "sha256": "338a988389dad8d05dda3bf1b6ef5d182df5ca6f811c5df7b12dc9e9d92d25d8"
+    },
+    {
+      "path": "bridge/connectors/base.py",
+      "sha256": "4004b6901a3eba833395ad96e4699d5fdc8f01e2cfc3e3040163e653102dc031"
+    },
+    {
+      "path": "bridge/connectors/bedrock.py",
+      "sha256": "2c647717ebcc77db68ff296c5f397b3bc8aaf863adfee1a25f0a547f257eb6e3"
+    },
+    {
+      "path": "bridge/connectors/claude.py",
+      "sha256": "8e44b481e59c5cf6a8c655c99340dbb187fd0eb915937b2744156908ba916b9b"
+    },
+    {
+      "path": "bridge/connectors/copilot.py",
+      "sha256": "4a0a2cfa374a021a2541359fde5a1ce01707aff5381010440d3bf974680fdc1e"
+    },
+    {
+      "path": "bridge/connectors/deepseek.py",
+      "sha256": "3d4659879de4ed5bfe682c7388e7f880c2dc2a0b7e763e2f9a340e721f5b70b3"
+    },
+    {
+      "path": "bridge/connectors/ernie.py",
+      "sha256": "dd746cf730ce27274589930dfc3028eff4c27613ff1615e3a98d9af938fde2f9"
+    },
+    {
+      "path": "bridge/connectors/formats.py",
+      "sha256": "adf87ff3e16a654f526a1f60224d1d99d0f5cef65ffe841e20d4bd0c30283867"
+    },
+    {
+      "path": "bridge/connectors/gemini.py",
+      "sha256": "5b41e89adcb18eb0822d0de369a28657e65865e3ea7ac61736d57af09c1aacf5"
+    },
+    {
+      "path": "bridge/connectors/mcp_standard.py",
+      "sha256": "e346c181bf8696c68220b3bb30e9394dd71b8563740299aabc3a57306ede1f25"
+    },
+    {
+      "path": "bridge/connectors/openai.py",
+      "sha256": "368a331f8fcfea4a252f556f65e55533fa3c31f53c90fba9230ea49adf54bcd4"
+    },
+    {
+      "path": "bridge/connectors/qwen.py",
+      "sha256": "c033edf5da48db201d9d34af267fd9d90e024dd166033a74e2e017d0bbfb3f87"
+    },
+    {
+      "path": "bridge/connectors/registry.py",
+      "sha256": "2ff6efc4233d68a3dbe7f2061e137df60403407a30ab92b98f576b2fcf0ad4fd"
+    },
+    {
+      "path": "bridge/errors.py",
+      "sha256": "985820d17f494f0897421a2716268e810c4fbc699017be8fc5c4f7a309b2ec91"
+    },
+    {
+      "path": "bridge/fastwalk.py",
+      "sha256": "f4ab25b33c428cb799f15df138239f49f6c0bf97cb9c84869bc8030249a80a06"
+    },
+    {
+      "path": "bridge/intent_parser.py",
+      "sha256": "33f4dbb47b9469f4ce709a6d2a0f28718d5c7f01ceb3ec60959ad4287246d51b"
+    },
+    {
+      "path": "core/__init__.py",
+      "sha256": "e2c07be85537edf367079bc4bf61228b5b9a51bf960f26aba0a95dc7f3d4e4b8"
+    },
+    {
+      "path": "core/config.py",
+      "sha256": "dad1062c0282236bea84cf6573a1107f964e1debd21a1e2c6ac5faff59c15c07"
+    },
+    {
+      "path": "core/integrity.py",
+      "sha256": "3bde8b2b029e315a470e32c50ddd0770c8973f4ed1ec56daff1ec377b7168ab6"
+    },
+    {
+      "path": "core/licensing.py",
+      "sha256": "8863c0660663f09a8109e88999d5ceaf46fce3f5dc5eeb587861cdb0cc444ae7"
+    },
+    {
+      "path": "core/logging_setup.py",
+      "sha256": "a8edad9ae03db169d60fc582ed9dda400b8779055fbdfddd4a2b82de1eda9c83"
+    },
+    {
+      "path": "core/metrics.py",
+      "sha256": "7b1d3c30ee4ea48cfbc2cc502916445d197210dbfa407a4bcd9087632b7e77c5"
+    },
+    {
+      "path": "core/security.py",
+      "sha256": "cfd7eeda0559e28a8accd0e2778c189ff109064133def357957a89fddb10c47b"
+    },
+    {
+      "path": "core/version.py",
+      "sha256": "12cd6e5d27b3e809a5c83637dc0816a9d9cbc532637a9ecde63d4932dd89cf9f"
+    },
+    {
+      "path": "interfaces.py",
+      "sha256": "9531e776f412bae21e9bc22fb688b33b0dac060f8d8a5733d129df64e67a9ad9"
+    },
+    {
+      "path": "main.py",
+      "sha256": "e6c989a424ebe1a1b3d916483898b8402c22d07fe020404d847c66bb35ad858a"
+    },
+    {
+      "path": "mcpip_verify/__init__.py",
+      "sha256": "d09c9babed89e46ca1309fb6a441f3b43fd23f67f553160073836ff45ac0a1e5"
+    },
+    {
+      "path": "mcpip_verify/audit_export.py",
+      "sha256": "9da919d50b4db8e051a660df2e1002fe4c3588715c613505a977e8b6bb4cfa9b"
+    },
+    {
+      "path": "mcpip_verify/cli.py",
+      "sha256": "a1e813b776cd04fb4ec1bfed926b9e500ef5c4c222a4a2c29e888e36c656f691"
+    },
+    {
+      "path": "mcpip_verify/verifier.py",
+      "sha256": "9e43dbeb9b7415340584c019e5200141f594b7e16c7ef5268e0ebcb9d8a3f3e1"
+    },
+    {
+      "path": "models/__init__.py",
+      "sha256": "521d4b1a81323bee0c2f672f96df56453b9a50fff31da5b9db162ef3abad9b37"
+    },
+    {
+      "path": "models/schemas.py",
+      "sha256": "a4403028260b5ab0389d89332d1b38057e3511712bd7c1bbe4381c51a49e4a79"
+    },
+    {
+      "path": "obfuscator/__init__.py",
+      "sha256": "9b755b77d112c01af89db3c32129b956095e94e21e26cb21ce6e33592d91b882"
+    },
+    {
+      "path": "obfuscator/alias_registry.py",
+      "sha256": "c7548c474060a144c8bb1757daac460225b14c9ad61a08297a511ca0bd6b13f3"
+    },
+    {
+      "path": "obfuscator/tenant_catalog.py",
+      "sha256": "99cd4dc52311d0fb10f8e0240952e3ba6216e2253c6539540adbf2d924806596"
+    },
+    {
+      "path": "services/__init__.py",
+      "sha256": "f3c1d02a491fead7fa4b24bc3fe7260363df0acbe41bfe1ed70a1fd8cd84c7a1"
+    },
+    {
+      "path": "services/auth_engine.py",
+      "sha256": "758c945e04fc4b5e1c7edb48eefbcd93e1ed52f94c4403703f24b85d68bf06c0"
+    },
+    {
+      "path": "services/grant_cache.py",
+      "sha256": "7f8e5356ba45c22cedd8d6836430d367e77a593e402fd34e698e8fb2c9ec2246"
+    },
+    {
+      "path": "services/grant_store.py",
+      "sha256": "e20ae90ec4e20537573f61df50ca193376c31ba926976a448a482cb7bf91f77f"
+    },
+    {
+      "path": "services/obfuscator.py",
+      "sha256": "dec84cfdf50014ea48923ef1127366be82ab4942e39fe33b783f519b260fb00c"
+    }
+  ],
+  "signing_key_id": "ed25519:e445d00ee49a6e78",
+  "signature": "/L7NyKfoacmbu65ygc3KsOYxjdQDOiwSueUQg8UBWe7auKYQrOPpEuc/bXDn8/NBtQT/oRW68s58PR8Ow5WGDg=="
+}

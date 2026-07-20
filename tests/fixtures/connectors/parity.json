@@ -1,0 +1,109 @@
+{
+  "vectors": [
+    {
+      "name": "parity_openai",
+      "format": "openai_tool_call",
+      "payload": {
+        "id": "call_parity",
+        "type": "function",
+        "function": {
+          "name": "skill_reconcile_invoices",
+          "arguments": "{\"invoice_id\":\"INV-7\",\"amount\":1250.5,\"tags\":[\"q3\",\"eu\"],\"detail\":{\"note\":\"café ☕\"}}"
+        }
+      }
+    },
+    {
+      "name": "parity_anthropic",
+      "format": "anthropic_tool_use",
+      "payload": {
+        "type": "tool_use",
+        "id": "toolu_parity",
+        "name": "skill_reconcile_invoices",
+        "input": {
+          "invoice_id": "INV-7",
+          "amount": 1250.5,
+          "tags": ["q3", "eu"],
+          "detail": {"note": "café ☕"}
+        }
+      }
+    },
+    {
+      "name": "parity_gemini",
+      "format": "gemini_function_call",
+      "payload": {
+        "functionCall": {
+          "name": "skill_reconcile_invoices",
+          "args": {
+            "invoice_id": "INV-7",
+            "amount": 1250.5,
+            "tags": ["q3", "eu"],
+            "detail": {"note": "café ☕"}
+          }
+        }
+      }
+    },
+    {
+      "name": "parity_bedrock",
+      "format": "bedrock_tool_use",
+      "payload": {
+        "toolUse": {
+          "toolUseId": "tu_parity",
+          "name": "skill_reconcile_invoices",
+          "input": {
+            "invoice_id": "INV-7",
+            "amount": 1250.5,
+            "tags": ["q3", "eu"],
+            "detail": {"note": "café ☕"}
+          }
+        }
+      }
+    },
+    {
+      "name": "parity_mcp",
+      "format": "mcp_jsonrpc",
+      "payload": {
+        "jsonrpc": "2.0",
+        "id": "parity",
+        "method": "tools/call",
+        "params": {
+          "name": "skill_reconcile_invoices",
+          "arguments": {
+            "invoice_id": "INV-7",
+            "amount": 1250.5,
+            "tags": ["q3", "eu"],
+            "detail": {"note": "café ☕"}
+          }
+        }
+      }
+    },
+    {
+      "name": "parity_a2a",
+      "format": "a2a_task",
+      "payload": {
+        "kind": "task",
+        "id": "task-parity",
+        "contextId": "ctx-parity",
+        "status": {"state": "submitted"},
+        "message": {
+          "kind": "message",
+          "role": "agent",
+          "messageId": "msg-parity",
+          "parts": [
+            {
+              "kind": "data",
+              "data": {
+                "skill": "skill_reconcile_invoices",
+                "arguments": {
+                  "invoice_id": "INV-7",
+                  "amount": 1250.5,
+                  "tags": ["q3", "eu"],
+                  "detail": {"note": "café ☕"}
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,118 @@
+# Durable claim for the Merkle-epoch WORM audit log. RWO is intentional: the
+# WORM stream's write-before-execute invariant is anchored in Redis (AOF,
+# appendfsync=always); this file is the operator-exportable mirror. Scale-out
+# beyond one writer per volume should use a per-zone claim or RWX storage.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mcpip-worm-data
+  namespace: mcpip
+  labels:
+    app.kubernetes.io/name: mcpip
+    app.kubernetes.io/component: gateway
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mcpip-gateway
+  namespace: mcpip
+  labels:
+    app.kubernetes.io/name: mcpip
+    app.kubernetes.io/component: gateway
+spec:
+  # Replica count is managed by the HPA (k8s/hpa.yaml, minReplicas: 2).
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: mcpip
+      app.kubernetes.io/component: gateway
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: mcpip
+        app.kubernetes.io/component: gateway
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: gateway
+          # Deploy by digest: replace with the immutable digest recorded in
+          # release/manifest.json, e.g. mcpip-gateway@sha256:<hex>.
+          image: mcpip-gateway:3.0.0
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: mcpip-gateway-config
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            failureThreshold: 30
+            periodSeconds: 2
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            periodSeconds: 30
+            timeoutSeconds: 3
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8080
+            periodSeconds: 10
+            timeoutSeconds: 3
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: worm-data
+              mountPath: /var/lib/mcpip
+            - name: mcpip-keys
+              mountPath: /etc/mcpip/keys
+              readOnly: true
+      volumes:
+        # Writable scratch for uvicorn + PROMETHEUS_MULTIPROC_DIR under a
+        # readOnlyRootFilesystem container.
+        - name: tmp
+          emptyDir:
+            medium: Memory
+        - name: worm-data
+          persistentVolumeClaim:
+            claimName: mcpip-worm-data
+        # Pre-created Secret (see secret.example.yaml) holding
+        # jwt_public.pem, worm_signing.pem, license.json.
+        - name: mcpip-keys
+          secret:
+            secretName: mcpip-keys
+            defaultMode: 0400

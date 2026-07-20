@@ -1,0 +1,181 @@
+# =============================================================================
+# MCPIP — The Authorization Layer for Autonomous AI
+# "AI Reasons. MCPIP Authorizes. Systems Execute."
+#
+# Services:
+#   * redis        — synchronization backplane (payload locks + WORM chain state).
+#                    Attached ONLY to the internal network; never published to the
+#                    host, so no attacker path exists from outside the compose
+#                    project. The gateway is its only client.
+#   * gateway      — the long-lived MCPIP authorization API (uvicorn app.main:app).
+#                    Straddles two networks: `mcpip-internal` to reach redis, and
+#                    `mcpip-edge` (a normal bridge) so ONLY its API port is
+#                    published to the host. Redis stays off the edge entirely.
+#   * gateway-demo — (profile: demo) one-shot 10-gate self-verifying demo
+#                    (`python main.py`); runs on the internal network only.
+#
+# Network exposure (by design):
+#   * gateway publishes 8080 -> 8080 on the host edge (the API surface).
+#   * redis is reachable ONLY at the internal service DNS name `redis:6379`;
+#     it has no host port and is not on the edge network.
+# =============================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  # Redis — internal-only synchronization state. No host port; DURABLE AOF
+  # (appendfsync=always) so the WORM buffer is fsync-durable before authorize returns.
+  # ---------------------------------------------------------------------------
+  redis:
+    # redis:8-alpine (Alpine 3.23) patches CVE-2025-60876 (busybox 1.37.0-r30) and
+    # CVE-2026-27456 (util-linux/setpriv 2.41.4-r0), both medium CVEs present in redis:7-alpine.
+    image: redis:8-alpine
+    container_name: mcpip-v2-redis
+    # WORM durability (write-before-execute) REQUIRES AOF with appendfsync=always so the
+    # audit buffer XADD is fsync-durable before /v1/authorize returns. That posture is
+    # shipped in redis.conf (mounted read-only below) and ASSERTED at gateway boot — a
+    # non-sandbox gateway refuses to start against a Redis that is not durably persisted.
+    command: ["redis-server", "/etc/redis/redis.conf"]
+    restart: unless-stopped
+    # Attach ONLY to the internal network -> unreachable from the host/internet.
+    networks:
+      - mcpip-internal
+    security_opt:
+      - no-new-privileges:true
+    # Root filesystem is immutable; Redis writes ONLY the durable AOF under /data.
+    read_only: true
+    volumes:
+      # The required durability profile, read-only.
+      - ./redis.conf:/etc/redis/redis.conf:ro
+      # Durable AOF must live on a real volume (NOT tmpfs) to survive a crash/restart.
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    # NOTE: cap_drop: [ALL] is deliberately NOT set here — the stock redis
+    # entrypoint runs as root, chowns /data, then drops to the `redis` user via
+    # su-exec, which requires CAP_SETUID / CAP_SETGID. no-new-privileges still
+    # blocks setuid-bit escalation while permitting that legitimate drop.
+
+  # ---------------------------------------------------------------------------
+  # Gateway — the MCPIP authorization API (Bridge->Obfuscator->Auth->Audit).
+  # Long-lived FastAPI service (uvicorn app.main:app), fail-closed and hardened.
+  # ---------------------------------------------------------------------------
+  gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: mcpip-gateway:v2
+    container_name: mcpip-v2-gateway
+    # Long-running API: keep it up across restarts (do NOT resurrect on a clean
+    # one-shot exit — that policy belongs to gateway-demo below).
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      # Wired to the redis SERVICE over the internal network (not a host port).
+      MCPIP_REDIS_URL: "redis://redis:6379/0"
+      # WORM audit log lands on the mounted, writable data volume below.
+      MCPIP_WORM_PATH: "/var/lib/mcpip/mcpip_worm.jsonl"
+      # Sandbox posture is secure-by-default (FALSE): the sandbox affordances
+      # (unauthenticated /v1/dev/token identity-forge oracle + /v1/authenticator
+      # OTP disclosure) stay UNMOUNTED, and with no real PEM paths the gateway
+      # fails CLOSED at boot. To run the runnable end-to-end demo, opt in EXPLICITLY:
+      #     MCPIP_SANDBOX_MODE=true docker compose up gateway
+      # Never set this true in a production deployment.
+      MCPIP_SANDBOX_MODE: "${MCPIP_SANDBOX_MODE:-false}"
+      MCPIP_JWT_ISSUER: "mcpip-demo-idp"
+      MCPIP_JWT_AUDIENCE: "mcpip-gateway"
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONUNBUFFERED: "1"
+    # Straddle both networks: internal (to reach redis) + edge (to be published).
+    networks:
+      - mcpip-internal
+      - mcpip-edge
+    # Publish ONLY the API port, ONLY on the gateway. Redis stays internal.
+    ports:
+      - "8080:8080"
+    security_opt:
+      - no-new-privileges:true
+    # The gateway image is already non-root and needs no Linux capabilities.
+    cap_drop:
+      - ALL
+    # Immutable root filesystem: code is read-only, only declared mounts write.
+    read_only: true
+    tmpfs:
+      - /tmp:mode=1777,size=32m
+    volumes:
+      # Durable, tamper-evident WORM audit log survives container restarts.
+      - worm-data:/var/lib/mcpip
+    healthcheck:
+      # Liveness: hit GET /healthz with the stdlib (curl is absent in -slim).
+      test:
+        - "CMD"
+        - "python"
+        - "-c"
+        - "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/healthz',timeout=3).status==200 else 1)"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+  # ---------------------------------------------------------------------------
+  # Gateway demo — the self-verifying 10-gate proof. Opt-in via the `demo`
+  # profile so it never starts with the default `docker compose up`:
+  #     docker compose --profile demo run --rm gateway-demo
+  # Internal network only (needs redis, not the host edge); exits 0 iff all hold.
+  # ---------------------------------------------------------------------------
+  gateway-demo:
+    profiles: ["demo"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: mcpip-gateway:v2
+    command: ["python", "main.py"]
+    restart: "no"
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      MCPIP_REDIS_URL: "redis://redis:6379/0"
+      MCPIP_WORM_PATH: "/var/lib/mcpip/mcpip_worm.jsonl"
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONUNBUFFERED: "1"
+    networks:
+      - mcpip-internal
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp:mode=1777,size=32m
+    volumes:
+      - worm-data:/var/lib/mcpip
+
+# -----------------------------------------------------------------------------
+# Networks:
+#   * mcpip-internal — `internal: true` blocks all host/egress routing, so redis
+#     is reachable exclusively by co-attached services (the gateway).
+#   * mcpip-edge     — a normal bridge (NOT internal) carrying only the gateway's
+#     published API port. Redis is never attached here.
+# -----------------------------------------------------------------------------
+networks:
+  mcpip-internal:
+    driver: bridge
+    internal: true
+  mcpip-edge:
+    driver: bridge
+
+# -----------------------------------------------------------------------------
+# Named volume backing the WORM audit log path (MCPIP_WORM_PATH).
+# -----------------------------------------------------------------------------
+volumes:
+  worm-data:
+    driver: local
+  # Durable AOF for the WORM audit buffer (write-before-execute survives crash/restart).
+  redis-data:
+    driver: local

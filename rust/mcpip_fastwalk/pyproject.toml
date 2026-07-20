@@ -1,0 +1,21 @@
+[build-system]
+requires = ["maturin>=1.5,<2"]
+build-backend = "maturin"
+
+[project]
+name = "mcpip_fastwalk"
+version = "0.1.0"
+description = "MCPIP opt-in fast walker (Rust/PyO3): byte-identical canonical-JSON + safety-walk + SHA-256."
+requires-python = ">=3.12"
+classifiers = [
+    "Programming Language :: Rust",
+    "Programming Language :: Python :: 3.12",
+    "Private :: Do Not Upload",
+]
+
+[tool.maturin]
+# Pure Rust extension module; no accompanying Python package files.
+bindings = "pyo3"
+# Build the abi3 wheel; strip debug symbols from the release artifact.
+strip = true
+manifest-path = "Cargo.toml"

@@ -1,0 +1,132 @@
+{{- if .Values.persistence.enabled }}
+# Durable claim for the Merkle-epoch WORM audit log. RWO is intentional: the
+# WORM stream's write-before-execute invariant is anchored in Redis (AOF,
+# appendfsync=always); this file is the operator-exportable mirror. Scale-out
+# beyond one writer per volume should use a per-zone claim or RWX storage.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "mcpip.fullname" . }}-worm-data
+  labels:
+    {{- include "mcpip.labels" . | nindent 4 }}
+    app.kubernetes.io/component: gateway
+spec:
+  accessModes:
+    {{- toYaml .Values.persistence.accessModes | nindent 4 }}
+  {{- if .Values.persistence.storageClassName }}
+  storageClassName: {{ .Values.persistence.storageClassName | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.size }}
+---
+{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "mcpip.fullname" . }}
+  labels:
+    {{- include "mcpip.labels" . | nindent 4 }}
+    app.kubernetes.io/component: gateway
+spec:
+  {{- if not .Values.hpa.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "mcpip.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "mcpip.selectorLabels" . | nindent 8 }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- if .Values.metrics.scrapeAnnotations }}
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "mcpip.serviceAccountName" . }}
+      automountServiceAccountToken: {{ .Values.serviceAccount.automountServiceAccountToken }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: gateway
+          image: {{ include "mcpip.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: {{ include "mcpip.fullname" . }}-config
+          {{- if .Values.redis.external.enabled }}
+          # Managed Redis: full connection URL (incl. AUTH + rediss:// for TLS)
+          # comes from a pre-created Secret so credentials stay out of the ConfigMap.
+          env:
+            - name: MCPIP_REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.redis.external.existingSecret }}
+                  key: {{ .Values.redis.external.secretKey }}
+          {{- end }}
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            failureThreshold: 30
+            periodSeconds: 2
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            periodSeconds: 30
+            timeoutSeconds: 3
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8080
+            periodSeconds: 10
+            timeoutSeconds: 3
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: worm-data
+              mountPath: /var/lib/mcpip
+            - name: mcpip-keys
+              mountPath: /etc/mcpip/keys
+              readOnly: true
+      volumes:
+        # Writable scratch for uvicorn + PROMETHEUS_MULTIPROC_DIR under a
+        # readOnlyRootFilesystem container.
+        - name: tmp
+          emptyDir:
+            medium: Memory
+        - name: worm-data
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "mcpip.fullname" . }}-worm-data
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        # Pre-created Secret (never rendered by this chart) holding
+        # jwt_public.pem, worm_signing.pem, license.json.
+        - name: mcpip-keys
+          secret:
+            secretName: {{ .Values.secrets.existingSecret }}
+            defaultMode: 0400

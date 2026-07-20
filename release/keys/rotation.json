@@ -1,0 +1,22 @@
+{
+  "schema": "mcpip-key-rotation/1",
+  "generated_at": "2026-07-14T12:10:50Z",
+  "keys": [
+    {
+      "key_id": "ed25519:e445d00ee49a6e78",
+      "role": "release-root",
+      "public_key_path": "release/keys/release_root_ed25519.pub.pem",
+      "status": "active",
+      "not_after": null,
+      "supersedes": null
+    },
+    {
+      "key_id": "ed25519:cfb925be40898842",
+      "role": "license-root",
+      "public_key_path": "release/keys/license_root_ed25519.pub.pem",
+      "status": "active",
+      "not_after": null,
+      "supersedes": null
+    }
+  ]
+}

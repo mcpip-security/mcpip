@@ -1,0 +1,17 @@
+{
+  "name": "MCPIP — Authorization Plane",
+  "short_name": "MCPIP",
+  "description": "The authorization layer for autonomous AI. Authorize every AI action before execution.",
+  "start_url": "/",
+  "scope": "/",
+  "id": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#f9f9f9",
+  "theme_color": "#f9f9f9",
+  "categories": ["security", "developer", "productivity"],
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "/icon-maskable.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+  ]
+}

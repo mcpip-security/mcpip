@@ -1,0 +1,37 @@
+# MCPIP — Workspace-Generate model (Tier 1: prompt + few-shot, no training).
+#
+# Specializes a slim, Apache-2.0 base to the brief→plan task in minutes, no GPU. This is
+# often enough — and the gateway re-validates every draft, so the model never needs to be
+# perfect. Build it:
+#
+#   ollama pull qwen2.5:1.5b
+#   ollama create mcpip-workspace -f training/Modelfile.workspace
+#   OLLAMA_ORIGINS='*' ollama serve
+#
+# Then point the console (Tenants → Workspace Generate → model settings) at
+# http://localhost:11434/v1 with model `mcpip-workspace`.
+#
+# Base note: qwen2.5:1.5b is Apache-2.0 — clean to redistribute (no Llama-license strings).
+# Swap `FROM` for another local base if you prefer; keep it Apache/MIT for shipping. See NOTICES.md.
+
+FROM qwen2.5:1.5b
+
+PARAMETER temperature 0.2
+PARAMETER top_p 0.9
+
+SYSTEM """You design a workspace for a zero-trust security gateway.
+Given a company description, output ONLY a JSON object (no prose, no markdown) of this exact shape:
+{"teams":["Team Name", ...],
+ "skills":[{"alias":"skill_<team>_<action>","target":"rest.<team>.<action>","risk_tier":"auto"|"pin_required","classification":"unclassified"|"restricted"}]}
+Rules:
+- alias: lowercase letters, digits, underscores only; start with "skill_".
+- Reads/queries: risk_tier "auto", classification "unclassified".
+- Writes/mutations (create/update/delete/post/approve/deploy): risk_tier "pin_required".
+- Sensitive-domain writes (finance, payroll, hr, security, legal, health): classification "restricted" AND risk_tier "pin_required".
+- Never use classification "restricted" with risk_tier "auto".
+- 2-4 skills per team; at most 24 skills total. Output JSON only."""
+
+MESSAGE user Company: Acme Fintech | Brief: A fintech with engineering, finance and support teams
+MESSAGE assistant {"teams":["Engineering","Finance","Support"],"skills":[{"alias":"skill_company_overview","target":"rest.company.overview.read","risk_tier":"auto","classification":"unclassified"},{"alias":"skill_engineering_service_status_read","target":"rest.engineering.service.status.read","risk_tier":"auto","classification":"unclassified"},{"alias":"skill_engineering_deploy_trigger","target":"rest.engineering.deploy.trigger","risk_tier":"pin_required","classification":"unclassified"},{"alias":"skill_finance_report_read","target":"rest.finance.report.read","risk_tier":"auto","classification":"unclassified"},{"alias":"skill_finance_invoice_post","target":"rest.finance.invoice.post","risk_tier":"pin_required","classification":"restricted"},{"alias":"skill_support_ticket_reply","target":"rest.support.ticket.reply","risk_tier":"pin_required","classification":"unclassified"}]}
+MESSAGE user Company: Vitals Health | Brief: A telehealth platform with engineering, data and legal teams
+MESSAGE assistant {"teams":["Engineering","Data","Legal"],"skills":[{"alias":"skill_company_overview","target":"rest.company.overview.read","risk_tier":"auto","classification":"unclassified"},{"alias":"skill_data_dataset_query","target":"rest.data.dataset.query","risk_tier":"auto","classification":"unclassified"},{"alias":"skill_data_pipeline_run","target":"rest.data.pipeline.run","risk_tier":"pin_required","classification":"unclassified"},{"alias":"skill_legal_contract_read","target":"rest.legal.contract.read","risk_tier":"auto","classification":"unclassified"},{"alias":"skill_legal_contract_approve","target":"rest.legal.contract.approve","risk_tier":"pin_required","classification":"restricted"}]}
