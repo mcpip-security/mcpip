@@ -1,10 +1,17 @@
 #!/usr/bin/env bash
 # MCPIP SBOM generation (CycloneDX JSON).
 #
-# Environment mode captures the fully-resolved pinned set installed in .venv —
-# the same set the image venv installs — falling back to requirements mode if
-# environment mode is unavailable. The SBOM is hashed + listed in the signed
-# release manifest, so it is signed transitively.
+# Describes the RUNTIME dependency closure — what the image actually contains —
+# by resolving requirements.txt into a throwaway virtualenv exactly the way the
+# Dockerfile builder stage does, and inventorying that. It deliberately does NOT
+# inventory the development .venv: that carries pytest, mypy, bandit, the SBOM
+# generator itself and the opt-in Rust accelerator, none of which are installed
+# in the image. An SBOM of the dev environment overstates the shipped attack
+# surface, and a CVE scan against it triages findings for packages that are not
+# there while saying nothing about the ones that are.
+#
+# The SBOM is hashed + listed in the signed release manifest, so it is signed
+# transitively.
 #
 # Offline CVE scan (inside the enclave, DB mirrored out-of-band):
 #   grype sbom:release/sbom/mcpip-<version>.cdx.json
@@ -30,15 +37,41 @@ fi
 
 OUT_DIR="$REPO_ROOT/release/sbom"
 OUT="$OUT_DIR/mcpip-$VERSION.cdx.json"
-TMP="$OUT.tmp"
 mkdir -p "$OUT_DIR"
 
-if "$CDX" environment "$VENV/bin/python" --output-format JSON --output-file "$TMP"; then
-    :
+WORK="$(mktemp -d)"
+trap 'rm -rf "$WORK"' EXIT
+
+# Where the runtime closure comes from.
+#
+# Default: resolve requirements.txt into a clean venv, mirroring Dockerfile stage 1
+# — no dev extras, no editable local packages. This needs an index, so it does NOT
+# work on an air-gapped signer.
+#
+# MCPIP_SBOM_RUNTIME_VENV: inventory an existing runtime venv instead. On the
+# offline signer, point it at /opt/venv copied out of the built image — which is
+# not merely a workaround but the more accurate source, since it is the venv that
+# actually ships rather than a re-resolution of the same requirements.
+if [[ -n "${MCPIP_SBOM_RUNTIME_VENV:-}" ]]; then
+    RUNTIME_VENV="$MCPIP_SBOM_RUNTIME_VENV"
+    if [[ ! -x "$RUNTIME_VENV/bin/python" ]]; then
+        echo "MCPIP_SBOM_RUNTIME_VENV=$RUNTIME_VENV has no bin/python" >&2
+        exit 1
+    fi
+    echo "inventorying runtime venv: $RUNTIME_VENV (no network)"
 else
-    echo "environment mode unavailable — falling back to requirements mode" >&2
-    "$CDX" requirements "$REPO_ROOT/requirements.txt" --output-format JSON --output-file "$TMP"
+    RUNTIME_VENV="$WORK/runtime"
+    echo "resolving runtime closure (requirements.txt) into a clean venv..."
+    "$VENV/bin/python" -m venv "$RUNTIME_VENV"
+    "$RUNTIME_VENV/bin/python" -m pip install --quiet --disable-pip-version-check \
+        --require-virtualenv -r "$REPO_ROOT/requirements.txt"
 fi
 
-mv "$TMP" "$OUT"
+"$CDX" environment "$RUNTIME_VENV/bin/python" \
+    --output-format JSON --output-file "$WORK/raw.cdx.json"
+
+# Stamp the root component and refuse to emit an SBOM that leaks a build path.
+"$VENV/bin/python" "$REPO_ROOT/scripts/sbom_finalize.py" \
+    --input "$WORK/raw.cdx.json" --output "$OUT" --version "$VERSION"
+
 echo "SBOM written: $OUT"

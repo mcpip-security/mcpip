@@ -96,18 +96,45 @@ def _err(obj: Any) -> Optional[str]:
 # --------------------------------------------------------------------------
 
 
+def _iso_ms(epoch_ms: int) -> str:
+    return datetime.fromtimestamp(epoch_ms / 1000, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 def fetch_history(base: str, token: str, from_ms: int, to_ms: int) -> tuple[list[dict], dict]:
     """
-    Page the full decision history for the window.
+    Page the decision history for the window.
 
-    Returns ``(rows, coverage)``. ``coverage`` records how the walk terminated so
-    the report can state completeness honestly: ``exhausted`` (the gateway said
-    there is no more), ``page_cap`` (we stopped at MAX_PAGES), or ``error``.
+    Returns ``(rows, coverage)``. ``coverage`` records how the walk terminated so the
+    report can state completeness honestly:
+
+      ``exhausted``      the gateway ASSERTED there is no more (``exhausted: true``)
+      ``page_cap``       we stopped at MAX_PAGES
+      ``cursor_lost``    paging stopped without that assertion — indeterminate
+      ``error``          a read failed
+
+    ``exhausted`` used to be the INITIAL value, so every termination that was not an
+    error inherited it: a page that merely omitted ``next_cursor`` — an older gateway,
+    a proxy dropping a field, an empty batch mid-walk — produced a report stating
+    "every record the durable buffer holds for this window is included" that nothing
+    had ever attested. Completeness is now an assertion, never a default; anything
+    else is ``cursor_lost``, which reads as a lower bound.
+
+    ``retention_floor_ms`` is carried out too, and it matters more than the walk. The
+    event buffer is TRIMMED. Walking it to exhaustion says nothing about records
+    evicted before the walk began, so a period that starts before the oldest row still
+    held is partially retained no matter how cleanly the paging terminated — and that,
+    not the paging, is the way this report could most plausibly overstate a period.
     """
     rows: list[dict] = []
     cursor: Optional[str] = None
     pages = 0
-    coverage = {"terminated": "exhausted", "pages": 0, "scanned": 0, "error": None}
+    coverage: dict[str, Any] = {
+        "terminated": "cursor_lost",
+        "pages": 0,
+        "scanned": 0,
+        "error": None,
+        "retention_floor_ms": None,
+    }
 
     while pages < MAX_PAGES:
         params: dict[str, Any] = {"limit": PAGE_LIMIT, "from_ms": from_ms, "to_ms": to_ms}
@@ -123,9 +150,16 @@ def fetch_history(base: str, token: str, from_ms: int, to_ms: int) -> tuple[list
         rows.extend(batch)
         coverage["scanned"] += int(page.get("scanned") or len(batch))
         pages += 1
-        cursor = page.get("next_cursor")
-        if not cursor or page.get("exhausted") or not batch:
+        floor = page.get("retention_floor_ms")
+        if isinstance(floor, int):
+            # Newest-first paging: the last page read is the closest to the horizon.
+            coverage["retention_floor_ms"] = floor
+        if page.get("exhausted") is True:
+            coverage["terminated"] = "exhausted"
             break
+        cursor = page.get("next_cursor")
+        if not cursor or not batch:
+            break  # stays cursor_lost — the gateway never said the range was drained
     else:
         coverage["terminated"] = "page_cap"
 
@@ -296,16 +330,44 @@ def render(report: dict[str, Any]) -> str:
     # when the underlying scan was not.
     L += ["## Coverage of this report", ""]
     if cov["terminated"] == "exhausted":
-        L += [f"The decision history was walked to exhaustion — {cov['pages']} page(s), "
-              f"{cov['scanned']} row(s) scanned. Every record the durable buffer holds "
-              "for this window is included.", ""]
+        L += [f"The gateway reported the range drained — {cov['pages']} page(s), "
+              f"{cov['scanned']} row(s) scanned. Every record the durable buffer STILL "
+              "HOLDS for this window is included (see the retention horizon below).", ""]
     elif cov["terminated"] == "page_cap":
         L += [f"**Truncated.** The walk stopped at the {MAX_PAGES}-page safety cap after "
               f"{cov['scanned']} rows. Figures below cover the newest records only and "
               "are a LOWER BOUND. Narrow the window and re-run for full coverage.", ""]
+    elif cov["terminated"] == "cursor_lost":
+        L += [f"**Indeterminate.** Paging stopped after {cov['pages']} page(s) / "
+              f"{cov['scanned']} row(s) without the gateway asserting the range was "
+              "drained. Figures below are a LOWER BOUND and must not be presented as a "
+              "period total.", ""]
     else:
         L += [f"**Incomplete.** The history read failed (`{cov['error']}`). Figures below "
               "cover only what was retrieved and must not be treated as the period total.", ""]
+
+    # Retention is the completeness question the paging cannot answer: the event buffer
+    # is trimmed, so a clean walk over what remains says nothing about what was evicted
+    # before the walk started.
+    floor = cov.get("retention_floor_ms")
+    from_ms = report["window"]["from_ms"]
+    from_iso = report["window"]["from_iso"]
+    L += ["### Retention horizon", ""]
+    if not isinstance(floor, int):
+        L += ["**Unknown.** The oldest retained record could not be determined, so this "
+              "report cannot demonstrate that the period is fully retained. Treat the "
+              "figures as a lower bound for any part of the window older than the "
+              "buffer's trim.", ""]
+    elif floor > from_ms:
+        L += [f"**Partially retained.** The oldest record the buffer still holds is "
+              f"`{_iso_ms(floor)}`, which is AFTER the period start `{from_iso}`. "
+              "Decisions from the earlier part of this period have been trimmed and are "
+              "not counted below. For that span the signed epoch chain — not this "
+              "report — is the record.", ""]
+    else:
+        L += [f"The buffer retains back to `{_iso_ms(floor)}`, at or before the period "
+              f"start `{from_iso}`: no part of this window was trimmed before the walk.", ""]
+
     L += ["The decision history is a bounded scan over the durable event buffer, not the "
           "authoritative record. The authoritative record is the signed epoch chain; verify "
           "it independently with `mcpip export-audit --verify --pubkey <worm pubkey>`.", ""]

@@ -43,6 +43,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `except` branch (a floor that admits on a storage error is a floor an attacker opens
   by breaking Redis).
 
+- **The SOC 2 report could claim a completeness nothing had attested (evidence
+  defect).** `scripts/soc2_report.py` initialised `coverage["terminated"]` to
+  `"exhausted"` and only a read error moved it, so every other termination inherited
+  the claim — a page omitting `next_cursor`, an empty batch mid-walk, an older gateway
+  that never sends the field — and the report printed "every record the durable buffer
+  holds for this window is included" over a walk the gateway had never said was
+  drained. Completeness is now asserted (`exhausted: true`) or reported as
+  `cursor_lost`, a lower bound. Separately, the report discarded `retention_floor_ms`,
+  which the gateway computes precisely to distinguish "nothing happened" from "nothing
+  I still hold": the event buffer is trimmed, so a clean walk over what remains says
+  nothing about records evicted before it began. A period starting before the horizon
+  is now labelled **partially retained**, naming the signed epoch chain as the record
+  for the missing span. New gate: `tests/test_soc2_report_coverage.py`.
+
+- **The SBOM described a development virtualenv and leaked a build path (supply-chain
+  defect).** `scripts/build_sbom.sh` inventoried `.venv`, which carries pytest, mypy,
+  bandit, the SBOM generator itself and an editable install of the optional Rust
+  accelerator — 73 components where the image installs 31. A CVE scan against it
+  triaged findings for packages the image does not contain while saying nothing about
+  ones it does, and the editable install embedded
+  `file:///Users/yuvalkatz/mcpip-genesis/rust/mcpip_fastwalk` — a maintainer's home
+  directory and the project's pre-publication name — inside an artifact listed in the
+  signed release manifest. It now resolves `requirements.txt` into a clean virtualenv
+  exactly as the Dockerfile builder stage does (`MCPIP_SBOM_RUNTIME_VENV` points an
+  air-gapped signer at the image's own `/opt/venv` instead, which needs no index and is
+  the more accurate source). New `scripts/sbom_finalize.py` stamps the
+  `metadata.component` the generator never emitted — without it the document says what
+  is installed but never what it is installed *for*, failing the NTIA minimum elements
+  and leaving grype/trivy/Dependency-Track nothing to attribute a finding to — and
+  refuses to write an SBOM containing any local filesystem path.
+
+- **Rotating a release root erased the record of the key it replaced (key-management
+  defect).** `release/keys/rotation.json` is the cited evidence for control T12
+  ("key ids, status, supersession"), and `scripts/gen_release_keys.py` rewrote it from
+  scratch on every run with each key `status: active`, `supersedes: null`. After a
+  rotation, the key that signed every earlier release was simply absent — an auditor
+  verifying a 2.0.0 signature would find it checks out against a key the manifest no
+  longer mentions, with nothing to distinguish a properly retired root from a forged
+  one. The manifest now accumulates: the outgoing key becomes `retired` with
+  `not_after` stamped and the incoming key names it in `supersedes`. Regenerating the
+  same key is correctly not treated as a rotation.
+
 - **Verified boot reported success over source files it never hashed (integrity
   defect).** `verify_boot_integrity` proved every manifest-*listed* file was unmodified
   and said nothing about a file the manifest omits — and an unlisted executable file is

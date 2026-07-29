@@ -833,11 +833,19 @@ committed from a normal checkout. The generator itself signs nothing; see
 `mcpip` is the console script the wheel installs (`mcpip_verify/cli.py`); from a
 checkout, `./.venv/bin/python -m mcpip_verify.cli` is identical. It is **read-only and
 fail-closed**: any failure prints exactly `verification failed` (opaque — no reason, no
-path) and exits `2`; success prints `verified: mcpip 3.0.0 (3 artifacts)` and exits `0`.
-Verification is pure local cryptography — no network, no TLS dependency.
+path) and exits `2`; success prints `verified: mcpip <version> (<n> artifacts)` and
+exits `0`. Verification is pure local cryptography — no network, no TLS dependency.
+
+**What it verifies, and where to run it.** The signed manifest covers the *release
+assets* — wheel, sdist, SBOM. Build outputs are not committed (`dist/` is
+`.gitignore`d, deliberately), so `--base-dir` must point at a directory holding the
+downloaded assets, not at a bare source checkout. Run against a checkout, two of the
+three artifacts are simply absent and the tool exits `2` — correct fail-closed
+behaviour, and not a statement about the release.
 
 ```bash
-# Manifest + every listed artifact on disk:
+# Verify a downloaded release: put the assets where the manifest paths resolve.
+mkdir -p dist && cd dist && <download the release assets> && cd ..
 ./.venv/bin/python -m mcpip_verify.cli verify \
   --manifest release/manifest.json \
   --pubkey release/keys/release_root_ed25519.pub.pem \
