@@ -53,12 +53,12 @@ Redis; the workers hold no mutable auth state, so you scale reads horizontally.
 | Shape | What it is | When |
 |---|---|---|
 | **Single host (Compose)** | **Production:** `docker compose -f docker-compose.prod.yml up --build` — fail-closed gateway on `:8080` + bundled durable Redis (`appendfsync always`), with your keys/license/integrity files bind-mounted from `./secrets`. **Sandbox/demo:** `MCPIP_SANDBOX_MODE=true docker compose up` (default file). | Pilots, single-tenant, edge. |
-| **Kubernetes (Helm / plain)** | `chart/` (name `mcpip`) or `k8s/`. 2 replicas + HPA (2→10 @ 70% CPU), non-root, read-only rootfs, default-deny NetworkPolicy, internal-only Redis, persistent WORM volume. **Deploy by image digest, never by tag.** | VPC / production. |
+| **Kubernetes (Helm / plain)** | `deploy/chart/` (name `mcpip`) or `deploy/k8s/`. 2 replicas + HPA (2→10 @ 70% CPU), non-root, read-only rootfs, default-deny NetworkPolicy, internal-only Redis, persistent WORM volume. **Deploy by image digest, never by tag.** | VPC / production. |
 | **Air-gapped enclave** | `scripts/build_bundle.sh <version>` → a deterministic tarball (signed manifest, public keys, artifacts or a rebuild recipe, SBOM, `SHA256SUMS`, in-enclave `INSTALL.md`). Verify with `mcpip verify bundle` — **zero network at any step**, including CVE scan against the bundled SBOM. | Regulated / sovereign / offline. |
 
 ```bash
 # Helm, by digest (never by tag):
-helm upgrade --install mcpip ./chart -n mcpip \
+helm upgrade --install mcpip ./deploy/chart -n mcpip \
   --set image.repository=<registry>/mcpip-gateway \
   --set image.digest=sha256:<digest-from-the-signed-release>
 ```
@@ -75,8 +75,8 @@ budgets, reference alerts) are turned on together by a values overlay so a compl
 deployment converts the *control design* into controls that actually RUN:
 
 ```bash
-helm upgrade --install mcpip ./chart -n mcpip \
-  -f chart/values.yaml -f chart/values-compliance.yaml \
+helm upgrade --install mcpip ./deploy/chart -n mcpip \
+  -f deploy/chart/values.yaml -f deploy/chart/values-compliance.yaml \
   --set image.repository=<registry>/mcpip-gateway \
   --set image.digest=sha256:<digest-from-the-signed-release>
 ```
@@ -98,7 +98,7 @@ the default — and even then the audit buffer should stay pinned to the custome
 (we run the gateway; the WORM Redis stays theirs). So today, Redis is supplied end-to-end but
 *inside the client's perimeter*, by the shipped charts:
 
-- **Recommended — the bundled StatefulSet.** `chart/` and `k8s/` ship a durability-hardened Redis
+- **Recommended — the bundled StatefulSet.** `deploy/chart/` and `deploy/k8s/` ship a durability-hardened Redis
   (`appendonly yes`, `appendfsync always`, a persistent volume, an internal-only Service). It
   satisfies the boot durability contract out of the box and never leaves your network. This is the
   default cloud path — nothing to procure.
@@ -267,9 +267,9 @@ runtime by `core/version.py` and at build time by `pyproject.toml`).
 | Requirement | Detail |
 |---|---|
 | Python | 3.12 (`/opt/homebrew/bin/python3.12` on the dev host); venv at `.venv/` |
-| Redis | Redis 7 with **AOF `appendfsync always`** (see `redis.conf`). Dev container: `mcpip-v2-redis`, host port `63790` → `6379`. |
+| Redis | Redis 7 with **AOF `appendfsync always`** (see `deploy/redis.conf`). Dev container: `mcpip-v2-redis`, host port `63790` → `6379`. |
 | Docker / compose | For the image + compose deployment |
-| Helm 3 / kubectl | For the Kubernetes deployment (`chart/` or `k8s/`) |
+| Helm 3 / kubectl | For the Kubernetes deployment (`deploy/chart/` or `deploy/k8s/`) |
 | Offline signer | A machine (HSM-backed or air-gapped laptop) that holds the private root keys. Private keys never touch a deployment host. |
 
 ```bash
@@ -385,7 +385,7 @@ per-session keys instead of long-lived bearers (the SPIFFE / workload-identity p
 model — runtime attestation → RFC 8693 exchange → ephemeral per-session keys — is in
 [`ARCHITECTURE.md`](../integrate/ARCHITECTURE.md)). The whole ceremony → mint → verify → tamper cycle is
 regression-gated by `tests/test_provisioning.py`. Secret injection into the running system is
-`scripts/deploy_hero.sh` + `.env.production.example`
+`scripts/deploy_hero.sh` + `deploy/.env.production.example`
 (see [CI/CD secret injection](#cicd-secret-injection--the-hero-deploy-script)).
 
 ### Building & signing a release
@@ -573,7 +573,7 @@ for the single-host mesh-posture overlay).
 
 #### Helm (Kubernetes)
 
-The chart (`chart/`, name `mcpip`, `appVersion: 2.0.0`) **never creates or embeds
+The chart (`deploy/chart/`, name `mcpip`, `appVersion: 2.0.0`) **never creates or embeds
 secret material** and deliberately has **no value** that maps to `MCPIP_SANDBOX_MODE`
 or `MCPIP_INTEGRITY_DEV_BYPASS` — production pods always boot fail-closed.
 
@@ -586,7 +586,7 @@ kubectl -n mcpip create secret generic mcpip-keys \
   --from-file=license.json=/secure/path/license.json
 
 # 2) Install, pinning the IMMUTABLE digest recorded at release time (never a mutable tag):
-helm upgrade --install mcpip ./chart -n mcpip \
+helm upgrade --install mcpip ./deploy/chart -n mcpip \
   --set image.repository=<your-registry>/mcpip-gateway \
   --set image.digest=sha256:<digest-from-release>
 ```
@@ -598,13 +598,13 @@ a durability-hardened Redis StatefulSet (`appendfsync always`), and a persistent
 for the WORM path. Non-secret env goes in `env: {}`; **never** put keys or license
 bodies there.
 
-Plain manifests are the equivalent no-Helm path: `kubectl apply -f k8s/` (namespace
-`mcpip`; `k8s/secret.example.yaml` documents the same three Secret keys —
+Plain manifests are the equivalent no-Helm path: `kubectl apply -f deploy/k8s/` (namespace
+`mcpip`; `deploy/k8s/secret.example.yaml` documents the same three Secret keys —
 structure only, populate out-of-band).
 
 #### Verified boot wiring (both k8s paths, preconfigured)
 
-`k8s/configmap.yaml` / `chart/templates/configmap.yaml` already point the gateway at
+`deploy/k8s/configmap.yaml` / `deploy/chart/templates/configmap.yaml` already point the gateway at
 the in-image manifests:
 
 ```
@@ -634,7 +634,7 @@ For compose / bare-metal (the Helm path uses the `mcpip-keys` Secret, above),
 ONLY as env vars from the pipeline's secret store (never committed, never in the
 image), is written `0600` onto a tmpfs, the in-memory copies are scrubbed, and the
 gateway is exec'd fail-closed. Non-secret config + **paths** come from
-`.env.production` (copy `.env.production.example` — the only committed `.env*` variant,
+`.env.production` (copy `deploy/.env.production.example` — the only committed `.env*` variant,
 containing zero secret values):
 
 ```bash
@@ -918,10 +918,10 @@ on a non-intact prefix (it logs an audit warning). Route the `mcpip.audit` CRITI
 your incident channel.
 
 **Reference alerts (shipped, opt-in).** Starter Prometheus rules ship as
-`k8s/prometheus-rules.yaml` (plain) and the Helm `prometheusRule` template
+`deploy/k8s/prometheus-rules.yaml` (plain) and the Helm `prometheusRule` template
 (`prometheusRule.enabled=true`): gateway-down, sustained overload shed, p99 authorize
 latency, WORM epoch stalled, and `mcpip_audit_integrity_total{event="tamper_detected"}`.
-Tune them to your SLA. A gateway `PodDisruptionBudget` (`k8s/pdb.yaml` / `pdb.enabled`)
+Tune them to your SLA. A gateway `PodDisruptionBudget` (`deploy/k8s/pdb.yaml` / `pdb.enabled`)
 keeps ≥1 gateway serving through node drains — important because MCPIP fails closed, so
 losing every gateway denies all agent actions.
 
@@ -943,7 +943,7 @@ check on stderr); any `mcpip_audit_integrity_total{event="tamper_detected"}`.
    producing a new signed manifest, integrity manifest, SBOM, and image digest.
 2. Verify it (`mcpip verify`) — gate on exit 0.
 3. Roll through change control: compose — `docker compose up -d --build` with the new
-   tag; Helm — `helm upgrade mcpip ./chart -n mcpip --set image.digest=sha256:<new>`;
+   tag; Helm — `helm upgrade mcpip ./deploy/chart -n mcpip --set image.digest=sha256:<new>`;
    air-gap — deliver + verify a new bundle, load, re-pin, roll.
 4. Post-deploy: `curl -s http://<host>:8080/healthz` shows the new `version`;
    `export-audit --verify --pubkey …` confirms the audit chain carried across intact.
@@ -963,7 +963,7 @@ in-binary mechanism.
 *The answer to "an app-layer authorizer can be bypassed — do we need to be a layer on VPN?"
 Short answer: **no VPN; this is a packaging concern, not a design flaw.** Companion to
 the internal roadmap and the positioning in the internal strategy notes. The two
-packaging artifacts this called for now ship: `k8s/agent-egress-lockdown.networkpolicy.yaml`
+packaging artifacts this called for now ship: `deploy/k8s/agent-egress-lockdown.networkpolicy.yaml`
 (agent-side egress lock) and the mesh reference in
 [Deploying behind a service mesh](#deploying-behind-a-service-mesh--identity-aware-proxy-compose).*
 
@@ -1020,9 +1020,9 @@ strongest non-bypass primitive MCPIP ships.
 
 **2. Agent-side egress-lockdown template + "MCPIP is the only accepted client" reference (shipped).**
 A hardened NetworkPolicy template for the *agent* namespace allowing egress **only** to MCPIP —
-today's `k8s/networkpolicy.yaml` + `chart/templates/` lock the *gateway's* egress but not the
+today's `deploy/k8s/networkpolicy.yaml` + `deploy/chart/templates/` lock the *gateway's* egress but not the
 *agent's* reach; that asymmetry is the concrete gap. **Shipped:**
-`k8s/agent-egress-lockdown.networkpolicy.yaml` — default-deny egress on the agent pods, allowing
+`deploy/k8s/agent-egress-lockdown.networkpolicy.yaml` — default-deny egress on the agent pods, allowing
 only (a) cluster DNS and (b) the MCPIP gateway Service, with `<PLACEHOLDERS>` for the site's
 agent namespace/labels; every rule commented and the closed asymmetry named. An optional
 egress-proxy mode for `cloud_rest` that allowlists outbound tool HTTP stays deferred (not needed
@@ -1053,7 +1053,7 @@ credential wedge + egress lockdown + partner-mesh, not owning a tunnel.
    log + egress lockdown together).
 
 MCPIP has strong answers to 2 and 3 today, and requirement 1 is now packaged:
-`k8s/agent-egress-lockdown.networkpolicy.yaml` makes the agent's network reach only MCPIP, and
+`deploy/k8s/agent-egress-lockdown.networkpolicy.yaml` makes the agent's network reach only MCPIP, and
 the mesh reference below is the "make MCPIP the only accepted client identity" reference
 architecture (Istio/Pomerium/Cloudflare). What remains is genuinely the **operator's** job, not
 a shipping gap: the templates carry `<PLACEHOLDERS>` for the site's trust domain, namespaces,
@@ -1077,7 +1077,7 @@ primitive than most network-capture competitors.
 
 *The reference-architecture half of [Network Enforcement](#network-enforcement--non-bypassability)
 (the egress-lockdown + "MCPIP is the only accepted client" moves). Companion to
-`k8s/agent-egress-lockdown.networkpolicy.yaml` (the agent-side egress half) and the SPIFFE /
+`deploy/k8s/agent-egress-lockdown.networkpolicy.yaml` (the agent-side egress half) and the SPIFFE /
 sender-constraint model in [`ARCHITECTURE.md`](../integrate/ARCHITECTURE.md).*
 
 ### Lead claim: "no standing key" first, mesh second
@@ -1106,7 +1106,7 @@ The fix is the **compose-don't-fight** posture:
 Two independent teeth, deployed together, make "every action goes through the gate" true:
 
 1. **Agent egress lockdown** — the agent's network can reach *only* MCPIP. Shipped as
-   `k8s/agent-egress-lockdown.networkpolicy.yaml`; the mesh equivalents are below.
+   `deploy/k8s/agent-egress-lockdown.networkpolicy.yaml`; the mesh equivalents are below.
 2. **Target unreachability** — the real system accepts *only MCPIP's identity* and rejects every
    other caller. That is the mesh AuthorizationPolicy / IdP-proxy policy work in this guide.
 
@@ -1131,7 +1131,7 @@ targets will accept.
   principal (or none) and is refused at L4/L7 by the mesh, before the target app runs.
 - **Gateway egress must reach the target for the PROXY transports.** The `MCPIP → target` hop
   only exists for the inline-proxy transports (`cloud_rest` / `legacy_mainframe` / `grant_issue`),
-  where MCPIP dispatches the call and holds the real target. The shipped `k8s/networkpolicy.yaml`
+  where MCPIP dispatches the call and holds the real target. The shipped `deploy/k8s/networkpolicy.yaml`
   locks the gateway's egress to Redis + DNS only (no phone-home); when you use a proxy transport
   you must ADD a narrow egress rule there for those specific target hosts/ports (mesh-mediated),
   and the mesh sidecar then presents the gateway SVID. The `cloud_iam` "no standing key" transport
@@ -1191,7 +1191,7 @@ Notes:
 - This is **L4/L7 identity** enforcement — it does not, and should not, inspect the agent's
   tool-call payload. Payload authorization stays MCPIP's job (opaque alias resolution + PIN +
   policy overlay); the mesh only answers "is the caller MCPIP?". Keep the layers separate.
-- Pair with the agent-side egress lock: `k8s/agent-egress-lockdown.networkpolicy.yaml` stops the
+- Pair with the agent-side egress lock: `deploy/k8s/agent-egress-lockdown.networkpolicy.yaml` stops the
   agent reaching the target's IP at all; the AuthorizationPolicy stops it even if it did. Belt and
   suspenders — either alone is weaker.
 
@@ -1300,7 +1300,7 @@ Compose is a single-host demonstration surface, not the production enforcement p
 To honestly claim "every action goes through the gate" for a **proxy-transport** target, you need
 BOTH teeth — either alone leaves a lane open:
 
-1. **Agent egress locked to MCPIP** — `k8s/agent-egress-lockdown.networkpolicy.yaml` (or the mesh
+1. **Agent egress locked to MCPIP** — `deploy/k8s/agent-egress-lockdown.networkpolicy.yaml` (or the mesh
    egress equivalent). The agent has no route to the target's IP.
 2. **Target admits only MCPIP** — an Istio `AuthorizationPolicy` / Pomerium policy / Cloudflare
    Access policy keyed on the gateway's SPIFFE SVID (or mTLS client identity). Even a routing

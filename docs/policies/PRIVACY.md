@@ -26,8 +26,8 @@ send anything **out** of it.
 
 If you are performing a DPIA or filling in a vendor-diligence questionnaire: for
 a self-hosted MCPIP deployment with telemetry disabled, there is **no vendor
-data flow to assess**. [`docs/operate/COMPLIANCE.md`](docs/operate/COMPLIANCE.md) carries the
-control cross-walk; [`docs/operate/TELEMETRY.md`](docs/operate/TELEMETRY.md) carries the beacon
+data flow to assess**. [`docs/operate/COMPLIANCE.md`](../operate/COMPLIANCE.md) carries the
+control cross-walk; [`docs/operate/TELEMETRY.md`](../operate/TELEMETRY.md) carries the beacon
 specification.
 
 ---
@@ -70,7 +70,7 @@ compliance note:
 You set it. The ledger trims events out of the hot buffer past the configured
 retention window while the signed roots remain, so tamper-evidence survives
 minimization. Deployment guidance is in
-[`docs/operate/OPERATIONS.md`](docs/operate/OPERATIONS.md); optional at-rest encryption of the
+[`docs/operate/OPERATIONS.md`](../operate/OPERATIONS.md); optional at-rest encryption of the
 event body is `MCPIP_ENCRYPT_WORM_AT_REST`.
 
 ---
@@ -117,7 +117,7 @@ When enabled, the beacon sends a **closed set of exactly eight fields**:
 This is enforced, not merely promised: a test asserts the serialized body's key
 set is exactly those eight fields and scans the bytes for request-identifying
 strings. Full specification, including the HMAC signing headers and how to
-disable it: [`docs/operate/TELEMETRY.md`](docs/operate/TELEMETRY.md).
+disable it: [`docs/operate/TELEMETRY.md`](../operate/TELEMETRY.md).
 
 To turn it off: unset `MCPIP_TELEMETRY_ENABLED` (or set it to `false`). No task
 is scheduled and no client is constructed.
@@ -144,7 +144,7 @@ install signed license files by hand.
 Issues, pull requests, discussions, and private security advisories are hosted on
 GitHub and governed by **GitHub's** privacy policy. Please do not paste real
 audit-log contents, tokens, principal identifiers, or customer data into a public
-issue — [`SECURITY.md`](SECURITY.md) describes the private channel for anything
+issue — [`SECURITY.md`](../../SECURITY.md) describes the private channel for anything
 sensitive, and a minimal synthetic reproduction is always more useful to us than
 a real one.
 
@@ -153,10 +153,10 @@ a real one.
 ## 7. Changes to this policy
 
 This document is versioned in the repository. Material changes ship in
-[`CHANGELOG.md`](CHANGELOG.md) with the release that makes them, so you can diff
+[`CHANGELOG.md`](../../CHANGELOG.md) with the release that makes them, so you can diff
 the policy exactly as you diff the code. There is no silent update channel — the
 gateway never patches itself.
 
 Questions about data handling: open a GitHub issue titled `privacy: <question>`,
-or use the private channel in [`SECURITY.md`](SECURITY.md) if the question itself
+or use the private channel in [`SECURITY.md`](../../SECURITY.md) if the question itself
 is sensitive.

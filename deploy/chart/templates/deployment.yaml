@@ -124,7 +124,7 @@ spec:
           {{- else }}
           emptyDir: {}
           {{- end }}
-        # Pre-created Secret (never rendered by this chart) holding
+        # Pre-created Secret (never rendered by this deploy/chart) holding
         # jwt_public.pem, worm_signing.pem, license.json.
         - name: mcpip-keys
           secret:

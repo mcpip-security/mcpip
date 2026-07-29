@@ -93,7 +93,7 @@ first tier is "try a stock model and see" — most people stop there.
 The QLoRA recipe in `training/qlora_workspace.yaml` is **one worked example**, not
 a requirement or a recommendation for your situation. It happens to fine-tune
 Qwen2.5-1.5B because that base is Apache-2.0 and therefore clean to redistribute
-if you ship the result to customers — see [`NOTICES.md`](../../NOTICES.md) for that
+if you ship the result to customers — see [`docs/policies/NOTICES.md`](../../docs/policies/NOTICES.md) for that
 reasoning. If you are not redistributing, the licence question mostly evaporates
 and you should use whatever base you already trust.
 

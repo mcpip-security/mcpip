@@ -64,5 +64,5 @@ ${BOLD}Wired into the app${RESET}
   ${DIM}CORS:${RESET}     serve Ollama so the console origin may call it:
             ${BOLD}OLLAMA_ORIGINS='*' ollama serve${RESET}
   ${DIM}Fine-tune:${RESET} training/README.md (Tier 2, QLoRA on the Apache base)
-  ${DIM}Legal:${RESET}    NOTICES.md
+  ${DIM}Legal:${RESET}    docs/policies/NOTICES.md
 NEXT

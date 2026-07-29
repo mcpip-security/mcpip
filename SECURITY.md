@@ -3,14 +3,14 @@
 MCPIP is a fail-closed, opaque zero-trust authorization gateway. Security is the product, so a
 credible coordinated-disclosure path is part of it. This file is the **process** policy; the
 **technical** adversary model, the per-threat attack→defense→code matrix, and the honest
-residual-risk analysis live in [`SECURITY_THREAT_MODEL.md`](SECURITY_THREAT_MODEL.md) (including
+residual-risk analysis live in [`docs/SECURITY_THREAT_MODEL.md`](docs/SECURITY_THREAT_MODEL.md) (including
 the §17 OWASP ASI-2026 coverage map).
 
 ## Supported versions
 
 MCPIP is currently at `3.0.0` (the `VERSION` file is the single source of truth). Security fixes
 target the latest released minor line. There is **no runtime self-update** — a fix is delivered as
-a new signed release that the operator verifies and redeploys ([`RELEASE.md`](RELEASE.md)); the
+a new signed release that the operator verifies and redeploys ([`docs/operate/RELEASE.md`](docs/operate/RELEASE.md)); the
 gateway never patches itself.
 
 | Version | Supported |
@@ -64,9 +64,9 @@ A finding is most valuable when it breaks one of the load-bearing invariants:
 - A **dark feature being off** (forensic capture, external-PDP, telemetry, MRT step-up default to
   off/opt-in and say so honestly).
 - The in-tree signed `release/manifest.json` legitimately lagging `VERSION` before the owner's
-  offline re-sign ([`RELEASE.md §0`](RELEASE.md)) — this is the documented honest boundary.
+  offline re-sign ([`docs/operate/RELEASE.md §0`](docs/operate/RELEASE.md)) — this is the documented honest boundary.
 - Out-of-scope-by-design gaps that are disclosed plainly (e.g. in-agent memory poisoning / ASI06 —
-  MCPIP governs the tool call, not the agent's memory; [`SECURITY_THREAT_MODEL.md §17`](SECURITY_THREAT_MODEL.md)).
+  MCPIP governs the tool call, not the agent's memory; [`docs/SECURITY_THREAT_MODEL.md §17`](docs/SECURITY_THREAT_MODEL.md)).
 - Denial-of-service from misconfigured Redis durability or unbounded client load beyond the
   documented ceilings.
 

@@ -1,6 +1,6 @@
 # MCPIP — hardened "compliance" values overlay.
 #
-#   helm install mcpip ./chart -n mcpip -f chart/values.yaml -f chart/values-compliance.yaml
+#   helm install mcpip ./deploy/chart -n mcpip -f deploy/chart/values.yaml -f deploy/chart/values-compliance.yaml
 #
 # This turns ON every opt-in SOC 2 control that ships default-OFF, converting the
 # design-level controls into ones that actually RUN in the deployment (a default

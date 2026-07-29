@@ -374,7 +374,7 @@ mcpip-genesis/
 ├── docs/
 │   ├── WHITEPAPER.md            Threat model, invariants, and the formal argument
 │   └── IMPLEMENTATION_WEB.md    Web / implementation companion
-├── SECURITY_THREAT_MODEL.md ◐ Formal adversary model + attack→defense→code matrix
+├── docs/SECURITY_THREAT_MODEL.md ◐ Formal adversary model + attack→defense→code matrix
 │
 ├── Dockerfile               ◐ Multi-stage: 3.12-slim builder venv → non-root runtime
 ├── docker-compose.yml       ◐ gateway API + redis, internal redis, hardened edge
@@ -670,7 +670,7 @@ curl -s -X POST $API/v1/authorize -H "authorization: Bearer $JWT" \
 # 6) Replay the same triple → denied (403, pin_not_found — lock already spent).
 ```
 
-The formal adversary model, the attack→defense→code matrix, and the residual-risk analysis for every one of these paths are in [`SECURITY_THREAT_MODEL.md`](SECURITY_THREAT_MODEL.md).
+The formal adversary model, the attack→defense→code matrix, and the residual-risk analysis for every one of these paths are in [`docs/SECURITY_THREAT_MODEL.md`](docs/SECURITY_THREAT_MODEL.md).
 
 ### Forensic payload reconstruction
 
@@ -825,7 +825,7 @@ release-root and license-root signing, the SLSA/in-toto predicate is signed with
 **owner's offline cosign key** (`cosign attest-blob --type slsaprovenance1 --predicate
 release/provenance.intoto.json …`) on the air-gapped signer — never fabricated, never
 committed from a normal checkout. The generator itself signs nothing; see
-[`RELEASE.md`](RELEASE.md) §6 for the full ceremony and the required `builder.id` /
+[`docs/operate/RELEASE.md`](docs/operate/RELEASE.md) §6 for the full ceremony and the required `builder.id` /
 `buildType` owner decision.
 
 ### Verify a release — `mcpip verify`
@@ -874,10 +874,10 @@ SBOM with a mirrored DB).
 
 ### Helm / Kubernetes deploy
 
-The chart (`chart/`, name `mcpip`) never embeds secret material and cannot express
+The chart (`deploy/chart/`, name `mcpip`) never embeds secret material and cannot express
 `MCPIP_SANDBOX_MODE` or the integrity dev-bypass — production pods always boot
 fail-closed with verified boot + the license gate enforced. Plain manifests live in
-`k8s/` (`kubectl apply -f k8s/`).
+`deploy/k8s/` (`kubectl apply -f deploy/k8s/`).
 
 ```bash
 kubectl create namespace mcpip
@@ -886,7 +886,7 @@ kubectl -n mcpip create secret generic mcpip-keys \
   --from-file=worm_signing.pem=/secure/path/worm_signing.pem \
   --from-file=license.json=/secure/path/license.json
 
-helm upgrade --install mcpip ./chart -n mcpip \
+helm upgrade --install mcpip ./deploy/chart -n mcpip \
   --set image.repository=<your-registry>/mcpip-gateway \
   --set image.digest=sha256:<digest-from-release>      # deploy BY DIGEST, never by tag
 ```
@@ -897,7 +897,7 @@ NetworkPolicy, internal-only Redis (AOF `appendfsync always`), persistent WORM v
 ### Boot gates & `/metrics`
 
 Two fail-closed startup hooks run before a socket is bound (both preconfigured in the
-k8s/Helm ConfigMaps):
+deploy/k8s/Helm ConfigMaps):
 
 | Hook | Env | Behavior |
 |---|---|---|
@@ -1198,7 +1198,7 @@ concurrent, `always` vs. `everysec`) and the group-commit design that would rais
 
 - [**Operations runbook**](docs/operate/OPERATIONS.md) — the deep day-2 ops: key ceremony + rotation, `mcpip verify`, license install, audit verification/export, backup & restore, incident response, deploy preflight.
 - [**Compliance pack**](docs/operate/COMPLIANCE.md) — the shipped controls mapped to SOC 2 / FedRAMP (NIST 800-53) families and the supply-chain statement (illustrative mapping, **not** a certification).
-- [**Security threat model**](SECURITY_THREAT_MODEL.md) — the formal adversary model, the per-threat attack→defense→code matrix, the §17 OWASP ASI-2026 coverage map, and an honest residual-risk analysis.
+- [**Security threat model**](docs/SECURITY_THREAT_MODEL.md) — the formal adversary model, the per-threat attack→defense→code matrix, the §17 OWASP ASI-2026 coverage map, and an honest residual-risk analysis.
 - [**Whitepaper**](docs/background/WHITEPAPER.md) — threat model, the seven invariants, and the formal argument for authorization-before-execution.
 - Feature deep-dives: [workload identity](docs/integrate/INTEGRATIONS.md) · [telemetry](docs/operate/TELEMETRY.md) · [OAuth resource server](docs/integrate/INTEGRATIONS.md) · [extensibility](docs/integrate/EXTENSIBILITY.md) · [governed-alias pattern](docs/integrate/INTEGRATIONS.md) · [A2A choke-point](docs/integrate/ARCHITECTURE.md) · [workspace generate](docs/integrate/WORKSPACE_GENERATE.md).
 - Runnable walkthroughs: [demo company](docs/start/GETTING_STARTED.md) · [Claude MCP bridge](docs/start/GETTING_STARTED.md) · [DynamoDB live-fire](docs/integrate/INTEGRATIONS.md) · [end-to-end lifecycle](docs/start/GETTING_STARTED.md).
@@ -1219,7 +1219,7 @@ concurrent, `always` vs. `everysec`) and the group-commit design that would rais
   · security reports via [`SECURITY.md`](SECURITY.md) (private disclosure).
 - **Design-partner program** (regulated / high-consequence workflows): time-boxed pilot,
   self-hosted in your boundary, direct maintainer support — details + openly published
-  structure in [`SUPPORT.md`](SUPPORT.md).
+  structure in [`.github/SUPPORT.md`](.github/SUPPORT.md).
 
 ## Project policies
 
@@ -1228,13 +1228,13 @@ diff the code.
 
 | Policy | What it covers |
 |---|---|
-| [`TERMS.md`](TERMS.md) | Terms of use: the license grant in plain terms, entitlements, acceptable use, operator responsibilities, no-certification statement, warranty & liability. |
-| [`PRIVACY.md`](PRIVACY.md) | Data handling: what stays inside your boundary, and the two opt-in, default-off channels that can leave it. |
+| [`docs/policies/TERMS.md`](docs/policies/TERMS.md) | Terms of use: the license grant in plain terms, entitlements, acceptable use, operator responsibilities, no-certification statement, warranty & liability. |
+| [`docs/policies/PRIVACY.md`](docs/policies/PRIVACY.md) | Data handling: what stays inside your boundary, and the two opt-in, default-off channels that can leave it. |
 | [`SECURITY.md`](SECURITY.md) | Coordinated disclosure — how to report a vulnerability privately. |
-| [`TRADEMARK.md`](TRADEMARK.md) | Name and mark usage: what needs no permission, what needs a different name. |
-| [`CONTRIBUTING.md`](CONTRIBUTING.md) | How to contribute, the gates a change must pass, and what gets rejected. |
-| [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md) | Contributor Covenant 2.1, plus one security-specific clause. |
-| [`LICENSING.md`](LICENSING.md) | The component→license map (BSL core / Apache-2.0 SDKs). |
+| [`docs/policies/TRADEMARK.md`](docs/policies/TRADEMARK.md) | Name and mark usage: what needs no permission, what needs a different name. |
+| [`.github/CONTRIBUTING.md`](.github/CONTRIBUTING.md) | How to contribute, the gates a change must pass, and what gets rejected. |
+| [`.github/CODE_OF_CONDUCT.md`](.github/CODE_OF_CONDUCT.md) | Contributor Covenant 2.1, plus one security-specific clause. |
+| [`docs/policies/LICENSING.md`](docs/policies/LICENSING.md) | The component→license map (BSL core / Apache-2.0 SDKs). |
 
 ## License
 
@@ -1243,7 +1243,7 @@ diff the code.
 organization; it converts to **Apache-2.0** on the Change Date (2030-07-16). The **client SDKs
 (`sdk/python`, `sdk/typescript`) are Apache-2.0**. Enterprise features/support are gated by a
 signed entitlement license (`core/licensing.py`), unchanged. Full map and the rationale:
-[`LICENSING.md`](LICENSING.md) · [`TERMS.md`](TERMS.md).
+[`docs/policies/LICENSING.md`](docs/policies/LICENSING.md) · [`docs/policies/TERMS.md`](docs/policies/TERMS.md).
 
 <div align="center">
 

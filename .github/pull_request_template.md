@@ -12,7 +12,7 @@ tokens, env values, or internal hostnames.
 
 <!--
 Does this touch any of the security-critical paths? Check what applies and,
-for anything checked, state how the invariant is preserved (see CONTRIBUTING.md §3).
+for anything checked, state how the invariant is preserved (see .github/CONTRIBUTING.md §3).
 -->
 
 - [ ] Identity / JWT / capabilities (`auth/`)

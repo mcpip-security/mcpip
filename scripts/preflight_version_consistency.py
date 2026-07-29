@@ -8,14 +8,14 @@ surface drifting out of lockstep with the ``VERSION`` file.
 ``VERSION`` is the single source of truth. This check asserts the **lockstep** surfaces
 match it byte-for-byte:
 
-  * chart/Chart.yaml  ->  version  AND  appVersion
+  * deploy/chart/Chart.yaml  ->  version  AND  appVersion
   * dashboard/package.json  ->  version
 
 and reports the **signed release provenance** surfaces (``release/manifest.json`` +
 ``release/integrity_manifest.json``) HONESTLY:
 
   * a signed manifest that LAGS ``VERSION`` is the EXPECTED owner-offline-resign state
-    (RELEASE.md §0) -> a WARNING, never a hard failure (the running gateway's dynamic
+    (docs/operate/RELEASE.md §0) -> a WARNING, never a hard failure (the running gateway's dynamic
     surfaces already read 3.0.0; the signed provenance reconciles only when the owner
     re-signs on the air-gapped signer).
   * a signed manifest AHEAD of ``VERSION`` is a real error -> hard failure.
@@ -86,11 +86,11 @@ def main() -> int:
     # --- Lockstep surfaces: MUST equal VERSION. --------------------------------------
     lockstep: list[tuple[str, str]] = []
     try:
-        cv, cav = _chart_versions("chart/Chart.yaml")
-        lockstep.append(("chart/Chart.yaml:version", cv))
-        lockstep.append(("chart/Chart.yaml:appVersion", cav))
+        cv, cav = _chart_versions("deploy/chart/Chart.yaml")
+        lockstep.append(("deploy/chart/Chart.yaml:version", cv))
+        lockstep.append(("deploy/chart/Chart.yaml:appVersion", cav))
     except (OSError, ValueError) as exc:
-        problems.append(f"chart/Chart.yaml: {exc}")
+        problems.append(f"deploy/chart/Chart.yaml: {exc}")
     try:
         lockstep.append(("dashboard/package.json:version", _json_version("dashboard/package.json")))
     except (OSError, ValueError) as exc:
@@ -104,7 +104,7 @@ def main() -> int:
             problems.append(f"{name} = {val} != VERSION {source}")
 
     # --- Signed provenance: a LAG is the honest owner-offline-resign state. -----------
-    print("\n  signed provenance (lag until owner re-sign is EXPECTED, RELEASE.md §0):")
+    print("\n  signed provenance (lag until owner re-sign is EXPECTED, docs/operate/RELEASE.md §0):")
     for name, rel in (
         ("release/manifest.json", "release/manifest.json"),
         ("release/integrity_manifest.json", "release/integrity_manifest.json"),

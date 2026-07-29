@@ -51,7 +51,7 @@
 services:
   # ---------------------------------------------------------------------------
   # Redis — internal-only synchronization state. DURABLE AOF (appendfsync=always)
-  # via the shared redis.conf, so the WORM buffer XADD is fsync-durable before
+  # via the shared deploy/redis.conf, so the WORM buffer XADD is fsync-durable before
   # /v1/authorize returns. The gateway ASSERTS this posture at boot and a
   # non-sandbox gateway REFUSES to start against a Redis that is not durably
   # persisted — so this bundled, durable service is required for a passing boot.
@@ -71,7 +71,7 @@ services:
     read_only: true
     volumes:
       # The required durability profile (appendonly yes / appendfsync always), read-only.
-      - ./redis.conf:/etc/redis/redis.conf:ro
+      - ./deploy/redis.conf:/etc/redis/redis.conf:ro
       # Durable AOF must live on a real volume (NOT tmpfs) to survive a crash/restart.
       - redis-data:/data
     healthcheck:

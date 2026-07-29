@@ -41,7 +41,7 @@ Examples of unacceptable behavior include:
 MCPIP is security software. Publicly posting an unfixed vulnerability, a working
 exploit against a deployment you do not operate, or a third party's audit-log
 contents is a Code of Conduct violation in addition to a security-process
-violation. Report vulnerabilities privately per [`SECURITY.md`](SECURITY.md).
+violation. Report vulnerabilities privately per [`SECURITY.md`](../SECURITY.md).
 
 ## Enforcement Responsibilities
 

@@ -70,27 +70,18 @@ INCLUDE_ROOT_FILES: tuple[str, ...] = (
     ".dockerignore",
     "docker-compose.yml",
     "docker-compose.prod.yml",
-    "redis.conf",
     "install.sh",
-    ".env.production.example",
     ".gitignore",
     ".mcp.json",
-    # Product, security & operator documentation.
+    # Product & security documentation that stays at the root by convention:
+    # README is the landing page, LICENSE drives licence detection, SECURITY.md is
+    # GitHub's security-policy surface. The long-form security, operator, policy and
+    # community-health documents live under docs/ and .github/ and are picked up by
+    # INCLUDE_DIRS — listing them here as well would double-count them.
     "README.md",
     "CHANGELOG.md",
-    "RELEASE.md",
     "SECURITY.md",
-    "SECURITY_THREAT_MODEL.md",
-    "SUPPORT.md",
-    "NOTICES.md",
-    # Licensing + the published policy set.
     "LICENSE",
-    "LICENSING.md",
-    "TERMS.md",
-    "PRIVACY.md",
-    "TRADEMARK.md",
-    "CONTRIBUTING.md",
-    "CODE_OF_CONDUCT.md",
 )
 
 INCLUDE_DIRS: tuple[str, ...] = (
@@ -99,11 +90,10 @@ INCLUDE_DIRS: tuple[str, ...] = (
     "audit",
     "auth",
     "bridge",
-    "chart",
     "core",
     "dashboard",
+    "deploy",        # chart/ + k8s/ + redis.conf + the production env template
     "docs",
-    "k8s",
     "mcpip_verify",
     "models",
     "obfuscator",
@@ -229,29 +219,29 @@ LINE_EDITS: dict[str, tuple[LineEdit, ...]] = {
             ),
         ),
         LineEdit(
-            "structure in [`SUPPORT.md`](SUPPORT.md) and the project's commercial terms.",
-            "  structure in [`SUPPORT.md`](SUPPORT.md).",
+            "structure in [`.github/SUPPORT.md`](.github/SUPPORT.md) and the project's commercial terms.",
+            "  structure in [`.github/SUPPORT.md`](.github/SUPPORT.md).",
         ),
         LineEdit(
-            "[`LICENSING.md`](LICENSING.md) · the internal strategy notes.",
-            "[`LICENSING.md`](LICENSING.md) · [`TERMS.md`](TERMS.md).",
+            "[`docs/policies/LICENSING.md`](docs/policies/LICENSING.md) · the internal strategy notes.",
+            "[`docs/policies/LICENSING.md`](docs/policies/LICENSING.md) · [`docs/policies/TERMS.md`](docs/policies/TERMS.md).",
         ),
     ),
-    "SUPPORT.md": (
+    ".github/SUPPORT.md": (
         LineEdit(
             "support. Structure and pricing are published openly in",
             "support. Structure and commercial terms are shared directly on request.",
         ),
         LineEdit("the project's commercial terms.", None),
     ),
-    "LICENSING.md": (
+    "docs/policies/LICENSING.md": (
         LineEdit(
             "MCPIP uses an **open-core, source-available** model. The rationale (why source-available and not",
             "MCPIP uses an **open-core, source-available** model. What that model means for your",
         ),
         LineEdit(
             "pure Apache or fully proprietary) is in the internal strategy notes.",
-            "deployment in practice is set out in [`TERMS.md`](TERMS.md).",
+            "deployment in practice is set out in [`docs/policies/TERMS.md`](docs/policies/TERMS.md).",
         ),
         LineEdit(
             "| **Product tiers / entitlements** |",
@@ -286,7 +276,7 @@ LINE_EDITS: dict[str, tuple[LineEdit, ...]] = {
     ".github/pull_request_template.md": (
         LineEdit(
             "for anything checked, state how the invariant is preserved (see CLAUDE.md /",
-            "for anything checked, state how the invariant is preserved (see CONTRIBUTING.md §3).",
+            "for anything checked, state how the invariant is preserved (see .github/CONTRIBUTING.md §3).",
         ),
         LineEdit(".claude/skills/semantic-context-lake/references/invariants.md).", None),
         LineEdit("## Docs & context-lake", "## Docs"),
@@ -303,7 +293,7 @@ LINE_EDITS: dict[str, tuple[LineEdit, ...]] = {
 #: ``(file, heading)`` sections dropped from the package: maintainer action
 #: items that are not policy and would only confuse a reader of the release.
 SECTION_DROPS: tuple[tuple[str, str], ...] = (
-    ("LICENSING.md", "## ⚖️ Legal note (please read before public release)"),
+    ("docs/policies/LICENSING.md", "## ⚖️ Legal note (please read before public release)"),
 )
 
 

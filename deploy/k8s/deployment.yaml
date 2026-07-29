@@ -26,7 +26,7 @@ metadata:
     app.kubernetes.io/name: mcpip
     app.kubernetes.io/component: gateway
 spec:
-  # Replica count is managed by the HPA (k8s/hpa.yaml, minReplicas: 2).
+  # Replica count is managed by the HPA (deploy/k8s/hpa.yaml, minReplicas: 2).
   selector:
     matchLabels:
       app.kubernetes.io/name: mcpip

@@ -1,7 +1,7 @@
 # ◐ MCPIP — Trademark & Naming Policy
 
 The **MCPIP** name and the **◐** mark identify this project and the software
-released by its maintainers. The source license ([`LICENSE`](LICENSE), Business
+released by its maintainers. The source license ([`LICENSE`](../../LICENSE), Business
 Source License 1.1) grants rights in the **code**. Like nearly every source
 license — Apache-2.0 included — it grants **no rights in the name or the mark**.
 This document says plainly what you may do with them, so that you do not have to
@@ -19,7 +19,7 @@ policy protects.
   descriptive (nominative) use is always fine.
 - **Redistribute the unmodified release** under its name, including mirrors,
   internal package registries, and air-gapped bundles. Keep the license,
-  [`NOTICES.md`](NOTICES.md), and the signed release artifacts intact.
+  [`docs/policies/NOTICES.md`](NOTICES.md), and the signed release artifacts intact.
 - **Write about it.** Documentation, talks, blog posts, courses, comparisons,
   and critical reviews may use the name. You do not need permission to say
   something negative about the project.
@@ -31,14 +31,14 @@ policy protects.
 ## What requires a different name
 
 - **A modified build distributed to others.** If you change behavior — in
-  particular anything in the [security invariants](README.md) — and ship it to
+  particular anything in the [security invariants](../../README.md) — and ship it to
   anyone else, ship it under your own name. You may state factually that it is
   "a fork of MCPIP" or "derived from MCPIP". This is the whole point of the
   policy: a third party must not be able to hand someone a weakened authorizer
   that presents itself as MCPIP.
 - **A hosted or managed service.** Note that offering the Licensed Work to third
   parties as a hosted authorization-gateway service is separately restricted by
-  the BSL Additional Use Grant (see [`LICENSING.md`](LICENSING.md)) until the
+  the BSL Additional Use Grant (see [`docs/policies/LICENSING.md`](LICENSING.md)) until the
   Change Date. Where such use is permitted, it must not be branded as MCPIP
   without written permission.
 - **Anything implying endorsement, affiliation, or certification.** "Official",
@@ -54,7 +54,7 @@ policy protects.
 Do not describe a deployment, fork, or derivative as **certified**, **audited**,
 or **compliant** on the strength of the MCPIP name. The project ships
 *evidence* — signed audit chains, a control cross-walk, a threat model — and is
-explicit that evidence is [not a certification](docs/operate/COMPLIANCE.md). Attributing
+explicit that evidence is [not a certification](../operate/COMPLIANCE.md). Attributing
 a certification to MCPIP misrepresents both the project and the mark.
 
 ## Requests and enforcement
@@ -71,5 +71,5 @@ marks, and nothing in this document is a waiver of them.
 ---
 
 *This policy governs the marks only. It does not narrow, widen, or reinterpret
-the rights granted by [`LICENSE`](LICENSE) — where the two could be read to
+the rights granted by [`LICENSE`](../../LICENSE) — where the two could be read to
 conflict, the license governs the code and this policy governs the name.*

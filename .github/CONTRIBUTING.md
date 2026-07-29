@@ -15,7 +15,7 @@ pull request.
 ## 0. Before anything else
 
 **Found a vulnerability? Do not open a pull request.** A public PR is a public
-disclosure. Report it privately per [`SECURITY.md`](SECURITY.md) and we will
+disclosure. Report it privately per [`SECURITY.md`](../SECURITY.md) and we will
 coordinate a fix and a release. This applies to anything that weakens
 authorization, identity, the payload lock, the audit chain, opacity, or the boot
 gates — including a fix you have already written.
@@ -79,7 +79,7 @@ review: no TODOs, no stubs, no partially implemented paths.
 
 ## 3. The security core — read this before editing it
 
-The [seven security invariants](README.md#security-invariants) are not
+The [seven security invariants](../README.md#security-invariants) are not
 guidelines. A change that weakens one will be rejected regardless of what else
 it improves. The paths below are the ones where an innocent-looking edit does
 the most damage:
@@ -118,7 +118,7 @@ the most damage:
 ### Changing anything hash-pinned or signed
 
 Release manifests and integrity manifests are signed offline by the maintainer
-([`RELEASE.md`](RELEASE.md)). If your change requires a re-sign, say so in the
+([`docs/operate/RELEASE.md`](../docs/operate/RELEASE.md)). If your change requires a re-sign, say so in the
 PR; do not fabricate a digest to make a check pass.
 
 ---
@@ -132,7 +132,7 @@ PR; do not fabricate a digest to make a check pass.
   bureaucracy — it asks what changed, what invariant it touches, and how it was
   verified.
 - **CODEOWNERS review is required** on the invariant-critical paths listed in
-  [`.github/CODEOWNERS`](.github/CODEOWNERS). Expect substantive review there.
+  [`.github/CODEOWNERS`](CODEOWNERS). Expect substantive review there.
 - **Keep the documentation with the code.** If you change the pipeline, an
   invariant, a limit, a configuration flag, or a development command, update the
   affected document in the *same* commit. A stale document about an authorizer
@@ -156,7 +156,7 @@ This adds `Signed-off-by: Your Name <you@example.com>`. There is no CLA.
 
 Contributions are accepted under the license covering the file you are changing:
 **BSL 1.1** for the gateway core, **Apache-2.0** for `sdk/python` and
-`sdk/typescript` ([`LICENSING.md`](LICENSING.md)). By submitting a contribution
+`sdk/typescript` ([`docs/policies/LICENSING.md`](../docs/policies/LICENSING.md)). By submitting a contribution
 you agree to license it accordingly and confirm you are able to do so.
 
 ---
@@ -195,11 +195,11 @@ bug worth reporting on its own.
 ## 7. Releases
 
 Cutting a release is a maintainer action involving offline signing keys and a
-documented ceremony ([`RELEASE.md`](RELEASE.md)). Contributors never need to
+documented ceremony ([`docs/operate/RELEASE.md`](../docs/operate/RELEASE.md)). Contributors never need to
 touch `release/`, `VERSION`, or the signed manifests — and PRs that do will be
 asked to drop those files.
 
 ---
 
 Questions that are not vulnerabilities: open a GitHub issue, or see
-[`SUPPORT.md`](SUPPORT.md).
+[`.github/SUPPORT.md`](SUPPORT.md).

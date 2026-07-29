@@ -20,7 +20,7 @@ Emits ONE in-toto Statement (``https://in-toto.io/Statement/v1``) whose
     and the ceremony byproducts (the signed release + integrity manifests).
 
 This tool signs NOTHING. SLSA/in-toto provenance is attested by the OWNER's
-offline cosign key as a separate, deliberate step (see ``RELEASE.md`` §"cosign
+offline cosign key as a separate, deliberate step (see ``docs/operate/RELEASE.md`` §"cosign
 attestation") — exactly like the release-root signing boundary. It never
 uploads, never pulls, never mutates a running gateway.
 
@@ -50,7 +50,7 @@ _STATEMENT_TYPE = "https://in-toto.io/Statement/v1"
 _PREDICATE_TYPE = "https://slsa.dev/provenance/v1"
 
 # The default buildType SCHEMA tag for the MCPIP offline release ceremony. It
-# names the *shape* of this build process (the ordered ceremony in RELEASE.md),
+# names the *shape* of this build process (the ordered ceremony in docs/operate/RELEASE.md),
 # NOT a signing identity or an authenticity claim — the owner may override it to
 # a URI they publish. The BUILDER IDENTITY (builder.id) is a separate, REQUIRED
 # argument and is deliberately never defaulted.

@@ -557,12 +557,12 @@ tampered license → the process will not start.
 
 ### Boot production (fail-closed, zero-hardcoded-secrets)
 
-Config + **paths** come from `.env.production` (copy `.env.production.example` — the only
+Config + **paths** come from `.env.production` (copy `deploy/.env.production.example` — the only
 committed `.env*`, containing zero secret values). Secret **material** is injected at
 deploy time from your secret store, never committed, never in the image:
 
 ```bash
-cp .env.production.example .env.production            # edit non-secret config + paths
+cp deploy/.env.production.example .env.production            # edit non-secret config + paths
 # In CI/CD, AFTER the secret store exports the *_PEM / *_JSON secrets:
 set -a; . ./.env.production; set +a
 scripts/deploy_hero.sh                                 # materializes secrets 0600 -> tmpfs,

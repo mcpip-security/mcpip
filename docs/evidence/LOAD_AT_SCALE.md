@@ -124,7 +124,7 @@ already done at four.
 
 Why this matters more than a throughput ceiling: MCPIP is fail-closed, so its own
 chart notes that losing the gateway "denies all agent actions"
-(`chart/values.yaml`). Availability is therefore a **security** property here, not
+(`deploy/chart/values.yaml`). Availability is therefore a **security** property here, not
 just an SLO. A well-meaning dashboard polling the attestation endpoint on a short
 interval degrades every agent in the estate.
 

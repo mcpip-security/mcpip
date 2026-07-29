@@ -370,7 +370,7 @@ class PersistencePosture:
     # ``noeviction`` is Redis's default (while ``maxmemory=0``), so it defaults here
     # too — an operator who sets ``maxmemory`` with an eviction policy could otherwise
     # silently evict WORM buffer / replay-lock keys, which the durability contract
-    # (and .env.production.example / GETTING_STARTED) forbid.
+    # (and deploy/.env.production.example / GETTING_STARTED) forbid.
     maxmemory_policy: str = "noeviction"
 
     @property

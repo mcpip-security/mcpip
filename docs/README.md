@@ -66,11 +66,11 @@ reproduced from an actual execution, including what each run did *not* prove.
 ---
 
 Repo-root docs also worth knowing: [`../README.md`](../README.md) (project overview),
-[`../SECURITY.md`](../SECURITY.md) + [`../SECURITY_THREAT_MODEL.md`](../SECURITY_THREAT_MODEL.md)
-(adversary model + ASI coverage), [`../LICENSING.md`](../LICENSING.md) (BSL core / Apache
-SDKs), [`../RELEASE.md`](../RELEASE.md) (release ceremony), and [`../CHANGELOG.md`](../CHANGELOG.md).
+[`../SECURITY.md`](../SECURITY.md) + [`../docs/SECURITY_THREAT_MODEL.md`](../docs/SECURITY_THREAT_MODEL.md)
+(adversary model + ASI coverage), [`../docs/policies/LICENSING.md`](../docs/policies/LICENSING.md) (BSL core / Apache
+SDKs), [`../docs/operate/RELEASE.md`](../docs/operate/RELEASE.md) (release ceremony), and [`../CHANGELOG.md`](../CHANGELOG.md).
 
-Project policies: [`../TERMS.md`](../TERMS.md) (terms of use) ·
-[`../PRIVACY.md`](../PRIVACY.md) (data handling) · [`../TRADEMARK.md`](../TRADEMARK.md)
-(name & mark) · [`../CONTRIBUTING.md`](../CONTRIBUTING.md) ·
-[`../CODE_OF_CONDUCT.md`](../CODE_OF_CONDUCT.md).
+Project policies: [`../docs/policies/TERMS.md`](../docs/policies/TERMS.md) (terms of use) ·
+[`../docs/policies/PRIVACY.md`](../docs/policies/PRIVACY.md) (data handling) · [`../docs/policies/TRADEMARK.md`](../docs/policies/TRADEMARK.md)
+(name & mark) · [`../.github/CONTRIBUTING.md`](../.github/CONTRIBUTING.md) ·
+[`../.github/CODE_OF_CONDUCT.md`](../.github/CODE_OF_CONDUCT.md).

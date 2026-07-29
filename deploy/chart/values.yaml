@@ -1,5 +1,5 @@
 # =============================================================================
-# MCPIP gateway chart values.
+# MCPIP gateway deploy/chart values.
 #
 # SECURITY INVARIANTS (do not weaken):
 #   * The chart NEVER creates or embeds secret material. All key/license data
@@ -82,7 +82,7 @@ redis:
   #      permits egress to the managed endpoint on redis.external.port.
   external:
     enabled: false
-    # Pre-created Secret holding the connection URL (never rendered by this chart).
+    # Pre-created Secret holding the connection URL (never rendered by this deploy/chart).
     existingSecret: ""
     # Key within existingSecret whose value is the rediss://... / redis://... URL.
     secretKey: "MCPIP_REDIS_URL"

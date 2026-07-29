@@ -9,7 +9,7 @@
 # (not merely a verification package): the signed release manifest, detached
 # signature, PUBLIC keys (release-root AND license-root) + rotation manifest, the
 # source artifacts, an optional loadable container image tar, a vendored runtime
-# wheelhouse, the deploy assets (chart/ + k8s/ + redis.conf), the SBOM,
+# wheelhouse, the deploy assets (deploy/chart/ + deploy/k8s/ + deploy/redis.conf), the SBOM,
 # SHA256SUMS, and the offline install+boot runbook. Verification inside the
 # enclave needs NO network — trust anchors on the out-of-band public-key
 # fingerprint. Every source artifact is re-verified against the SIGNED manifest
@@ -122,17 +122,17 @@ PYEOF
 #     in the enclave (the appendfsync=always / noeviction Redis StatefulSet, the
 #     Helm chart, and the raw redis.conf). Copied under deploy/.
 for d in chart k8s; do
-    if [[ -d "$REPO_ROOT/$d" ]]; then
+    if [[ -d "$REPO_ROOT/deploy/$d" ]]; then
         rm -rf "$STAGE/deploy/$d"
-        cp -R "$REPO_ROOT/$d" "$STAGE/deploy/$d"
+        cp -R "$REPO_ROOT/deploy/$d" "$STAGE/deploy/$d"
     else
-        echo "NOTE: $d/ absent — not bundled under deploy/." >&2
+        echo "NOTE: deploy/$d/ absent — not bundled under deploy/." >&2
     fi
 done
-if [[ -f "$REPO_ROOT/redis.conf" ]]; then
-    cp "$REPO_ROOT/redis.conf" "$STAGE/deploy/redis.conf"
+if [[ -f "$REPO_ROOT/deploy/redis.conf" ]]; then
+    cp "$REPO_ROOT/deploy/redis.conf" "$STAGE/deploy/redis.conf"
 else
-    echo "NOTE: redis.conf absent — durable-Redis profile not bundled under deploy/." >&2
+    echo "NOTE: deploy/redis.conf absent — durable-Redis profile not bundled under deploy/." >&2
 fi
 
 # ---- 3. Container image: `docker save` into a loadable tar when possible.
@@ -507,7 +507,7 @@ The AOF must sit on a DURABLE volume (never tmpfs).
 
 ### 4e. The MCPIP_* boot environment
 
-Copy `.env.production.example` from the release and fill in the paths. The full
+Copy `deploy/.env.production.example` from the release and fill in the paths. The full
 production boot set (all `MCPIP_`-prefixed; the six starred are REQUIRED in
 production — a missing one fails boot closed):
 

@@ -12,7 +12,7 @@ __pycache__/
 # --- Secrets / key material ---
 .env
 .env.*
-!.env.production.example
+!deploy/.env.production.example
 # Console build-EDITION profiles are NON-secret public compile flags
 # (VITE_MCPIP_EDITION only) — committed so staging/production builds are
 # reproducible from a fresh clone / CI. NEVER put a secret in these files.

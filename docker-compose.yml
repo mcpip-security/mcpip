@@ -32,7 +32,7 @@ services:
     container_name: mcpip-v2-redis
     # WORM durability (write-before-execute) REQUIRES AOF with appendfsync=always so the
     # audit buffer XADD is fsync-durable before /v1/authorize returns. That posture is
-    # shipped in redis.conf (mounted read-only below) and ASSERTED at gateway boot — a
+    # shipped in deploy/redis.conf (mounted read-only below) and ASSERTED at gateway boot — a
     # non-sandbox gateway refuses to start against a Redis that is not durably persisted.
     command: ["redis-server", "/etc/redis/redis.conf"]
     restart: unless-stopped
@@ -45,7 +45,7 @@ services:
     read_only: true
     volumes:
       # The required durability profile, read-only.
-      - ./redis.conf:/etc/redis/redis.conf:ro
+      - ./deploy/redis.conf:/etc/redis/redis.conf:ro
       # Durable AOF must live on a real volume (NOT tmpfs) to survive a crash/restart.
       - redis-data:/data
     healthcheck:

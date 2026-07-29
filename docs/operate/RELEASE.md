@@ -66,9 +66,9 @@ running this ceremony:
 
 Run from the repo root, in this exact order. `<version>` is whatever the `VERSION` file
 holds (strict `MAJOR.MINOR.PATCH`) — bump `VERSION` **first**, in the same commit as the
-`CHANGELOG.md` release section and the lockstep version stamps (`chart/Chart.yaml`
+`CHANGELOG.md` release section and the lockstep version stamps (`deploy/chart/Chart.yaml`
 `version`/`appVersion`, README version badge, the `mcpip-gateway:<version>` image tag
-example in `k8s/deployment.yaml`).
+example in `deploy/k8s/deployment.yaml`).
 
 ```bash
 # 0) ONE-TIME (per keyset): mint the two offline roots.
@@ -204,8 +204,8 @@ Verification is pure local cryptography — no network, no TLS dependency.
 ```
 
 **Deploy by image digest, never by tag.** Pin the immutable
-`mcpip-gateway@sha256:<hex>` digest recorded from step 6 into `k8s/deployment.yaml` /
-`chart/values.yaml`; the `:<version>` tag is a human label only. The running gateway
+`mcpip-gateway@sha256:<hex>` digest recorded from step 6 into `deploy/k8s/deployment.yaml` /
+`deploy/chart/values.yaml`; the `:<version>` tag is a human label only. The running gateway
 then re-proves its own source set at every boot (§3), so a digest-pinned deploy is
 end-to-end verifiable: signed artifacts → signed source → self-checking boot.
 

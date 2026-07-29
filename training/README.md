@@ -66,7 +66,7 @@ doesn't change the air-gap or legal posture of what you ship.
 `Qwen/Qwen2.5-1.5B-Instruct` is Apache-2.0 — clean to fine-tune **and redistribute**, with
 none of the Llama Community License strings (naming, attribution, acceptable-use, MAU
 clause). Since you'll ship the fine-tuned model to customers, that removes the license
-question instead of managing it. See `NOTICES.md` for the full legal posture.
+question instead of managing it. See `docs/policies/NOTICES.md` for the full legal posture.
 
 ## Turnkey (part of the app)
 

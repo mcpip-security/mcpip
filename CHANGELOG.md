@@ -90,7 +90,7 @@ surfaces, and the A2A choke-point connector) behind one release version.
 > epoch-header signed bytes, and the `{EdDSA, RS256}` alg gate are all byte-for-byte
 > unchanged. By strict SemVer that is a MINOR bump (2.2.0). The owner has deliberately
 > chosen **3.0.0** as the GA marketing milestone; there is **no** removed/renamed API and
-> **no** breaking change. See `RELEASE.md` for the matching note.
+> **no** breaking change. See `docs/operate/RELEASE.md` for the matching note.
 
 ### Added
 
@@ -273,8 +273,8 @@ surfaces, and the A2A choke-point connector) behind one release version.
   defaulted/fabricated) + invocation metadata + the signed release/integrity manifests as byproducts. Honest
   fail-closed: an absent/unreadable manifest, an empty subject set, or a missing pinned input is a hard error.
   **The generator SIGNS NOTHING** — cosign attestation with the owner's offline key is a separate, deliberate
-  OWNER action (`RELEASE.md §6`), exactly like the release-root / license-root signing boundary; the predicate
-  is gitignored and never committed. Ceremony + `RELEASE.md` step order updated (provenance runs AFTER the
+  OWNER action (`docs/operate/RELEASE.md §6`), exactly like the release-root / license-root signing boundary; the predicate
+  is gitignored and never committed. Ceremony + `docs/operate/RELEASE.md` step order updated (provenance runs AFTER the
   integrity manifest, writing only to `release/` so it doesn't perturb the hashed source set).
 - **REAL WORM-emit throughput benchmark** — `scripts/bench_worm_emit.py` drives the actual
   `WormLogger.emit` (the SAME atomic `INCR`+`XADD` Lua / `_redact` / leaf hashing — `audit/worm_logger.py`
@@ -543,7 +543,7 @@ surfaces, and the A2A choke-point connector) behind one release version.
   — the production analog of the sandbox `/v1/dev/token`: signs an EdDSA principal
   JWT scoping an agent to a tenant + capability/compartment entitlements (the exact
   claim shape the gateway verifies; `role` authorizes nothing), short-TTL, with
-  optional `cnf.jkt` sender-constraint / `act.sub` delegation. `.env.production.example`
+  optional `cnf.jkt` sender-constraint / `act.sub` delegation. `deploy/.env.production.example`
   (paths only, zero secrets — the sole committed `.env*` variant) + `scripts/deploy_hero.sh`
   (materializes secrets from the store `0600` onto tmpfs, scrubs, execs fail-closed).
   Regression-gated by `tests/test_provisioning.py` (ceremony → mint → verify → tamper,
@@ -675,7 +675,7 @@ surfaces, and the A2A choke-point connector) behind one release version.
   - Prometheus `/metrics` endpoint with closed-set labels only (no tenant,
     alias, capability, correlation, or JWT material) and structured JSON
     logging.
-  - Helm chart (`chart/`) and plain Kubernetes manifests (`k8s/`):
+  - Helm chart (`deploy/chart/`) and plain Kubernetes manifests (`deploy/k8s/`):
     digest-pinned images, non-root, read-only rootfs, default-deny
     NetworkPolicy, HPA.
 

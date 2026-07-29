@@ -9,7 +9,7 @@ job: state plainly the conditions on which the software is made available, and
 where the boundary of the maintainers' responsibility sits.
 
 **The license text controls.** Where anything here could be read to conflict with
-[`LICENSE`](LICENSE) (Business Source License 1.1) or with the Apache-2.0 license
+[`LICENSE`](../../LICENSE) (Business Source License 1.1) or with the Apache-2.0 license
 covering the SDKs, **the license governs**. These terms neither widen nor narrow
 the rights granted there.
 
@@ -19,12 +19,12 @@ the rights granted there.
 
 | Component | License | In plain terms |
 |---|---|---|
-| Gateway core — everything except `sdk/` | **BSL 1.1** ([`LICENSE`](LICENSE)) | Read it, audit it, modify it, self-host it, and run it in production for your own or your organization's purposes. You may **not** offer it to third parties as a hosted or managed authorization-gateway service. Converts to **Apache-2.0** on the Change Date (**2030-07-16**). |
+| Gateway core — everything except `sdk/` | **BSL 1.1** ([`LICENSE`](../../LICENSE)) | Read it, audit it, modify it, self-host it, and run it in production for your own or your organization's purposes. You may **not** offer it to third parties as a hosted or managed authorization-gateway service. Converts to **Apache-2.0** on the Change Date (**2030-07-16**). |
 | Client SDKs — `sdk/python`, `sdk/typescript` | **Apache-2.0** | Permissive on purpose. Integrating an agent should carry zero license friction. |
 | Enterprise entitlements | Commercial | Certain features are gated by an Ed25519-signed entitlement document verified **at boot only** — never per request. |
 
-The full map and rationale: [`LICENSING.md`](LICENSING.md). The name and mark are
-governed separately by [`TRADEMARK.md`](TRADEMARK.md); no trademark rights are
+The full map and rationale: [`docs/policies/LICENSING.md`](LICENSING.md). The name and mark are
+governed separately by [`docs/policies/TRADEMARK.md`](TRADEMARK.md); no trademark rights are
 granted by the source license.
 
 **On terminology:** BSL 1.1 is **source-available**, not an OSI-approved open
@@ -38,7 +38,7 @@ If you hold a commercial entitlement:
 
 - It is verified **offline**, at process boot, against a pinned signing root. No
   network call is required to run MCPIP, and none is made unless you explicitly
-  configure the optional refresh ([`PRIVACY.md`](PRIVACY.md) §5).
+  configure the optional refresh ([`docs/policies/PRIVACY.md`](PRIVACY.md) §5).
 - Licensing gates **boot**, never an authorization decision. An expiring
   entitlement can never silently change what your gateway allows or denies.
 - Air-gapped deployment is a first-class, supported path. Entitlement documents
@@ -60,14 +60,14 @@ authorized to govern. Specifically, you agree not to use MCPIP:
   monitoring controls;
 - to construct a deceptive audit record — including operating a modified build
   that presents itself as MCPIP while altering the fail-closed, opaque, or
-  write-before-execute behavior (see [`TRADEMARK.md`](TRADEMARK.md));
+  write-before-execute behavior (see [`docs/policies/TRADEMARK.md`](TRADEMARK.md));
 - in violation of applicable law, including export control and sanctions
   regimes. You are responsible for determining whether your deployment,
   redistribution, or re-export is permitted from and to your jurisdictions.
 
 Security research on your **own** deployment is welcome and needs no permission.
 Findings that affect the software itself go through
-[`SECURITY.md`](SECURITY.md), privately, before publication.
+[`SECURITY.md`](../../SECURITY.md), privately, before publication.
 
 ---
 
@@ -87,15 +87,15 @@ are responsible for:
 - **Non-bypassability** — MCPIP authorizes the calls that reach it. If an agent
   retains a network path around the gateway, or holds a standing credential to
   the downstream system, the control is bypassed. Network enforcement is a
-  deployment responsibility; [`docs/operate/OPERATIONS.md`](docs/operate/OPERATIONS.md) ships
+  deployment responsibility; [`docs/operate/OPERATIONS.md`](../operate/OPERATIONS.md) ships
   the manifests.
 - **Configuration** — which skills exist, which are auto-allowed vs. step-up
   gated, who holds which capability, and what your retention window is.
 - **Verification** — verifying signed releases before deployment
-  ([`RELEASE.md`](RELEASE.md), `mcpip verify`).
+  ([`docs/operate/RELEASE.md`](../operate/RELEASE.md), `mcpip verify`).
 
 The project documents its residual risks rather than hiding them:
-[`SECURITY_THREAT_MODEL.md`](SECURITY_THREAT_MODEL.md) states what MCPIP does
+[`docs/SECURITY_THREAT_MODEL.md`](../SECURITY_THREAT_MODEL.md) states what MCPIP does
 **not** defend against, including areas that are out of scope by design.
 
 ---
@@ -108,7 +108,7 @@ certification. Nothing in this repository is a SOC 2 report, an audit opinion, a
 FedRAMP authorization, or a regulatory approval; those can only be issued by
 independent qualified third parties, about **your** organization, after an
 examination. Deploying MCPIP does not make you compliant with anything. See
-[`docs/operate/COMPLIANCE.md`](docs/operate/COMPLIANCE.md), which says the same thing at length.
+[`docs/operate/COMPLIANCE.md`](../operate/COMPLIANCE.md), which says the same thing at length.
 
 ---
 
@@ -116,7 +116,7 @@ examination. Deploying MCPIP does not make you compliant with anything. See
 
 The software is provided **"AS IS", without warranty of any kind**, express or
 implied, including the warranties of merchantability, fitness for a particular
-purpose, title, and non-infringement, as stated in [`LICENSE`](LICENSE).
+purpose, title, and non-infringement, as stated in [`LICENSE`](../../LICENSE).
 
 To the maximum extent permitted by applicable law, the maintainers and
 contributors are **not liable** for any claim, damages, or other liability —
@@ -136,7 +136,7 @@ Nothing in this section limits any liability that cannot lawfully be limited.
 ## 7. Third-party components
 
 MCPIP incorporates third-party open source components under their own licenses;
-attributions and license texts are in [`NOTICES.md`](NOTICES.md) and the SBOM
+attributions and license texts are in [`docs/policies/NOTICES.md`](NOTICES.md) and the SBOM
 shipped with each signed release. Your use of those components is governed by
 their respective licenses.
 
@@ -145,7 +145,7 @@ their respective licenses.
 ## 8. Contributions
 
 Contributions are accepted under the terms in
-[`CONTRIBUTING.md`](CONTRIBUTING.md). In summary: you contribute under the
+[`.github/CONTRIBUTING.md`](../../.github/CONTRIBUTING.md). In summary: you contribute under the
 license covering the file you are changing, and you certify (via a
 `Signed-off-by` line, the Developer Certificate of Origin) that you have the
 right to do so.
@@ -155,7 +155,7 @@ right to do so.
 ## 9. Changes
 
 These terms are versioned in the repository and change only by commit. Material
-changes are recorded in [`CHANGELOG.md`](CHANGELOG.md) with the release that
+changes are recorded in [`CHANGELOG.md`](../../CHANGELOG.md) with the release that
 carries them. A release you have already deployed is governed by the terms
 shipped in it — the maintainers cannot alter the terms of software already in
 your possession.
@@ -164,8 +164,8 @@ your possession.
 
 ## 10. Contact
 
-- **Vulnerabilities:** [`SECURITY.md`](SECURITY.md) — privately, always.
+- **Vulnerabilities:** [`SECURITY.md`](../../SECURITY.md) — privately, always.
 - **Licensing, entitlements, trademark:** open a GitHub issue with a
   `licensing:` / `trademark:` prefix, or use the private channel on the
   repository profile.
-- **Everything else:** [`SUPPORT.md`](SUPPORT.md).
+- **Everything else:** [`.github/SUPPORT.md`](../../.github/SUPPORT.md).

@@ -11,7 +11,7 @@
 # direct call never touches the WORM log. L3/L4 default-deny converts that
 # choice into a network impossibility.
 #
-# The asymmetry this closes: k8s/networkpolicy.yaml locks the GATEWAY's egress
+# The asymmetry this closes: deploy/k8s/networkpolicy.yaml locks the GATEWAY's egress
 # (it may reach only Redis + DNS — no phone-home), but nothing today locks the
 # AGENT's reach. This template is the mirror image: it locks the agent pods so
 # their ONLY permitted egress is (a) cluster DNS and (b) the MCPIP gateway
@@ -120,8 +120,8 @@ spec:
     # the agent's only non-DNS egress is to MCPIP's gateway pods on 8080. Every
     # tool call must therefore traverse the gate (normalize → obfuscate → authz
     # → WORM-before-execute); a direct call to a real proxy target has no route.
-    # Selected by the gateway's own pod labels (from k8s/service.yaml /
-    # k8s/deployment.yaml) inside the `mcpip` namespace. If your gateway runs in
+    # Selected by the gateway's own pod labels (from deploy/k8s/service.yaml /
+    # deploy/k8s/deployment.yaml) inside the `mcpip` namespace. If your gateway runs in
     # a namespace other than `mcpip`, change the namespaceSelector label value.
     # -----------------------------------------------------------------------
     - to:

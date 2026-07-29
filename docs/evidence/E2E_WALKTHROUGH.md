@@ -713,7 +713,7 @@ an auditor's determination, not software's. See
   the on-demand attestation endpoint, which runs the same `verify_chain`.
 - **Signed release verification.** The gateway reported
   `ReleaseProvenance(version='2.0.0', verified=False)` — this build was not
-  produced by the signed release ceremony in `RELEASE.md`.
+  produced by the signed release ceremony in `docs/operate/RELEASE.md`.
 - **Real R2.** `r2_buckets_list` returned `Please enable R2 through the Cloudflare
   Dashboard`, so the Cloudflare execution in §8 used D1 instead.
 

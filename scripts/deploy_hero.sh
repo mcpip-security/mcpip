@@ -7,7 +7,7 @@
 # k8s Secret) — NEVER hardcoded, NEVER committed. This script materializes each into
 # a 0600 file on a tmpfs, points the gateway's MCPIP_*_PATH vars at it, scrubs the
 # in-memory copies, then execs the gateway. Non-sensitive config + paths come from
-# .env.production (see .env.production.example).
+# .env.production (see deploy/.env.production.example).
 #
 # Required secret env vars (injected by the secret store, masked in logs):
 #   MCPIP_WORM_SIGNING_KEY_PEM   - Ed25519 PKCS8 PEM (WORM epoch signer, PRIVATE)

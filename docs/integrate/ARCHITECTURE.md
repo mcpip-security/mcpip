@@ -545,7 +545,7 @@ stronger where it bites.
 **7.4 Explicitly RESIST building a per-identity behavioral-anomaly detector.** The tempting "fix" for
 ASI06/ASI07 is an in-agent, per-identity behavioral / probabilistic anomaly detector. **Do not build
 it.** It forfeits the deterministic-gate identity that *is* the moat and drifts MCPIP onto the
-commoditizing model-guardrail turf it deliberately avoids (the internal strategy notes, `SECURITY_THREAT_MODEL.md §17`). **"The fox can't guard the henhouse"** —
+commoditizing model-guardrail turf it deliberately avoids (the internal strategy notes, `docs/SECURITY_THREAT_MODEL.md §17`). **"The fox can't guard the henhouse"** —
 a probabilistic detector that lives inside, and reasons about, the very agent it is meant to police is
 not an independent authorizer; the authorizer must stay independent of the thing it authorizes. An
 honest "out-of-scope-by-design, here is the damage limit" is worth more than a detector that manufactures
