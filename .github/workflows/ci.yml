@@ -31,7 +31,7 @@ jobs:
           --health-timeout 3s
           --health-retries 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -47,7 +47,7 @@ jobs:
     name: Supply-chain (CVE scan + manifest drift)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -81,7 +81,7 @@ jobs:
     name: Deploy manifests (kubeconform + helm)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # Schema validation of the raw manifests. `-strict` rejects unknown fields,
       # which is the half that matters: a typo'd key is otherwise accepted and
       # silently ignored by the API server. CRDs (PrometheusRule) have no schema
@@ -114,7 +114,7 @@ jobs:
     name: Console + TS SDK builds
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with:
           node-version: 20
