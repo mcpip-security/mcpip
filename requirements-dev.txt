@@ -7,4 +7,4 @@ pytest>=8.3,<9
 mypy==1.13.0
 # Release tooling (build-time only — NEVER in requirements.txt or the image):
 build>=1.2,<2
-cyclonedx-bom>=4.6,<6
+cyclonedx-bom>=7.3.1,<8
