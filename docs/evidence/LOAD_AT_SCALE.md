@@ -137,6 +137,79 @@ moves when an epoch seals), a dedicated concurrency budget for the admin plane s
 it cannot consume the hot path's, or serving attestation from a replica. Not
 implemented here — this document reports the measurement, not a fix.
 
+## Cost per step, by client type
+
+### MCPIP's own token cost is zero
+
+Not "low" — **zero**, and structurally so. The gateway makes no model call anywhere
+in the authorization path, and it cannot: `requirements.txt` is
+
+```
+pydantic · redis · PyJWT · cryptography · httpx · fastapi · uvicorn ·
+pydantic-settings · prometheus-client
+```
+
+There is no inference library to call one with. `services/workspace_plan.py` and
+`/v1/admin/workspace/draft` are deterministic heuristics, documented inference-free,
+and the optional drafting model is client-side and not wired into a console panel
+(see [`LOCAL_MODEL.md`](../integrate/LOCAL_MODEL.md)).
+
+This is worth stating plainly because the obvious alternative — an LLM-based
+guardrail that reads each tool call and judges it — has a per-decision token bill,
+a per-decision latency floor set by a model, and a non-deterministic verdict. MCPIP
+has none of the three. Its decisions cost CPU and one fsync, and are reproducible.
+
+### What a governed call costs the *calling agent*
+
+There is a real token cost, but it lands in the **caller's** context window, not in
+MCPIP. Measured exactly (bytes are ground truth; tokens estimated at 4 bytes/token,
+the standard `cl100k` rule of thumb — JSON tokenizes somewhat worse than prose, so
+treat the token columns as a floor):
+
+| client type | step | HTTP | req B | resp B | ~in tok | ~out tok | ms |
+|---|---|---:|---:|---:|---:|---:|---:|
+| agent | authorize · allow | 200 | 152 | 234 | 38 | 59 | 13.0 |
+| agent | authorize · staged | 403 | 172 | 96 | 43 | 24 | 8.7 |
+| agent | authorize · deny | 403 | 153 | 96 | 39 | 24 | 15.6 |
+| developer | `POST /v1/mcp` tools/list | 200 | 51 | 660 | 13 | 165 | 4.4 |
+| developer | `GET /v1/catalog` | 200 | 0 | 748 | 0 | 187 | 2.2 |
+| pdp | authz decision | 200 | 150 | 17 | 38 | 5 | 4.9 |
+| operator | decisions/recent (25) | 200 | 0 | 10,731 | 0 | 2,683 | 84.0 |
+| operator | admin/stats | 200 | 0 | 1,107 | 0 | 277 | 3.7 |
+| auditor | audit/attestation | 200 | 0 | 560 | 0 | 140 | 526.3 |
+
+**A governed call costs an agent ~97 tokens round-trip** (38 in + 59 out). For
+comparison, that is smaller than most tool *results* the call would return.
+
+**The opaque deny is also a cost control.** A denied call is 63 tokens and the tool
+never runs — versus executing it and pulling the result into context. The opacity
+that exists as a security property (no reason, no target, no topology) turns out to
+be the cheapest possible response: 96 bytes. Denying early saves the caller both the
+execution and the context it would have consumed.
+
+The PDP verdict is the cheapest surface on the gateway at **5 output tokens**
+(`{"decision":true}`) — sensible for a PEP that already knows what it wants to do
+and only needs a yes/no.
+
+The expensive row is `decisions/recent?limit=25` at **~2,683 tokens**. That is a
+human/dashboard surface and never touches agent context — but if you ever hand an
+agent `CAP_DIRECTORY_ADMIN` and let it poll the decision feed, that is what each
+poll costs it. Page it or filter it; do not put it in a loop.
+
+### The costs that are real
+
+| cost | per what | measured |
+|---|---|---|
+| tokens (MCPIP itself) | any decision | **0** — no model, no inference dependency |
+| tokens (caller's context) | governed call | ~97 allow / ~63 deny |
+| CPU + latency | authorize | 8.2 ms p50 unloaded, 35–49 ms under load |
+| fsync | **every allow** | one durable ledger write *before* the allow returns |
+| storage | every decision | one WORM record, retained indefinitely by design |
+
+The fsync is the floor on per-worker throughput and it is deliberate — it is the
+write-before-execute contract. Buy throughput with workers and Redis, never by
+weakening it.
+
 ## Two corrections this exercise produced
 
 **`/v1/audit/attestation` is `CAP_DIRECTORY_ADMIN`-gated, not `CAP_FORENSIC_READ`.**
@@ -153,6 +226,38 @@ for an unregistered alias, and a request that never gets answered reports status
 failing an equality-to-403 check — scoring a **fail-closed** outcome as a
 **fail-open** one. The invariant now asserts `status !== 200` (never allowed); whether
 a `403` came back is a separate liveness check.
+
+## Is this ready for scale?
+
+Qualified yes, and the qualifications matter more than the yes.
+
+**What holds up.** Correctness never bent: across every run, at every rate,
+including past the knee, not one safety invariant broke. Back-pressure is real and
+clean — 503 + `Retry-After`, no timeouts, no refused connections. Attribution stays
+per-identity under concurrency. The architecture scales the right way: workers are
+stateless, state is in Redis, so horizontal scaling is adding workers rather than
+redesigning anything. And the per-decision cost is CPU and one fsync, not a model
+call — so cost scales linearly and predictably with traffic, which is not true of an
+LLM-based guardrail.
+
+**What blocks "point it at production and forget it".**
+
+1. **The attestation amplification.** Four concurrent readers degrade the hot path
+   32×. Until that has a cache, a separate concurrency budget, or a replica, someone
+   *will* wire a dashboard to it and slow every agent in the estate. This is the one
+   I would fix before scaling, not after.
+2. **Every number here is single-worker loopback.** They establish shape and
+   direction, not capacity. A real plan needs `--workers N` behind a load balancer,
+   HA Redis holding `appendfsync always`, and measurement on your own network — the
+   fsync cost changes completely when Redis is a network hop away.
+3. **Untested at scale here:** cross-tenant isolation, step-up completion under load
+   (needs an out-of-band OTP sink), and WORM growth over time. The ledger is retained
+   indefinitely by design, so ledger size and `verify_chain` cost both grow with
+   history — and `verify_chain` is already the slowest thing on the box.
+
+The honest summary: the *design* scales and the *safety properties* hold under
+pressure. The deployment story needs the attestation fix and a real multi-worker
+measurement before anyone should quote a capacity number.
 
 ## Honest limits
 
