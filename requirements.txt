@@ -6,7 +6,7 @@ cryptography>=42.0
 # boot (auth/jwks_refresher, services/authn_channel, external_pdp, license_refresh,
 # telemetry). It is NOT pulled in transitively by fastapi/starlette at runtime, so it
 # must be a first-class runtime dependency — without it the gateway fails to import.
-httpx>=0.27,<1
+httpx>=0.28.1,<1
 fastapi>=0.111,<1
 uvicorn[standard]>=0.30,<1
 pydantic-settings>=2.2,<3
