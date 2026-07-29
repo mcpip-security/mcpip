@@ -321,7 +321,16 @@ def test_operator_runtime_registration_route(client: TestClient) -> None:
     An operator (CAP_DIRECTORY_ADMIN) registers a NEW governed egress alias at runtime via
     ``POST /v1/admin/skills/register`` (cloud_rest + pin_required), then it enforces the SAME
     payload-binding + OTP guarantees as the shipped row. A second register of the same alias is
-    an opaque additive-only deny (never repoint).
+    refused additive-only (never repoint).
+
+    NOTE — deliberate contract change. This refusal used to be an opaque 403, like every
+    agent-facing denial. It is now a concrete ``409 {"error": "alias_exists", ...}``. The
+    route is ``CAP_DIRECTORY_ADMIN``-gated and that caller can already enumerate the whole
+    catalog, so naming the conflict discloses nothing it could not already read — while an
+    operator who cannot tell "already registered" from "refused" learns to ignore the
+    refusal, which is how a real denial gets missed. The INVARIANT is untouched: the
+    existing binding is never repointed, and every AGENT-facing surface stays opaque
+    (asserted below via ``_assert_opaque_denial`` on the tampered egress).
     """
     admin = _admin_token(client)
     alias = "skill_notify_send"
@@ -339,7 +348,8 @@ def test_operator_runtime_registration_route(client: TestClient) -> None:
     assert registered.status_code == 200, registered.text
     assert _json(registered)["registered"] == alias
 
-    # Additive-only: a second register of the same alias is refused opaquely (never repoint).
+    # Additive-only: a second register of the same alias is refused (never repoint). The
+    # operator gets a concrete reason; the binding is unchanged.
     dup = client.post(
         "/v1/admin/skills/register",
         json={
@@ -350,7 +360,11 @@ def test_operator_runtime_registration_route(client: TestClient) -> None:
         },
         headers={"Authorization": f"Bearer {admin}"},
     )
-    _assert_opaque_denial(dup)
+    assert dup.status_code == 409, dup.text
+    assert _json(dup)["error"] == "alias_exists"
+    # The refusal must not leak the ATTACKER's proposed target back to the caller — the
+    # response names the alias in conflict, never the target it tried to repoint to.
+    assert "attacker" not in dup.text
 
     # The runtime-registered alias governs egress identically: bind → tamper-deny → OTP-gated allow.
     token = _dev_token(client, agent_id="agent-gov-runtime")

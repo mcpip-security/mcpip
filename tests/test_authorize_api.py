@@ -1323,14 +1323,23 @@ def test_register_skill_makes_it_authorizable_then_deregister(client: TestClient
 
 
 def test_register_skill_cannot_shadow_config_alias(client: TestClient, idp: _DemoIdP) -> None:
-    """Registration NEVER overrides a config alias — an existing name is opaque-denied."""
+    """Registration NEVER overrides a config alias.
+
+    The refusal is a concrete 409 for the operator (this route is CAP_DIRECTORY_ADMIN-gated
+    and that caller can already enumerate the catalog, so naming the collision discloses
+    nothing). The INVARIANT is what matters and is asserted below: the config alias still
+    resolves to its own untouched target, and the attacker's proposed target is never
+    echoed back.
+    """
     admin = _admin(idp)
     resp = client.post(
         "/v1/admin/skills/register",
         json={"alias": _AUTO_ALIAS, "target": "rest.evil.example"},
         headers={"Authorization": f"Bearer {admin}"},
     )
-    assert resp.status_code == 403
+    assert resp.status_code == 409, resp.text
+    assert resp.json()["error"] == "alias_exists"
+    assert "evil" not in resp.text
     # And the config alias still resolves to its real (untouched) target.
     assert _post(client, alias=_AUTO_ALIAS, arguments={"period": "x"}, token=idp.mint()).status_code == 200
 

@@ -37,6 +37,7 @@ import re
 import secrets
 import sys
 import time
+import urllib.parse
 import uuid
 from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass
@@ -5666,6 +5667,122 @@ def _overlay_skill_invalid(alias: str, target: str, risk_tier: str, classificati
     )
 
 
+#: Risk tiers ordered weakest → strongest. A registration may never bind a target to a
+#: WEAKER tier than one it already resolves at (see ``_target_posture_conflict``).
+_RISK_RANK: Final[dict[str, int]] = {"auto": 0, "pin_required": 1}
+#: Classifications ordered likewise; ``restricted`` already implies ``pin_required``.
+_CLASSIFICATION_RANK: Final[dict[str, int]] = {"unclassified": 0, "restricted": 1}
+
+
+def _canonical_target(target: str) -> str:
+    """
+    Canonical form of a target, for POSTURE-COLLISION comparison only.
+
+    Never used to route or to build a request — only to decide whether two alias
+    registrations denote the SAME underlying resource. It therefore normalizes the
+    ways two operators can write one URL without changing what it addresses:
+    scheme/host case, the default port, a trailing slash, percent-encoding case, and
+    ``{placeholder}`` path segments (``/{account_id}/`` and ``/{acct}/`` address the
+    same operation with a different template variable name).
+
+    Deliberately conservative: when the shape is not recognizable as a URL the raw
+    string is returned casefolded, so an unparseable target still collides with an
+    identical unparseable target rather than silently comparing unequal.
+    """
+    raw = target.strip()
+    try:
+        parsed = urllib.parse.urlsplit(raw)
+    except ValueError:
+        return raw.casefold()
+    if not parsed.scheme or not parsed.netloc:
+        return raw.casefold()
+    scheme = parsed.scheme.lower()
+    host = parsed.hostname or ""
+    port = parsed.port
+    if (scheme == "https" and port == 443) or (scheme == "http" and port == 80):
+        port = None
+    netloc = host.lower() + (f":{port}" if port else "")
+    # Collapse every {placeholder} segment to a single sentinel: the variable's NAME is
+    # the operator's choice, not part of the resource's identity.
+    segments = [
+        "{}" if (seg.startswith("{") and seg.endswith("}")) else urllib.parse.unquote(seg)
+        for seg in parsed.path.split("/")
+    ]
+    path = "/".join(segments).rstrip("/")
+    query = "&".join(sorted(p for p in parsed.query.split("&") if p))
+    return f"{scheme}://{netloc}{path}" + (f"?{query}" if query else "")
+
+
+async def _target_posture_conflict(
+    tenant_id: str, target: str, risk_tier: str, classification: str
+) -> tuple[bool, Optional[str]]:
+    """
+    The alias a caller names must never be a way to WEAKEN a resource's posture.
+
+    The additive-only invariant guards the alias NAME: it refuses to repoint an existing
+    alias. It says nothing about the TARGET, so without this check a second alias for the
+    SAME resource at a lower tier silently downgrades it — ``cf.d1.query`` (pin_required)
+    and ``cf.d1.quick`` (auto) pointing at one URL means the identical destructive payload
+    is staged for step-up under one name and allowed outright under the other. Risk was
+    bound to the name; it has to be bound to the resource.
+
+    Returns ``(conflict, disclosable_alias)``:
+      * ``conflict`` — True when this registration would bind ``target`` MORE WEAKLY
+        (lower risk tier, or lower classification) than an alias that already resolves to
+        the same canonical target. An EQUAL or STRICTER posture is allowed: a duplicate
+        name may tighten, never loosen.
+      * ``disclosable_alias`` — the conflicting alias, but ONLY when naming it discloses
+        nothing. ``entries_for_tenant`` is deliberately UNFILTERED (catalog filtering
+        layers above it), so it includes COMPARTMENTED aliases the caller may hold no
+        grant for — and ``CAP_DIRECTORY_ADMIN`` does not imply compartment membership,
+        because capabilities here are non-hierarchical. Naming such an alias would turn
+        this route into a probing oracle: register-at-``auto`` against a guessed target,
+        read the compartment's alias name out of the error. That is exactly the estate
+        disclosure ``test_alias_naming_hygiene.py`` exists to prevent, and it must not be
+        reintroduced through the error path. Compartmented conflicts therefore report
+        ``None`` — the operator learns the target is spoken for, never by what.
+        Un-compartmented (tenant-wide) aliases are already visible to any tenant member
+        via ``/v1/catalog``, so naming those adds nothing.
+
+    Fails CLOSED on a storage error: the overlay read raising is treated as "cannot prove
+    this is safe", and the caller refuses without naming anything.
+    """
+    canon = _canonical_target(target)
+    new_risk = _RISK_RANK.get(risk_tier, -1)
+    new_class = _CLASSIFICATION_RANK.get(classification, -1)
+
+    def _weaker_than(existing_risk: str, existing_class: str) -> bool:
+        return (
+            new_risk < _RISK_RANK.get(existing_risk, 0)
+            or new_class < _CLASSIFICATION_RANK.get(existing_class, 0)
+        )
+
+    # Config-shipped + live-registered bindings held in memory on this worker.
+    for entry in _components.registry.entries_for_tenant(tenant_id):
+        if _canonical_target(entry.target) != canon:
+            continue
+        if _weaker_than(entry.risk_tier, entry.classification or "unclassified"):
+            # Disclose the name only for a tenant-wide alias (see docstring).
+            return True, (entry.alias if entry.compartment is None else None)
+    # The authoritative cross-worker overlay: a peer may have registered a stricter
+    # binding this worker has not hydrated yet. Overlay skills are always
+    # un-compartmented (``_overlay_entry`` never sets one), so naming them is safe.
+    try:
+        overlay = await _components.catalog_overlay.list_for_tenant(tenant_id)
+    except Exception:  # noqa: BLE001 — cannot prove safety ⇒ refuse, disclose nothing.
+        return True, None
+    for alias, fields in overlay.items():
+        stored = fields.get("target")
+        if not isinstance(stored, str) or _canonical_target(stored) != canon:
+            continue
+        if _weaker_than(
+            str(fields.get("risk_tier", "auto")),
+            str(fields.get("classification", "unclassified")),
+        ):
+            return True, alias
+    return False, None
+
+
 def _overlay_fields(
     target: str,
     risk_tier: str,
@@ -5739,6 +5856,16 @@ async def _apply_overlay_skill(
     (``add`` raises ``LockError`` on a Redis error → opaque deny), so a skill is never
     registered live without also being durably stored, and never repoints an existing one.
     """
+    # POSTURE floor, checked here so EVERY caller of this apply path is covered: a new
+    # alias may never bind a target more weakly than one it already resolves at. The
+    # callers check this too (to fail before the WORM emit and give the operator a
+    # distinguishable answer); this is the authoritative cross-worker backstop, exactly
+    # as the HSETNX below is for the alias name.
+    conflict, _ = await _target_posture_conflict(
+        tenant_id, entry.target, entry.risk_tier, entry.classification or "unclassified"
+    )
+    if conflict:
+        raise MCPIPDenied(corr)
     created = await _components.catalog_overlay.add(tenant_id, alias, fields)
     if not created:
         # The alias already resolves in the authoritative Redis overlay — additive-only
@@ -5772,8 +5899,36 @@ async def register_skill(request: Request, body: _RegisterSkillBody) -> Response
         except Exception:  # noqa: BLE001 — any ingress-guard failure is an opaque deny.
             raise MCPIPDenied(_corr(request)) from None
     # ADDITIVE-ONLY invariant: never override/shadow an existing alias.
+    #
+    # This route is CAP_DIRECTORY_ADMIN-gated and its caller can already read the whole
+    # catalog, so a conflict is answered CONCRETELY (409) rather than with the opaque
+    # deny the agent-facing surfaces use. An operator who cannot tell "already registered"
+    # from "refused" learns to ignore the refusal — which is how a real denial gets
+    # missed. No agent-reachable surface gains an oracle from this.
     if _components.registry.has_alias(identity.tenant_id, alias):
-        raise MCPIPDenied(_corr(request))
+        return JSONResponse(
+            status_code=409,
+            content={"error": "alias_exists", "alias": alias,
+                     "detail": "this alias already resolves; registration is additive-only"},
+        )
+    conflict, disclosable = await _target_posture_conflict(
+        identity.tenant_id, body.target, body.risk_tier, body.classification
+    )
+    if conflict:
+        content: dict[str, Any] = {
+            "error": "target_posture_conflict",
+            "alias": alias,
+            "detail": (
+                "another alias already binds this target at a stricter posture; a "
+                "second alias may tighten it but never weaken it"
+            ),
+        }
+        # Named only when the conflicting alias is tenant-wide. A compartmented one is
+        # withheld so this route cannot be used to probe an estate the caller holds no
+        # grant for (see _target_posture_conflict).
+        if disclosable is not None:
+            content["conflicting_alias"] = disclosable
+        return JSONResponse(status_code=409, content=content)
     if await _components.catalog_overlay.count(identity.tenant_id) >= MAX_OVERLAY_ENTRIES:
         raise MCPIPDenied(_corr(request))
 
@@ -6942,6 +7097,14 @@ async def workspace_plan_apply(request: Request, body: _WorkspacePlanBody) -> Re
         entry = _overlay_entry(alias, fields)
         if entry is None:  # defensive — validation already passed.
             raise MCPIPDenied(_corr(request))
+        # POSTURE floor: a plan may not introduce a weaker binding for a target that
+        # already resolves more strictly. Skipped like an existing alias rather than
+        # failing the whole apply — one bad row must not strand the org chart already
+        # persisted above — and reported in `skipped` so the operator sees it.
+        plan_conflict, _ = await _target_posture_conflict(tenant, target, risk, classification)
+        if plan_conflict:
+            skipped.append(alias)
+            continue
         # ATOMIC additive-only: HSETNX decides the create cross-worker. If the alias was
         # already added (by config-hydration on another worker or a concurrent apply), the
         # add refuses to overwrite — skip it and do NOT register live (never repoint).

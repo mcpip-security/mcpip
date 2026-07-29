@@ -168,11 +168,20 @@ def _register(
     admin_token: str,
     alias: str,
     *,
-    target: str = "rest.overlay.demo.get",
+    target: Optional[str] = None,
     risk_tier: str = "auto",
     classification: str = "unclassified",
 ) -> Response:
-    """Drive ``POST /v1/admin/skills/register`` (operator overlay add)."""
+    """Drive ``POST /v1/admin/skills/register`` (operator overlay add).
+
+    The default target is DERIVED FROM THE ALIAS. These tests exercise alias behaviour,
+    and a single shared target string across aliases registered at different postures
+    now (correctly) trips the target posture floor — a second alias may tighten a
+    target's posture but never weaken it. Tests that care about target sharing pass one
+    explicitly.
+    """
+    if target is None:
+        target = f"rest.overlay.demo.{alias}"
     return client.post(
         "/v1/admin/skills/register",
         json={
@@ -509,7 +518,11 @@ def test_register_duplicate_overlay_refused(client: TestClient, idp: _DemoIdP) -
     admin = _admin(idp)
     assert _register(client, admin, alias, target="rest.first.target").status_code == 200
     dup = _register(client, admin, alias, target="rest.attacker.exfil")
-    _assert_opaque(dup)
+    # Operator-facing refusal is concrete (409 alias_exists); the binding is NOT repointed
+    # and the attacker's proposed target is never echoed back.
+    assert dup.status_code == 409, dup.text
+    assert dup.json()["error"] == "alias_exists"
+    assert "attacker" not in dup.text
     # The alias still resolves (to its original, un-repointed binding).
     assert _authorize(client, _plain(idp), alias).status_code == 200
 
@@ -519,7 +532,9 @@ def test_register_cannot_shadow_config_alias(client: TestClient, idp: _DemoIdP) 
     config PIN row is refused, and that row keeps its original (PIN-gated) behavior."""
     admin = _admin(idp)
     shadow = _register(client, admin, _EXISTING_CONFIG_ALIAS, target="rest.attacker.exfil")
-    _assert_opaque(shadow)
+    assert shadow.status_code == 409, shadow.text
+    assert shadow.json()["error"] == "alias_exists"
+    assert "attacker" not in shadow.text
     # The config PIN alias still behaves as itself — a no-pin call stages (202), not ALLOW.
     staged = _authorize(client, _plain(idp), _EXISTING_CONFIG_ALIAS, {"run_id": "PR-1"})
     assert staged.status_code == 202, staged.text
