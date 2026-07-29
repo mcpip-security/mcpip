@@ -17,10 +17,11 @@ the audit log can render either direction without leaking cross-tenant data.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
-from typing import Literal, Optional
+from typing import Final, Literal, Optional
 
-from interfaces import Classification, RiskTier
+from interfaces import Classification, RiskTier, SKILL_ACCESS_MODES
 
 
 class UnknownAlias(Exception):
@@ -63,6 +64,16 @@ class AliasEntry:
                                    (CLASSIFIED/PHI/PII) that are AUTO-tier (no PIN).
                                    Defaults False, so every existing catalog row is
                                    unchanged until an operator deliberately opts in.
+      * ``service`` / ``access``   — ADVISORY DISPLAY metadata for the permission-model
+                                   console view (service listed once, Read/Write as
+                                   controls — the Cloudflare-API-token shape). ``service``
+                                   is a human label ("AWS DynamoDB"); ``access`` is
+                                   "read"/"write". NEITHER is ever consulted by the
+                                   authorize/PIN/WORM enforcement path, and ``service``
+                                   never crosses the agent wire (it can hint at the
+                                   target system). Both default None (trailing,
+                                   defaulted — every positional construction is
+                                   byte-identical).
     """
 
     alias: str
@@ -74,6 +85,37 @@ class AliasEntry:
     required_capability: Optional[str] = None
     canary: bool = False
     require_sender_constraint: bool = False
+    service: Optional[str] = None
+    access: Optional[str] = None
+
+
+def effective_access(entry: AliasEntry) -> str:
+    """
+    The display access mode for one alias — PURE, advisory only.
+
+    An explicit, valid ``entry.access`` wins; an unannotated (or invalid) entry falls
+    back to the honest risk-derived default: PIN_REQUIRED actions display as "write",
+    AUTO reads as "read". Never an enforcement input.
+    """
+    if entry.access in SKILL_ACCESS_MODES:
+        assert entry.access is not None  # membership in a str tuple narrows for mypy.
+        return entry.access
+    return "write" if entry.risk_tier is RiskTier.PIN_REQUIRED else "read"
+
+
+def display_service(entry: AliasEntry) -> str:
+    """
+    The display service label for one alias — PURE, operator surfaces only.
+
+    An explicit ``entry.service`` wins; otherwise the alias is humanized (leading
+    ``skill_`` stripped, underscores → spaces). Never projected to the agent wire.
+    """
+    if entry.service:
+        return entry.service
+    alias = entry.alias
+    if alias.startswith("skill_"):
+        alias = alias[len("skill_"):]
+    return alias.replace("_", " ")
 
 
 @dataclass(frozen=True)
@@ -106,8 +148,56 @@ class AliasRegistry:
         # tenant_id -> {compartment_uuid -> Compartment}
         self._compartments: dict[str, dict[str, Compartment]] = {}
 
+    # Generic scaffolding words in a compartment label. They carry no estate
+    # information, so treating them as secret would outlaw half of every sensible alias
+    # vocabulary — and a rule nobody can follow gets disabled, which is worse than no rule.
+    _GENERIC_LABEL_WORDS: Final[frozenset[str]] = frozenset(
+        {"project", "team", "group", "unit", "program", "the", "and"}
+    )
+
+    def _compartment_codename_in(self, alias: str, label: str) -> Optional[str]:
+        """The compartment codename an alias STRING exposes, if any."""
+        haystack = alias.casefold()
+        for word in re.split(r"[^a-z0-9]+", label.casefold()):
+            if word and word not in self._GENERIC_LABEL_WORDS and word in haystack:
+                return word
+        return None
+
     def register(self, tenant_id: str, entry: AliasEntry) -> None:
-        """Register one alias binding for a tenant (configuration-time)."""
+        """Register one alias binding for a tenant (configuration-time).
+
+        FAIL-CLOSED NAMING GUARD: an alias inside a compartment may describe what it
+        DOES, but must not name the compartment it belongs to. The obfuscator hides the
+        TARGET; the alias is the one string the agent is guaranteed to see, so an alias
+        like ``skill_flight_command_issue`` inside ``project-falcon`` publishes the very
+        thing the compartment exists to withhold — that the programme exists, what it is
+        called, and what it does — without any resolution ever succeeding.
+
+        Registration is the last moment this is cheap to stop: afterwards the name is in
+        the catalog, in ``tools/list``, in the WORM record, and in operator muscle memory,
+        so changing it is a migration rather than an edit. The check runs only when the
+        compartment is already registered (config order is compartments-then-aliases);
+        ``tests/test_alias_naming_hygiene.py`` independently sweeps the assembled registry,
+        so an out-of-order registration cannot slip past both.
+        """
+        # Only SENSITIVE compartments are protected. A departmental compartment
+        # ('team-engineering') names an org unit everyone already knows, and banning
+        # 'skill_engineering_roadmap' would block a genuinely good name for no security
+        # gain. A CLASSIFIED/RESTRICTED compartment names a programme whose EXISTENCE is
+        # the secret — that is the case worth failing closed on.
+        if entry.compartment and entry.classification in (
+            Classification.CLASSIFIED,
+            Classification.RESTRICTED,
+        ):
+            compartment = self._compartments.get(tenant_id, {}).get(entry.compartment)
+            if compartment is not None:
+                leaked = self._compartment_codename_in(entry.alias, compartment.label)
+                if leaked is not None:
+                    raise ValueError(
+                        f"alias {entry.alias!r} names its own compartment "
+                        f"({compartment.label!r} via {leaked!r}). The alias is visible to the "
+                        "agent — name what the action DOES, not which compartment it is in."
+                    )
         forward = self._forward.setdefault(tenant_id, {})
         reverse = self._reverse.setdefault(tenant_id, {})
         forward[entry.alias] = entry
@@ -235,4 +325,6 @@ __all__ = [
     "CrossTenant",
     "CompartmentDenied",
     "build_demo_registry",
+    "effective_access",
+    "display_service",
 ]

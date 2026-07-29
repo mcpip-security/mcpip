@@ -102,6 +102,18 @@ FORENSIC = Counter(
 )
 
 
+# Per-user authenticator (TOTP 2FA) lifecycle counter. ``event`` is a CLOSED enum of
+# literals (``enroll_begin`` / ``enroll_confirm`` / ``disable`` / ``verify_ok`` /
+# ``verify_fail`` / ``reveal_hit`` / ``reveal_miss``) — NEVER a tenant/principal/
+# challenge/uuid — so /metrics stays free of caller data. Counts ride the enrollment
+# endpoints and the TOTP-gated OTP reveal; the payload-lock's own counters are separate.
+AUTHENTICATOR = Counter(
+    "mcpip_authenticator_total",
+    "Per-user authenticator (TOTP) enrollment and reveal events",
+    ["event"],
+)
+
+
 # ReBAC relation-tuple projection counter. ``event`` is a CLOSED enum of literals
 # (``projected`` / ``project_error`` / ``removed``) — NEVER a tenant/compartment/agent/
 # uuid/correlation_id — so /metrics stays free of caller data. The tuple layer is a
@@ -170,6 +182,24 @@ LICENSE_REFRESH = Counter(
 RESPONSE = Counter(
     "mcpip_response_total",
     "Opt-in deny-response playbook events (best-effort, off the hot path, deterministic)",
+    ["event"],
+)
+
+
+# Off-hot-path audit-integrity monitor counter. ``event`` is a CLOSED enum of literals
+# (``verified`` / ``tamper_detected`` / ``verify_error``) — NEVER a tenant/agent/alias/
+# epoch/correlation_id — so /metrics stays free of caller data, the same discipline as the
+# other ``event`` counters. The monitor runs OFF the hot path (a swallowed background
+# daemon that reads the already-signed epoch chain), so its outcome is structurally
+# incapable of blocking/flipping an authorization. ``verified`` = one periodic
+# ``verify_chain`` pass returned intact; ``tamper_detected`` = a pass returned intact=False
+# (a non-verifiable epoch — a security incident; alert on this); ``verify_error`` = the
+# verification pass itself raised (Redis / transient) and was swallowed, retried next poll.
+# The concrete ``first_bad_epoch`` is a chain HEIGHT, not caller data, and rides the
+# CRITICAL log + the attestation read — never a metric label.
+AUDIT_INTEGRITY = Counter(
+    "mcpip_audit_integrity_total",
+    "Off-hot-path audit-chain integrity monitor events (periodic verify_chain outcome)",
     ["event"],
 )
 

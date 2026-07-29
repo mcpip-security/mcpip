@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-MCPIP — live DynamoDB-write vend demo (``skill_dynamodb_write``).
+MCPIP — live DynamoDB-write vend demo (``skill_aws_dynamodb``).
 
 A real, end-to-end walkthrough of the ``cloud_iam`` WRITE path against a RUNNING
 sandbox gateway. NO cloud account and NO AWS credentials are needed: in sandbox the
@@ -52,7 +52,7 @@ from typing import Any, Optional
 TENANT = "mcpip-inc"
 TEAM_ENGINEERING = "e0900000-0000-4000-8000-e0900000e090"
 TEAM_FINANCE = "f1a00000-0000-4000-8000-f1a00000f1a0"
-SKILL = "skill_dynamodb_write"
+SKILL = "skill_aws_dynamodb"
 # The write role's ARN tail — the vend fingerprint must name THIS role, never the read one.
 WRITE_ROLE_TAIL = "mcpip-eng-dynamodb-write"
 

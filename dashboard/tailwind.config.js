@@ -90,12 +90,19 @@ export default {
       },
       boxShadow: {
         // Layered, low-opacity elevation — a considered enterprise ramp.
-        panel: '0 1px 2px 0 rgba(17,17,17,0.04), 0 1px 3px 0 rgba(17,17,17,0.03)',
-        card: '0 1px 2px 0 rgba(16,24,40,0.05)',
-        raised: '0 2px 4px -1px rgba(17,17,17,0.06), 0 4px 12px -2px rgba(17,17,17,0.06)',
-        popover: '0 8px 24px -6px rgba(17,17,17,0.12), 0 2px 6px -2px rgba(17,17,17,0.06)',
-        glow: '0 0 0 1px rgba(17,17,17,0.08)',
-        'focus-ring': '0 0 0 3px rgba(17,17,17,0.08)',
+        // `panel` carries a soft ambient float so cards lift off the canvas
+        // instead of relying on the hairline alone. Colour AND alpha come from
+        // src/index.css so each theme gets an elevation that is actually
+        // visible on its own canvas (a hardcoded near-black is not).
+        panel:
+          '0 1px 2px 0 rgb(var(--c-shadow) / var(--c-shadow-key)), 0 4px 12px -4px rgb(var(--c-shadow) / var(--c-shadow-ambient))',
+        card: '0 1px 2px 0 rgb(var(--c-shadow) / var(--c-shadow-key))',
+        // Two-tone focus ring. The inner band is the surface colour, so the
+        // accent band never merges into the control it wraps; the accent band
+        // is the ink token, which clears 3:1 on canvas, surface and elevated in
+        // BOTH themes. Every call site pairs this with `outline-none`, so this
+        // shadow IS the indicator — it has to carry WCAG 2.4.7 / 1.4.11 alone.
+        'focus-ring': '0 0 0 2px rgb(var(--c-surface)), 0 0 0 4px rgb(var(--c-focus))',
       },
     },
   },

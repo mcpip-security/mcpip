@@ -67,7 +67,7 @@ from app.main import _components, app
 from main import _DemoIdP
 
 _AEGIS = "aegis-dynamics"
-_FALCON_ALIAS = "skill_falcon_telemetry"
+_FALCON_ALIAS = "skill_airframe_telemetry"
 _EVENTS_STREAM = "mcpip:worm:events"
 
 

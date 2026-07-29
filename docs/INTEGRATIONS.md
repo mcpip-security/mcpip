@@ -300,7 +300,7 @@ payload-lock change. Drivable end to end against the sandbox gateway
 MCPIP is an **authorization interceptor** on the agent's tool-call plane, not a proxy sitting in
 front of every third-party MCP server. It governs a call **only when the agent invokes it as an
 MCPIP alias**. Two real-world 2026 attack classes live *outside* that plane unless you bring the
-sensitive tool inside it (see `docs/STRATEGY.md` §5.5):
+sensitive tool inside it (see the internal strategy notes §5.5):
 
 - **The MCP rug pull (`postmark-mcp`).** The first confirmed malicious MCP server in the wild:
   correct for 15 versions, then v1.0.16 silently BCC'd every agent-sent email to an attacker
@@ -347,7 +347,7 @@ a `cloud_iam`, `PIN_REQUIRED` alias whose `target` is a `CloudEnvironment` `env_
 (STS `AssumeRole` / SA impersonation / AAD token) instead of the agent holding a standing key. A
 read binding can never satisfy a write skill (distinct `env_id`, distinct role).
 
-- **Shipped reference:** `skill_dynamodb_write` (`obfuscator/tenant_catalog.py`) — `cloud_iam`,
+- **Shipped reference:** `skill_aws_dynamodb` (`obfuscator/tenant_catalog.py`) — `cloud_iam`,
   `PIN_REQUIRED`, `team-engineering`, backed by a write-scoped `CloudEnvironment`. Drivable in
   sandbox via `scripts/dynamodb_vend_demo.py`; against a real table with a least-privilege role via
   [Cloud IAM Live-Fire (DynamoDB)](#cloud-iam-live-fire-dynamodb).
@@ -441,7 +441,7 @@ MCPIP gateway authorizes and audits the call, and — only then — mints a **sh
 least-privilege** AWS credential scoped to exactly that one write. The agent never holds
 a standing cloud key; stop the skill or revoke the principal and the next vend is denied.
 
-This is the `skill_dynamodb_write` skill (mcpip-inc / team-engineering). It is a
+This is the `skill_aws_dynamodb` skill (mcpip-inc / team-engineering). It is a
 mutation, so it is **`PIN_REQUIRED`**: the agent must complete a payload-bound step-up
 before anything is vended.
 
@@ -562,6 +562,6 @@ In a real deployment nothing above changes shape — only *who* holds the identi
   permission policy is scoped to the real table(s) the skill may write.
 
 The sandbox seeds a placeholder binding (`aws-eng-dynamodb-write`, account
-`000000000000`) so `skill_dynamodb_write` is selectable and the *flow* is demonstrable
+`000000000000`) so `skill_aws_dynamodb` is selectable and the *flow* is demonstrable
 out of the box; the placeholder can never vend a real credential (sandbox returns a
 clearly-marked fake).

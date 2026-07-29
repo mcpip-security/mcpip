@@ -34,12 +34,34 @@ def test_draft_risk_and_classification_are_policy_safe() -> None:
     RESTRICTED (and, being PIN_REQUIRED, satisfy the sender-constraint lint)."""
     plan = draft_plan_from_brief("engineering and finance", "Co", "co")
     by_alias = {s["alias"]: s for s in plan["skills"]}
-    assert by_alias["skill_engineering_service_status_read"]["risk_tier"] == "auto"
+    assert by_alias["skill_engineering_service_status"]["risk_tier"] == "auto"
     assert by_alias["skill_engineering_deploy_trigger"]["risk_tier"] == "pin_required"
     fin = by_alias["skill_finance_invoice_post"]
     assert fin["risk_tier"] == "pin_required" and fin["classification"] == "restricted"
     # No RESTRICTED skill is ever AUTO (that would fail the overlay policy).
     assert not any(s["classification"] == "restricted" and s["risk_tier"] != "pin_required" for s in plan["skills"])
+
+
+def test_draft_naming_and_display_metadata() -> None:
+    """Drafted skills follow skill_{domain}_{tool} (no _read/_write suffixes) and carry
+    the structured advisory service/access fields: reads → read, mutations → write."""
+    plan = draft_plan_from_brief("engineering and finance", "Co", "co")
+    for s in plan["skills"]:
+        assert not s["alias"].endswith("_read") and not s["alias"].endswith("_write"), s["alias"]
+        assert s["access"] in ("read", "write")
+        assert isinstance(s["service"], str) and 1 <= len(s["service"]) <= 64
+    by_alias = {s["alias"]: s for s in plan["skills"]}
+    assert by_alias["skill_engineering_service_status"]["access"] == "read"
+    assert by_alias["skill_engineering_deploy_trigger"]["access"] == "write"
+    assert by_alias["skill_engineering_deploy_trigger"]["service"] == "Engineering"
+    assert by_alias["skill_company_overview"]["service"] == "Company overview"
+    # The drafted metadata passes the structural validator.
+    assert validate_plan_structure(plan) == []
+    # A bad access enum is flagged.
+    bad = {"org_units": [], "skills": [
+        {"alias": "skill_x", "target": "rest.x", "risk_tier": "auto",
+         "classification": "unclassified", "access": "admin"}]}
+    assert any("access" in e for e in validate_plan_structure(bad))
 
 
 def test_empty_brief_still_yields_a_valid_default() -> None:

@@ -96,18 +96,18 @@ INDUSTRY_ALIASES: dict[str, tuple[AliasEntry, ...]] = {
             required_capability=CAP_COMPARTMENT_GRANT,
         ),
         # project-falcon compartment.
-        AliasEntry("skill_falcon_telemetry", "rest.falcon.telemetry.get", "cloud_rest", RiskTier.AUTO,
+        AliasEntry("skill_airframe_telemetry", "rest.falcon.telemetry.get", "cloud_rest", RiskTier.AUTO,
                    compartment=FALCON, classification=Classification.CLASSIFIED,
                    require_sender_constraint=True),
-        AliasEntry("skill_falcon_flight_cmd", "mainframe.cics.FALCMD", "legacy_mainframe", RiskTier.PIN_REQUIRED,
+        AliasEntry("skill_flight_command_issue", "mainframe.cics.FALCMD", "legacy_mainframe", RiskTier.PIN_REQUIRED,
                    compartment=FALCON, classification=Classification.CLASSIFIED),
         # project-aegis compartment.
-        AliasEntry("skill_aegis_radar_tune", "rest.aegis.radar.calibrate", "cloud_rest", RiskTier.PIN_REQUIRED,
+        AliasEntry("skill_radar_calibration_set", "rest.aegis.radar.calibrate", "cloud_rest", RiskTier.PIN_REQUIRED,
                    compartment=AEGIS, classification=Classification.CLASSIFIED),
-        AliasEntry("skill_aegis_intercept_plan", "rest.aegis.intercept.plan.create", "cloud_rest", RiskTier.PIN_REQUIRED,
+        AliasEntry("skill_intercept_plan_submit", "rest.aegis.intercept.plan.create", "cloud_rest", RiskTier.PIN_REQUIRED,
                    compartment=AEGIS, classification=Classification.CLASSIFIED),
         # project-sentinel compartment.
-        AliasEntry("skill_sentinel_recon_feed", "rest.sentinel.recon.feed.get", "cloud_rest", RiskTier.AUTO,
+        AliasEntry("skill_recon_feed_read", "rest.sentinel.recon.feed.get", "cloud_rest", RiskTier.AUTO,
                    compartment=SENTINEL, classification=Classification.RESTRICTED,
                    require_sender_constraint=True),
     ),
@@ -143,31 +143,36 @@ INDUSTRY_ALIASES: dict[str, tuple[AliasEntry, ...]] = {
     # Teams are separated by compartment. The story: a company-wide agent reads the
     # overview; only Engineering reads the roadmap; only Finance reads the wage sheet.
     # Everyone else is denied COMPARTMENT_DENIED — opaque at the agent boundary.
+    # Naming convention: ``skill_{platform}_{tool}`` — the access level is the
+    # STRUCTURED ``access`` field (advisory display metadata), never a ``_read``/
+    # ``_write`` alias suffix. ``service`` is the human permission-table label.
     "mcpip-inc": (
         # Company-wide — any licensed agent OF THE COMPANY may read it (no compartment).
-        AliasEntry("skill_company_overview", "rest.mcpip.company.overview.get", "cloud_rest", RiskTier.AUTO),
+        AliasEntry("skill_company_overview", "rest.mcpip.company.overview.get", "cloud_rest", RiskTier.AUTO,
+                   service="Company overview", access="read"),
         # Company-wide default DATA tool — every team reads from the shared data lake
         # (curated, read-only). The default "useful tool out of the box" of the demo.
-        AliasEntry("skill_data_lake_read", "rest.mcpip.datalake.query.get", "cloud_rest", RiskTier.AUTO),
+        AliasEntry("skill_data_lake", "rest.mcpip.datalake.query.get", "cloud_rest", RiskTier.AUTO,
+                   service="Data lake", access="read"),
         # Engineering-only. The COMPARTMENT is the team-separation control here — an
         # agent not in team-engineering is denied COMPARTMENT_DENIED. Classification is
         # left UNCLASSIFIED so the sandbox demo works with the bearer tokens it mints:
         # a RESTRICTED AUTO read would (correctly) demand a sender-constrained token
         # under the production boot lint, which the sandbox IdP does not provision.
         AliasEntry("skill_engineering_roadmap", "rest.mcpip.eng.roadmap.get", "cloud_rest", RiskTier.AUTO,
-                   compartment=MCPIP_ENGINEERING),
+                   compartment=MCPIP_ENGINEERING, service="Engineering roadmap", access="read"),
         # Finance-only — the "financial wage sheet" every non-Finance agent is denied.
         AliasEntry("skill_financial_wage_sheet", "rest.mcpip.finance.payroll.wages.get", "cloud_rest", RiskTier.AUTO,
-                   compartment=MCPIP_FINANCE),
+                   compartment=MCPIP_FINANCE, service="Payroll wage sheet", access="read"),
         # Finance-only, high-risk — posting to the ledger demands a payload-bound PIN.
         AliasEntry("skill_financial_ledger_post", "mainframe.mcpip.GLPOST", "legacy_mainframe", RiskTier.PIN_REQUIRED,
-                   compartment=MCPIP_FINANCE),
+                   compartment=MCPIP_FINANCE, service="General ledger", access="write"),
         # Engineering-only CLOUD IAM skill — executing it VENDS a short-lived, scoped
         # AWS credential (STS AssumeRole) instead of the agent holding a standing key.
         # ``target`` is the env_id of a CloudEnvironment binding (seeded in sandbox by
         # _hydrate_cloud_environments; operator-managed via /v1/admin/cloud/environments).
-        AliasEntry("skill_aws_s3_read", "aws-eng-readonly", "cloud_iam", RiskTier.AUTO,
-                   compartment=MCPIP_ENGINEERING),
+        AliasEntry("skill_aws_s3", "aws-eng-readonly", "cloud_iam", RiskTier.AUTO,
+                   compartment=MCPIP_ENGINEERING, service="AWS S3", access="read"),
         # Engineering-only CLOUD IAM WRITE skill — a DynamoDB PutItem. Because it MUTATES
         # a table it is PIN_REQUIRED: the agent must complete a payload-bound step-up
         # ceremony before the gateway vends a short-lived credential scoped to the
@@ -177,8 +182,8 @@ INDUSTRY_ALIASES: dict[str, tuple[AliasEntry, ...]] = {
         # env_id of the write-scoped CloudEnvironment binding (seeded in sandbox by
         # _hydrate_cloud_environments; docs/INTEGRATIONS.md drives it against a
         # real table with a run-locally least-privilege role).
-        AliasEntry("skill_dynamodb_write", "aws-eng-dynamodb-write", "cloud_iam", RiskTier.PIN_REQUIRED,
-                   compartment=MCPIP_ENGINEERING),
+        AliasEntry("skill_aws_dynamodb", "aws-eng-dynamodb-write", "cloud_iam", RiskTier.PIN_REQUIRED,
+                   compartment=MCPIP_ENGINEERING, service="AWS DynamoDB", access="write"),
         # Company-wide GOVERNED-ALIAS reference for a data-egress / email-send tool
         # (docs/INTEGRATIONS.md). The lesson of the postmark-mcp / line-jumping
         # class (LANDSCAPE_2026H2 §5.5): a sensitive side-effecting tool is only governed
@@ -191,7 +196,8 @@ INDUSTRY_ALIASES: dict[str, tuple[AliasEntry, ...]] = {
         # drive it; PIN_REQUIRED is the control (and is exempt from the sender-constraint
         # boot-lint, so it stays secure-by-default in production without a cnf token).
         AliasEntry("skill_email_send", "rest.mcpip.notify.email.send", "cloud_rest", RiskTier.PIN_REQUIRED,
-                   compartment=None, classification=Classification.UNCLASSIFIED),
+                   compartment=None, classification=Classification.UNCLASSIFIED,
+                   service="Email", access="write"),
     ),
 }
 

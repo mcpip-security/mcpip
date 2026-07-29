@@ -56,6 +56,51 @@ PIN_TTL_SECONDS: Final[int] = 300       # Payload-lock TTL.
 PIN_MAX_ATTEMPTS: Final[int] = 5        # Wrong-PIN lockout threshold.
 PIN_LENGTH: Final[int] = 6              # Decimal digits.
 MAX_QUARANTINE_ROSTER: Final[int] = 1000  # Rows per admin quarantine-roster read (SCAN bound).
+
+# --- JWT temporal validation: bounded clock-skew tolerance. ------------------------
+# PyJWT defaults to leeway=0, which demands the gateway's clock agree with the issuing
+# IdP to the SECOND. In practice they never do — a one-second drift rejects every
+# otherwise-valid token, and the failure is total and undiagnosable from the agent side
+# (it sees only an opaque deny). That is an outage caused by NTP, not by policy.
+#
+# The tolerance is symmetric because BOTH drift directions break a valid token: a
+# gateway clock running fast sees `exp` as already passed; one running slow sees
+# `iat`/`nbf` as still in the future. RFC 7519 §4.1.4 explicitly sanctions "some small
+# leeway, usually no more than a few minutes".
+#
+# THE TRADE, stated plainly: this also extends an EXPIRED token's usable life by up to
+# this many seconds. That is the cost of the fix and the reason the value is small and
+# fixed here rather than made configurable — an operator must not be able to widen it
+# into a real replay window, and a hard limit belongs in exactly one file.
+JWT_CLOCK_SKEW_LEEWAY_SECONDS: Final[int] = 60
+
+# --- Proof-of-possession freshness (auth/pop.py) ------------------------------------
+#
+# The PoP proof has its OWN time window, deliberately separate from the identity leeway
+# above, because the two answer different questions. The identity leeway is symmetric —
+# it forgives drift in both directions on a token someone else issued. A PoP proof is
+# minted by the caller for THIS request, so its window is intentionally ASYMMETRIC:
+# generous backwards (a proof may be up to MAX_AGE old, covering network and retry time)
+# and tight forwards (a future-dated proof is either a badly-set clock or an attempt to
+# mint proofs valid beyond the replay guard's TTL).
+#
+# They live here, next to the leeway, because a hard limit belongs in exactly one file —
+# and because someone tuning one of these must SEE the other and decide deliberately
+# whether it moves too. The replay guard's TTL is derived as MAX_AGE + SKEW so a proof
+# can never fall out of the single-use record while still being temporally acceptable.
+POP_MAX_AGE_SECONDS: Final[int] = 120
+POP_CLOCK_SKEW_SECONDS: Final[int] = 30
+
+# --- Per-user authenticator enrollment (RFC 6238 TOTP) hard limits. -----------------
+# Standard authenticator-app parameters (Google Authenticator / 1Password / Authy all
+# default to SHA-1 / 6 digits / 30 s — deviating breaks real apps, so these are pinned
+# here as the single source of truth for mint, verify, and the provisioning URI).
+TOTP_DIGITS: Final[int] = 6              # Code length (decimal digits).
+TOTP_PERIOD_S: Final[int] = 30           # RFC 6238 timestep.
+TOTP_DRIFT_STEPS: Final[int] = 1         # Accepted clock drift: ±1 step (90 s window).
+MAX_TOTP_ATTEMPTS: Final[int] = 5        # Failed verifications per window → lockout.
+TOTP_ATTEMPT_WINDOW_S: Final[int] = 300  # Fixed lockout window (matches PIN lock TTL).
+MAX_AUTHENTICATOR_ROSTER: Final[int] = 1000  # Rows per admin enrollment-roster read.
 MAX_DELEGATION_CHAIN: Final[int] = 8    # RFC 8693 nested `act` delegation depth ceiling (WORM-only
                                         # chain projection). A human->...->agent nesting deeper than
                                         # this is not a real pattern; the bound caps work at MAX+1
@@ -88,6 +133,16 @@ MAX_A2A_META_BYTES: Final[int] = 4096
 # in-flight review queue for a single tenant. Applied skills stay bounded by the
 # existing MAX_OVERLAY_ENTRIES ceiling once approved.
 MAX_PENDING_SUBMISSIONS: Final[int] = 256
+
+# --- Skill permission-model DISPLAY metadata (advisory only). -----------------------
+# A skill may carry a structured access mode ("read"/"write") and a human service label
+# (e.g. "AWS DynamoDB") — the Cloudflare-API-token-style permission model the console
+# renders. Both are ADVISORY DISPLAY metadata: the authorize/PIN/WORM enforcement path
+# NEVER consults them (enforcement stays alias/risk_tier/compartment/required_capability/
+# canary/require_sender_constraint). The closed mode set and the label length ceiling
+# live here — hard limits live ONLY in this module.
+SKILL_ACCESS_MODES: Final[tuple[str, ...]] = ("read", "write")
+MAX_SERVICE_LABEL_LEN: Final[int] = 64
 
 # --- Registry-sourced skill governance (X3) hard limits. ---------------------------
 # A registry submission wraps an MCP-Registry ``server.json`` as a community extension
@@ -366,16 +421,35 @@ def reject_unsafe_string(s: str, field: str) -> str:
     Returns the NFC form (callers should store/hash the returned value, not the
     original, so downstream canonicalization is idempotent).
 
+    PRINTABLE-ASCII FAST PATH. Step 2 is skipped — never weakened — when the NFC form is
+    entirely printable ASCII, which is the overwhelming majority of real ingress. The skip
+    is sound because that band is provably disjoint from every forbidden set: ``_ZERO_WIDTH``
+    starts at U+00AD; the C0 range ends at U+001F and the DEL/C1 range starts at U+007F, so
+    U+0020..U+007E falls between them; the bidi bands are far above; and no printable-ASCII
+    codepoint carries category Cc/Cf/Zl/Zp (ASCII's only Cc are U+0000..U+001F and U+007F,
+    which ``str.isprintable`` already excludes, and ASCII contains no Cf/Zl/Zp at all).
+    ``str.isascii()``/``str.isprintable()`` are C-level scans, so this replaces a
+    per-character Python call to ``unicodedata.category`` with two linear passes — the cost
+    that dominated the guard on ASCII payloads.
+
+    This is the SAME argument the Rust accelerator already relies on to decide pure ASCII
+    in-process instead of deferring (``rust/mcpip_fastwalk/src/lib.rs``,
+    ``reject_unsafe_string``). Both sides must keep agreeing: the returned NFC string, the
+    accept/reject decision, and the exact ``ValueError`` message are all unchanged by this
+    path, which is what ``tests/test_string_guard_differential.py`` proves exhaustively over
+    every codepoint rather than by sampling.
+
     Raises:
         ValueError: on any control/bidi/zero-width character, or over-length.
                     Upstream maps this to SCHEMA_VIOLATION / ILLEGAL_CHARACTER.
     """
     nfc = unicodedata.normalize("NFC", s)
-    for ch in nfc:
-        if _is_forbidden_codepoint(ord(ch)):
-            raise ValueError(
-                f"illegal character U+{ord(ch):04X} in field '{field}'"
-            )
+    if not (nfc.isascii() and nfc.isprintable()):
+        for ch in nfc:
+            if _is_forbidden_codepoint(ord(ch)):
+                raise ValueError(
+                    f"illegal character U+{ord(ch):04X} in field '{field}'"
+                )
     if len(nfc) > MAX_STRING_LEN:
         raise ValueError(
             f"field '{field}' exceeds MAX_STRING_LEN ({len(nfc)} > {MAX_STRING_LEN})"
@@ -624,6 +698,110 @@ class DenyReason(str, Enum):
     # clears the metric-label hygiene guard. It stays WORM-only; the agent sees only the
     # opaque ``MCPIPDenied``.
     POLICY_GATE_DENIED = "policy_gate_denied"
+
+
+class DenyFamily(str, Enum):
+    """
+    OPERATOR-FACING triage grouping over :class:`DenyReason` — a coarse, closed set
+    that answers "what do I do next?", not "what exactly happened".
+
+    A 29-member taxonomy is right for the WORM record (an auditor needs the precise
+    cause) and wrong for a console (an operator scanning an incident needs to sort by
+    the ACTION each deny implies). This enum is that second view, and nothing more:
+
+      * It is a strict COARSENING of ``DenyReason`` — every family is derivable from
+        the reason alone, carries strictly LESS information, and is therefore safe
+        anywhere the reason itself is already safe. It is never persisted, never a
+        WORM field, and never widens an existing projection.
+      * It NEVER crosses the agent boundary. The agent still sees only ``MCPIPDenied``
+        + a correlation id; grouping denials for an operator does not un-hide them for
+        the caller.
+      * It is DERIVED, never stored, so it cannot drift from the reason it summarizes.
+
+    Families are ordered by operator urgency, most urgent first.
+    """
+
+    #: We believe the caller is hostile — investigate now.
+    TRIPWIRE = "tripwire"
+    #: The caller is who they say, but is not allowed to do this. Grant, or don't.
+    NOT_PERMITTED = "not_permitted"
+    #: Identity itself failed — an IdP / token problem, not an authorization one.
+    IDENTITY = "identity"
+    #: A human must approve (or the approval channel failed). Someone has to act.
+    NEEDS_HUMAN = "needs_human"
+    #: The request was never well-formed. Fix the calling integration.
+    MALFORMED = "malformed"
+    #: The alias is unknown or switched off. A catalog problem, not a caller problem.
+    CATALOG = "catalog"
+    #: OUR failure, not the caller's — page someone. Never blame the agent for these.
+    INFRASTRUCTURE = "infrastructure"
+
+
+#: Total ``DenyReason`` → ``DenyFamily`` map. EXHAUSTIVE BY CONTRACT: adding a
+#: ``DenyReason`` without adding it here fails ``test_deny_family_is_total`` — so a new
+#: reason can never silently land in a console bucket that misrepresents what an
+#: operator should do about it. Keep the grouping keyed on the OPERATOR'S NEXT ACTION;
+#: when a reason could arguably sit in two families, choose the one whose remediation
+#: is correct, because that is what the family is for.
+DENY_FAMILY: Final[Mapping[DenyReason, DenyFamily]] = MappingProxyType({
+    # Deception tripwires + the freeze they trigger. Highest urgency: a canary is only
+    # ever touched by something enumerating the estate.
+    DenyReason.CANARY_TRIPPED: DenyFamily.TRIPWIRE,
+    DenyReason.AGENT_QUARANTINED: DenyFamily.TRIPWIRE,
+    # Identity verified; authority absent. The operator decides whether to grant.
+    DenyReason.CROSS_TENANT: DenyFamily.NOT_PERMITTED,
+    DenyReason.COMPARTMENT_DENIED: DenyFamily.NOT_PERMITTED,
+    DenyReason.CAPABILITY_DENIED: DenyFamily.NOT_PERMITTED,
+    DenyReason.POLICY_DENIED: DenyFamily.NOT_PERMITTED,
+    DenyReason.POLICY_GATE_DENIED: DenyFamily.NOT_PERMITTED,
+    # The claim of identity failed. Remediation lives in the IdP or the token minting,
+    # never in MCPIP's grants — so this must NOT read as "not permitted".
+    DenyReason.JWT_INVALID: DenyFamily.IDENTITY,
+    DenyReason.JWT_CLAIMS_MISSING: DenyFamily.IDENTITY,
+    DenyReason.SENDER_CONSTRAINT_REQUIRED: DenyFamily.IDENTITY,
+    DenyReason.PRINCIPAL_REVOKED: DenyFamily.IDENTITY,
+    # IDENTITY_INJECTION is an attempt to ASSERT identity through arguments. It is a
+    # malformed-input rejection mechanically, but the operator's next move is an
+    # identity investigation, so it groups with identity.
+    DenyReason.IDENTITY_INJECTION: DenyFamily.IDENTITY,
+    # A person has to approve — or the channel that would ask them broke.
+    DenyReason.PIN_REQUIRED: DenyFamily.NEEDS_HUMAN,
+    DenyReason.PIN_NOT_FOUND: DenyFamily.NEEDS_HUMAN,
+    DenyReason.PIN_MISMATCH: DenyFamily.NEEDS_HUMAN,
+    DenyReason.PAYLOAD_MISMATCH: DenyFamily.NEEDS_HUMAN,
+    DenyReason.OTP_DELIVERY_FAILED: DenyFamily.NEEDS_HUMAN,
+    # The request never parsed / never passed the safety walker. Fix the integration.
+    DenyReason.UNKNOWN_FORMAT: DenyFamily.MALFORMED,
+    DenyReason.UNKNOWN_VENDOR: DenyFamily.MALFORMED,
+    DenyReason.SCHEMA_VIOLATION: DenyFamily.MALFORMED,
+    DenyReason.DEPTH_EXCEEDED: DenyFamily.MALFORMED,
+    DenyReason.SIZE_EXCEEDED: DenyFamily.MALFORMED,
+    DenyReason.ILLEGAL_CHARACTER: DenyFamily.MALFORMED,
+    # The alias does not exist here, or an operator switched it off.
+    DenyReason.UNKNOWN_ALIAS: DenyFamily.CATALOG,
+    DenyReason.SKILL_DISABLED: DenyFamily.CATALOG,
+    # Ours. An operator must never spend time debugging a caller for these.
+    DenyReason.LOCK_ERROR: DenyFamily.INFRASTRUCTURE,
+    DenyReason.TRANSPORT_ERROR: DenyFamily.INFRASTRUCTURE,
+    DenyReason.RATE_LIMITED: DenyFamily.INFRASTRUCTURE,
+    DenyReason.INTERNAL: DenyFamily.INFRASTRUCTURE,
+})
+
+
+def deny_family(reason: DenyReason | str) -> DenyFamily | None:
+    """
+    Coarsen a ``DenyReason`` (enum or its wire string) to its operator triage family.
+
+    Returns ``None`` for a string that is not a known reason — callers render an
+    unknown reason ungrouped rather than guessing a family, because a WRONG family is
+    worse than no family: it tells an operator to take the wrong next action.
+    """
+    if isinstance(reason, DenyReason):
+        return DENY_FAMILY.get(reason)
+    try:
+        return DENY_FAMILY.get(DenyReason(reason))
+    except ValueError:
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -1264,11 +1442,19 @@ __all__ = [
     "MAX_ARG_ARRAY",
     "MAX_STRING_LEN",
     "MAX_CANONICAL_BYTES",
+    "TOTP_DIGITS",
+    "TOTP_PERIOD_S",
+    "TOTP_DRIFT_STEPS",
+    "MAX_TOTP_ATTEMPTS",
+    "TOTP_ATTEMPT_WINDOW_S",
+    "MAX_AUTHENTICATOR_ROSTER",
     "PIN_TTL_SECONDS",
     "PIN_MAX_ATTEMPTS",
     "PIN_LENGTH",
     "MAX_QUARANTINE_ROSTER",
     "MAX_PENDING_SUBMISSIONS",
+    "SKILL_ACCESS_MODES",
+    "MAX_SERVICE_LABEL_LEN",
     "MAX_VERIFIED_PUBLISHERS",
     "MAX_PUBLISHER_NAMESPACE_LEN",
     "MAX_REGISTRY_REMOTES",

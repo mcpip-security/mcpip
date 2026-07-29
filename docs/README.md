@@ -7,9 +7,8 @@ systems execute."* Pipeline: **Bridge** (normalize 7 provider dialects → one i
 payload-bound one-time PIN) → **Audit** (Ed25519 Merkle WORM log, written *before*
 execution).
 
-This set was consolidated from ~38 scattered files into the hubs below. Start with
-**Getting Started**; operators go to **Operations**; the strategy/roadmap docs are the
-business view.
+The documentation is organized into the hubs below. Start with
+**Getting Started**; operators go to **Operations**.
 
 ## Start here
 
@@ -37,14 +36,10 @@ business view.
 | [WORKSPACE_GENERATE.md](WORKSPACE_GENERATE.md) | Brief → governed workspace scaffold: the draft/validate/apply endpoints, inference-free core with an optional local-first LLM toolchain. |
 | [IMPLEMENTATION_WEB.md](IMPLEMENTATION_WEB.md) | The web/console implementation reference. |
 
-## Strategy & business
+## Background
 
 | Doc | What's inside |
 |---|---|
-| [STRATEGY.md](STRATEGY.md) | The consolidated strategy: positioning & wedge, the competitor combination-test + battlecard, 2026-H2 market/timing, pricing & revenue model (per-governed-agent-identity), GTM & launch plan, and acquisition readiness. |
-| [DX_COMPETITIVE_REPORT.md](DX_COMPETITIVE_REPORT.md) | The plug-and-play gap: a 13-competitor developer-experience teardown (Auth0/Okta/Descope · MCP gateways · tool-auth platforms), the time-to-first-value benchmark, MCPIP's honest self-assessment, and the prioritized P0/P1/P2 simplification plan. |
-| [ROADMAP.md](ROADMAP.md) | The single Now/Next/Future roadmap, the GA-readiness checklist (in-code vs external gap), and the five-pillar gap analysis. |
-| [PITCH_DECK.md](PITCH_DECK.md) | The pitch deck (standalone artifact). |
 | [WHITEPAPER.md](WHITEPAPER.md) | The technical whitepaper (standalone artifact). |
 
 ---
@@ -53,3 +48,8 @@ Repo-root docs also worth knowing: [`../README.md`](../README.md) (project overv
 [`../SECURITY.md`](../SECURITY.md) + [`../SECURITY_THREAT_MODEL.md`](../SECURITY_THREAT_MODEL.md)
 (adversary model + ASI coverage), [`../LICENSING.md`](../LICENSING.md) (BSL core / Apache
 SDKs), [`../RELEASE.md`](../RELEASE.md) (release ceremony), and [`../CHANGELOG.md`](../CHANGELOG.md).
+
+Project policies: [`../TERMS.md`](../TERMS.md) (terms of use) ·
+[`../PRIVACY.md`](../PRIVACY.md) (data handling) · [`../TRADEMARK.md`](../TRADEMARK.md)
+(name & mark) · [`../CONTRIBUTING.md`](../CONTRIBUTING.md) ·
+[`../CODE_OF_CONDUCT.md`](../CODE_OF_CONDUCT.md).

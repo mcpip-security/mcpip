@@ -2,11 +2,11 @@ Business Source License 1.1
 
 Parameters
 
-Licensor:             The MCPIP Authors
+Licensor:             MCPIP Security
 
 Licensed Work:        MCPIP (the "◐ MCPIP" authorization gateway), version 2.0.0
                       and later.
-                      The Licensed Work is © 2026 The MCPIP Authors.
+                      The Licensed Work is © 2026 MCPIP Security.
                       The Licensed Work does NOT include the client SDKs under
                       `sdk/` (e.g. `sdk/python`, `sdk/typescript`), which are
                       separately licensed under the Apache License, Version 2.0

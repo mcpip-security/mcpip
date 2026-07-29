@@ -662,7 +662,10 @@ against that real code.
    it as a monotonic low-watermark, so a truncation/rollback (W9) or a delete-all-headers erasure
    (W8) is caught even when the attacker also rewrites the counters — a chain that stops short of,
    or substitutes a different hash at, the durably-witnessed head fails verify (a chain merely
-   *ahead* of a lagging anchor stays intact). Production requires Redis AOF `appendfsync always`
+   *ahead* of a lagging anchor stays intact). The offline `mcpip export-audit --verify --pubkey
+   … [--anchor-path …]` re-runs the same per-epoch checks **and** the same anchor low-watermark
+   from the exported bytes, so the production operator (for whom `/v1/audit/verify` is
+   sandbox-gated) gets the identical verdict. Production requires Redis AOF `appendfsync always`
    so every authorized decision's event is fsync-durable before the action runs, and the anchor
    file must sit on a durable volume distinct from the Redis store. **Residual:** an adversary who
    *also* compromises the gateway host's anchor volume (a strictly larger foothold than Redis
@@ -930,7 +933,7 @@ Every control above is exercised, not merely asserted:
 This section is the external-framework companion to the §11 attack→defense matrix. §11 organizes
 MCPIP's defenses around **MCPIP's own primitives** (T1–T17); this crosswalk re-projects those same
 T-items onto the **OWASP Top 10 for Agentic Applications 2026 (ASI01–ASI10)** — now the canonical
-buyer/auditor checklist (`docs/STRATEGY.md` §5.1 **[verified]**). It adds **no new control**:
+buyer/auditor checklist (the internal strategy notes §5.1 **[verified]**). It adds **no new control**:
 every cell points back to a T-item and its code in §11/§12/§15. The map is deliberately honest — it
 claims dominance only where MCPIP structurally earns it and names the three categories MCPIP does
 **not** cover, because a sophisticated buyer will otherwise find those gaps first.
@@ -940,7 +943,7 @@ it governs *what a verified identity is authorized to execute*, not *why the age
 Categories rooted in the agent's reasoning, memory, or the inter-agent bus are therefore upstream of
 MCPIP's boundary. MCPIP **deliberately does not** add an in-agent probabilistic/behavioral-anomaly
 detector to reach for those rows — that is the "the fox can't guard the henhouse" posture stated in
-`docs/STRATEGY.md` §5.7 and the `docs/STRATEGY.md` §6 battlecard. Where MCPIP is out of scope, it says so and leads with the
+the internal strategy notes §5.7 and the the internal strategy notes §6 battlecard. Where MCPIP is out of scope, it says so and leads with the
 deterministic **damage-limiting** it *does* provide (payload-bound OTP + velocity/amount engine +
 write-before-execute WORM), never with a detector it refuses to build.
 

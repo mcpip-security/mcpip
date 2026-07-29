@@ -32,7 +32,7 @@ from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 from jwt import InvalidTokenError, MissingRequiredClaimError
 from jwt.algorithms import ECAlgorithm, OKPAlgorithm, RSAAlgorithm
 
-from interfaces import MAX_CAPABILITIES, Identity
+from interfaces import JWT_CLOCK_SKEW_LEEWAY_SECONDS, MAX_CAPABILITIES, Identity
 from auth.pop import (
     PopError,
     is_id_jag,
@@ -264,6 +264,11 @@ class TokenResolver:
                 algorithms=list(self._algorithms),
                 audience=self._audience,
                 issuer=self._issuer,
+                # Bounded, symmetric clock-skew tolerance for exp/iat/nbf. Without it
+                # PyJWT demands second-exact agreement with the IdP's clock, and a
+                # one-second drift is a total auth outage the agent cannot diagnose.
+                # The bound lives in interfaces.py — never widen it here.
+                leeway=JWT_CLOCK_SKEW_LEEWAY_SECONDS,
                 options={
                     "require": list(REQUIRED_CLAIMS),
                     "verify_signature": True,

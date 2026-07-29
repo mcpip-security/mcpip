@@ -1093,7 +1093,7 @@ class _DemoRunner:
         # ===================================================================
         aegis = "aegis-dynamics"
 
-        # --- C1) falcon agent → skill_falcon_telemetry (own compartment) ---
+        # --- C1) falcon agent → skill_airframe_telemetry (own compartment) ---
         falcon_token = idp.mint(
             tenant_id=aegis, agent_id="agent-falcon-1", compartment=FALCON
         )
@@ -1101,7 +1101,7 @@ class _DemoRunner:
             "C1 compartment own",
             self._gw.authorize_and_execute(
                 falcon_token,
-                _openai_call("skill_falcon_telemetry", {}),
+                _openai_call("skill_airframe_telemetry", {}),
                 SourceFormat.OPENAI_TOOL_CALL,
                 _make_trace("agent-falcon-1"),
             ),
@@ -1116,7 +1116,7 @@ class _DemoRunner:
             "C2 compartment cross",
             self._gw.authorize_and_execute(
                 aegis1_token,
-                _openai_call("skill_falcon_telemetry", {}),
+                _openai_call("skill_airframe_telemetry", {}),
                 SourceFormat.OPENAI_TOOL_CALL,
                 _make_trace("agent-aegis-1"),
             ),
@@ -1178,7 +1178,7 @@ class _DemoRunner:
             "C5 delegated grant",
             self._gw.authorize_and_execute(
                 aegis2_token,
-                _openai_call("skill_falcon_telemetry", {}),
+                _openai_call("skill_airframe_telemetry", {}),
                 SourceFormat.OPENAI_TOOL_CALL,
                 _make_trace("agent-aegis-2"),
             ),
@@ -1206,7 +1206,7 @@ class _DemoRunner:
             "C7 grant expired",
             self._gw.authorize_and_execute(
                 aegis2_token,
-                _openai_call("skill_falcon_telemetry", {}),
+                _openai_call("skill_airframe_telemetry", {}),
                 SourceFormat.OPENAI_TOOL_CALL,
                 _make_trace("agent-aegis-2"),
             ),
@@ -1241,7 +1241,7 @@ class _DemoRunner:
             "C10b mole cannot reach AEGIS alias",
             self._gw.authorize_and_execute(
                 mole_token,
-                _openai_call("skill_aegis_radar_tune", {}),
+                _openai_call("skill_radar_calibration_set", {}),
                 SourceFormat.OPENAI_TOOL_CALL,
                 _make_trace("agent-mole-1"),
             ),
@@ -1371,10 +1371,10 @@ class _DemoRunner:
         )
         names = {e.alias for e in visible}
         c8_ok = (
-            "skill_falcon_telemetry" in names
+            "skill_airframe_telemetry" in names
             and "skill_status_probe" in names
-            and "skill_aegis_radar_tune" not in names
-            and "skill_sentinel_recon_feed" not in names
+            and "skill_radar_calibration_set" not in names
+            and "skill_recon_feed_read" not in names
         )
         self._record(
             "C8 catalog filter",

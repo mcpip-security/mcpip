@@ -816,7 +816,7 @@ Additional rules:
 
 ---
 
-## 13. Quickstart (identical across `README.md`, `IMPLEMENTATION_WEB.md`, `PITCH_DECK.md`)
+## 13. Quickstart (identical across `README.md` and `IMPLEMENTATION_WEB.md`)
 
 ```bash
 # Redis (host port 63790 -> container 6379); reuse if the container already exists

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Activity, ChevronRight, Layers } from 'lucide-react';
+import { Activity, Layers } from 'lucide-react';
 import { Badge, Detail, Panel, PanelHeader } from './ui';
 import { prefersReducedMotion } from '../lib/format';
 import type { GatewayLive } from '../lib/useGatewayLive';
@@ -272,34 +272,18 @@ function AvailabilityPanel({ gateway }: { gateway: GatewayLive }): JSX.Element {
       />
 
       <div className="min-h-0 flex-1 overflow-y-auto">
-        {/* Facts — the observed probe ring; the gateway's OWN latency histogram is one row down. */}
-        <div className="grid grid-cols-2 gap-px border-b border-hairline bg-hairline">
+        {/* Facts — the observed probe ring + the gateway's OWN latency histogram. */}
+        <div className="grid grid-cols-2 gap-px border-b border-hairline bg-hairline sm:grid-cols-4">
           <Fact label="Observed window" value={windowValue} tone={first ? 'ink' : 'muted'} />
           <Fact label="Probes answered" value={uptimeValue} tone={uptimeTone} />
+          <Fact label="Latency p50" value={m.gatewayP50Ms !== null ? `${m.gatewayP50Ms.toFixed(1)} ms` : '—'} tone={m.gatewayP50Ms !== null ? 'ink' : 'muted'} />
+          <Fact label="Latency p95" value={m.gatewayP95Ms !== null ? `${m.gatewayP95Ms.toFixed(1)} ms` : '—'} tone={m.gatewayP95Ms !== null ? 'ink' : 'muted'} />
         </div>
-
-        {/* Gateway-measured latency (all agents' traffic) — demoted behind a disclosure. */}
-        <details className="group border-b border-hairline">
-          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-2.5 [&::-webkit-details-marker]:hidden">
-            <span className="flex min-w-0 items-center gap-2">
-              <ChevronRight size={13} className="shrink-0 text-slate-400 transition-transform group-open:rotate-90" />
-              <span className="eyebrow">Gateway-measured latency</span>
-            </span>
-            <span className="tabular shrink-0 font-mono text-[10.5px] text-slate-500">
-              p50 {m.gatewayP50Ms !== null ? `${m.gatewayP50Ms.toFixed(1)}ms` : '—'} · p95 {m.gatewayP95Ms !== null ? `${m.gatewayP95Ms.toFixed(1)}ms` : '—'}
-            </span>
-          </summary>
-          <div className="grid grid-cols-2 gap-px border-t border-hairline bg-hairline">
-            <Fact label="p50 · gateway-measured" value={m.gatewayP50Ms !== null ? `${m.gatewayP50Ms.toFixed(1)} ms` : '—'} tone={m.gatewayP50Ms !== null ? 'ink' : 'muted'} />
-            <Fact label="p95 · gateway-measured" value={m.gatewayP95Ms !== null ? `${m.gatewayP95Ms.toFixed(1)} ms` : '—'} tone={m.gatewayP95Ms !== null ? 'ink' : 'muted'} />
-          </div>
-        </details>
 
         {history.length === 0 ? (
           <p className="px-6 py-8 text-center text-[11.5px] leading-relaxed text-slate-500">
-            No probe ticks recorded yet — the console logs one availability tick per{' '}
-            <span className="font-mono text-[10.5px]">/healthz</span> probe (about every 4 s) from the moment it
-            opens. Nothing is backfilled.
+            No probe ticks yet — one appears per <span className="font-mono text-[10.5px]">/healthz</span>{' '}
+            probe (about every 4 s).
           </p>
         ) : (
           <div className="space-y-4 px-5 py-4">
@@ -310,9 +294,7 @@ function AvailabilityPanel({ gateway }: { gateway: GatewayLive }): JSX.Element {
       </div>
 
       <p className="shrink-0 border-t border-hairline px-5 py-2.5 text-[10.5px] leading-relaxed text-slate-500">
-        Session-scoped record of this console&apos;s own probes — one tick per round-trip, newest on the right,
-        never backfilled. The Redis row reads the <span className="font-mono">/readyz</span> verdict current at
-        each tick.
+        This console&apos;s own probes, newest on the right — never backfilled.
       </p>
     </Panel>
   );

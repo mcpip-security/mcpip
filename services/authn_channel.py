@@ -31,17 +31,21 @@ Two concrete channels ship:
 from __future__ import annotations
 
 import asyncio
+import base64
 import hashlib
 import hmac
 import ipaddress
 import json
+import os
 import socket
+import struct
 import time
 from typing import Any, Final
 from urllib.parse import urlsplit
 
 import httpx
 import redis.asyncio as redis
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from interfaces import (
     AuthenticatorNotice,
@@ -275,6 +279,115 @@ class WebhookAuthenticatorChannel(BaseAuthenticatorChannel):
         return json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
 
 
+# ---------------------------------------------------------------------------
+# User-based 2FA channel — encrypted stash, released only on a verified TOTP.
+# ---------------------------------------------------------------------------
+
+
+class TotpVaultAuthenticatorChannel(BaseAuthenticatorChannel):
+    """
+    Production-legit delivery channel for USER-BASED 2FA: hold the staged code
+    encrypted at rest until an ENROLLED principal proves possession of their
+    authenticator app (RFC 6238 TOTP), then release it exactly once.
+
+    Unlike the sandbox stash, the OTP never sits in Redis in plaintext: ``deliver``
+    seals it with AES-256-GCM under a domain-separated subkey of the authenticator
+    master key (held OUTSIDE Redis), AAD-bound to (tenant, challenge) so a blob moved
+    to another challenge or tenant will not decrypt. ``reveal`` is GETDEL — single
+    use — and returns None on ANY miss/corrupt/foreign-key outcome (opaque).
+
+    The TOTP verification itself lives in ``AuthenticatorEnrollmentStore``; the
+    endpoint composes verify → reveal and WORM-logs the disclosure BEFORE returning
+    it. This channel remains strictly downstream of ``register_lock`` — it never
+    influences how the code is derived or bound (the G1 delivery-seam invariant).
+    """
+
+    _NONCE_LEN = 12
+
+    def __init__(self, redis_client: "redis.Redis", master_key: bytes) -> None:
+        if len(master_key) != 32:
+            raise ValueError("authenticator master key must be exactly 32 bytes (AES-256)")
+        # Domain-separated from the enrollment-secret encryption use of the same key.
+        subkey = hashlib.sha256(b"mcpip-authn-otp-stash-v1\x00" + master_key).digest()
+        self._redis = redis_client
+        self._aead = AESGCM(subkey)
+
+    async def deliver(self, notice: AuthenticatorNotice) -> None:
+        """Seal the code and stash it under the lock TTL; raise on any failure."""
+        nonce = os.urandom(self._NONCE_LEN)
+        blob = nonce + self._aead.encrypt(
+            nonce,
+            notice.otp.encode("utf-8"),
+            self._aad(notice.tenant_id, notice.challenge_id),
+        )
+        try:
+            await self._redis.set(
+                self._stash_key(notice.tenant_id, notice.challenge_id),
+                # base64 text, not raw bytes: the gateway's Redis client runs
+                # decode_responses=True, and a raw GCM blob would break its UTF-8
+                # read-back (turning every reveal into a silent miss).
+                base64.b64encode(blob).decode("ascii"),
+                ex=PIN_TTL_SECONDS,
+            )
+        except Exception as exc:  # noqa: BLE001 — any stash failure is fail-closed.
+            raise AuthenticatorDeliveryError("authenticator stash write failed") from exc
+
+    async def reveal(self, tenant_id: str, challenge_id: str) -> str | None:
+        """
+        Single-use release of the sealed code (GETDEL). None on unknown/expired/
+        already-revealed/corrupt — indistinguishable outcomes by design. The CALLER
+        must have already verified the principal's TOTP and WORM-logged the reveal.
+        """
+        try:
+            blob: Any = await self._redis.getdel(self._stash_key(tenant_id, challenge_id))
+        except Exception:  # noqa: BLE001 — transport failure reads as absent.
+            return None
+        if blob is None:
+            return None
+        try:
+            text = blob.decode("ascii") if isinstance(blob, (bytes, bytearray)) else str(blob)
+            raw = base64.b64decode(text, validate=True)
+            nonce, ciphertext = raw[: self._NONCE_LEN], raw[self._NONCE_LEN :]
+            plain = self._aead.decrypt(nonce, ciphertext, self._aad(tenant_id, challenge_id))
+            return plain.decode("utf-8")
+        except Exception:  # noqa: BLE001 — corrupt/foreign blob reads as absent.
+            return None
+
+    @staticmethod
+    def _stash_key(tenant_id: str, challenge_id: str) -> str:
+        return f"mcpip:otpv:{tenant_id}:{challenge_id}"
+
+    @staticmethod
+    def _aad(tenant_id: str, challenge_id: str) -> bytes:
+        t = tenant_id.encode("utf-8")
+        c = challenge_id.encode("utf-8")
+        return struct.pack(">II", len(t), len(c)) + t + c
+
+
+class FanoutAuthenticatorChannel(BaseAuthenticatorChannel):
+    """
+    Deliver one notice through SEVERAL channels (e.g. webhook push AND the TOTP-gated
+    stash, or the sandbox stash AND the TOTP stash). Fail-closed as a unit: the FIRST
+    channel failure aborts the whole delivery and propagates, so ``register_lock``
+    maps it to ``OTP_DELIVERY_FAILED`` — a partially-delivered challenge is never
+    silently staged.
+    """
+
+    def __init__(self, channels: tuple[BaseAuthenticatorChannel, ...]) -> None:
+        if not channels:
+            raise ValueError("fanout requires at least one channel")
+        self._channels = channels
+
+    @property
+    def channels(self) -> tuple[BaseAuthenticatorChannel, ...]:
+        """The composed legs (read-only) — lets the engine's sandbox ``peek`` unwrap."""
+        return self._channels
+
+    async def deliver(self, notice: AuthenticatorNotice) -> None:
+        for channel in self._channels:
+            await channel.deliver(notice)
+
+
 def _is_blocked_ip(ip_text: str) -> bool:
     """
     True if ``ip_text`` names an address MCPIP must never dial for a webhook push.
@@ -301,6 +414,8 @@ def _is_blocked_ip(ip_text: str) -> bool:
 
 __all__ = [
     "AuthenticatorDeliveryError",
+    "FanoutAuthenticatorChannel",
     "SandboxRedisAuthenticatorChannel",
+    "TotpVaultAuthenticatorChannel",
     "WebhookAuthenticatorChannel",
 ]

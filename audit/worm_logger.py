@@ -74,6 +74,7 @@ pass before anything is written, in BOTH modes.
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import os
 import sys
@@ -84,12 +85,13 @@ from pathlib import Path
 from typing import Any, Awaitable, Optional, cast
 
 import redis.asyncio as redis
-from cryptography.exceptions import InvalidSignature
+from cryptography.exceptions import InvalidSignature, InvalidTag
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import (
     Ed25519PrivateKey,
     Ed25519PublicKey,
 )
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from redis.exceptions import RedisError
 
 from audit.anchor import AnchorStore
@@ -476,6 +478,48 @@ class InclusionProof:
 
 
 @dataclass(frozen=True)
+class ProofScope:
+    """
+    The MEASURED window in which a per-event inclusion proof can actually be produced.
+
+    A per-event proof is not a property of the ledger's whole lifetime. ``inclusion_proof``
+    can only answer for an event whose epoch is BOTH sealed and still retained, because the
+    two inputs it needs are written at close and dropped at trim:
+
+      * the ``eventloc`` entry and the epoch's leaf-digest vector are written by the
+        close-commit script — so an event in the CURRENT, still-open epoch has neither, and
+      * ``_trim_retention`` deletes both (and XTRIMs the event out of the buffer) once its
+        epoch falls more than ``WORM_HOT_EPOCHS`` behind the head.
+
+    Outside that window the durable non-repudiation evidence is the signed epoch root chain
+    (and, after compaction, the super-checkpoint): it commits to an epoch and its sequence
+    RANGE, which is a different — and weaker — claim than a proof binding one event's exact
+    bytes to a signed root. Compliance evidence has to state which of the two it is offering,
+    so this reports the boundary as measured numbers rather than as prose.
+
+    Every field is read-only and derived from live state; nothing here is a configured
+    aspiration. ``proof_bearing_events`` is the exact population, not an estimate.
+    """
+
+    # Retention depth in sealed epochs (the configured bound the window is derived from).
+    hot_epochs: int
+    # Inclusive epoch range whose events can still yield a per-event proof (None = none can).
+    oldest_proof_epoch: Optional[int]
+    newest_proof_epoch: Optional[int]
+    # Inclusive WORM sequence range covered by that epoch range (None when empty).
+    first_proof_seq: Optional[int]
+    last_proof_seq: Optional[int]
+    # Exact count of events that can be proven individually right now.
+    proof_bearing_events: int
+    # Events durably emitted but not yet sealed into an epoch: recorded and covered by the
+    # write-before-execute guarantee, but NOT yet individually provable.
+    unsealed_events: int
+    # Highest seq ever sealed. Events at or below it that fall outside the epoch range above
+    # have aged out of per-event provability; the signed chain still covers them.
+    sealed_through_seq: Optional[int]
+
+
+@dataclass(frozen=True)
 class WormAttestation:
     """
     A portable, signed snapshot of the CURRENT audit state (read-only).
@@ -566,6 +610,79 @@ def _hash_epoch_leaves(records: list[str]) -> tuple[list[bytes], bytes]:
     return leaves, merkle_root(leaves)
 
 
+# ---------------------------------------------------------------------------
+# Opt-in at-rest CONFIDENTIALITY for the WORM event body (SOC2_READINESS.md #14).
+#
+# The chain is INTEGRITY-protected (Merkle/Ed25519) but the event body — the resolved
+# real target, the alias, and identifiers — is otherwise cleartext in Redis + AOF. With a
+# ``content_key`` the SENSITIVE ``event`` payload is wrapped in an AES-256-GCM envelope
+# BEFORE it enters ``record_core``; the leaf still hashes the whole ``record_core`` (now
+# containing the envelope string), so ``verify_chain`` — which hashes the STORED bytes —
+# is byte-for-byte UNAFFECTED and remains verifiable WITHOUT the key. The signed
+# commitments (event_id / timestamp / merkle root / epoch signature) stay in cleartext, so
+# an auditor can still prove chain integrity offline; only READING the body needs the key.
+# Destroy the key ⇒ the bodies are crypto-shredded while the integrity proof survives.
+# Default OFF (``content_key is None``) ⇒ the body is the plaintext dict, byte-identical.
+_WORM_ENC_PREFIX = "encv1:"
+_WORM_ENC_AAD = b"mcpip-worm-event/1"  # domain separation; positional binding is the Merkle chain.
+
+
+def _encrypt_worm_event(event: dict[str, Any], key: bytes) -> str:
+    """Wrap the event payload in a self-describing AES-256-GCM envelope (base64)."""
+    nonce = os.urandom(12)
+    ct = AESGCM(key).encrypt(nonce, canonical_json(event), _WORM_ENC_AAD)
+    return _WORM_ENC_PREFIX + base64.b64encode(nonce + ct).decode("ascii")
+
+
+def _decrypt_worm_event(
+    value: Any, key: Optional[bytes], fallbacks: tuple[bytes, ...] = ()
+) -> Any:
+    """Inverse of ``_encrypt_worm_event`` — a NO-OP on a plaintext dict (off/legacy).
+
+    Returns the decrypted event dict for an ``encv1:`` envelope when a usable key is
+    present; a plaintext dict is passed through unchanged; and if the value is an envelope
+    but no key is available the opaque envelope string is returned as-is (integrity is
+    intact and verifiable, the body simply cannot be read — the intended confidentiality
+    boundary).
+
+    ``fallbacks`` are RETIRED content keys retained across a key rotation. The active
+    ``key`` seals every new event and is tried first; each fallback is then tried in turn,
+    so a body sealed under a superseded key stays readable after the active key rotates
+    (newest key seals; any retained key can read). If the value IS an envelope and no
+    supplied key can open it, the AES-GCM error is re-raised — a loud signal that the
+    sealing key was neither retained nor supplied, never a silent unreadable pass-through.
+    """
+    if not isinstance(value, str) or not value.startswith(_WORM_ENC_PREFIX):
+        return value
+    candidates = tuple(k for k in (key, *fallbacks) if k is not None)
+    if not candidates:
+        return value
+    blob = base64.b64decode(value[len(_WORM_ENC_PREFIX):])
+    nonce, ct = blob[:12], blob[12:]
+    for candidate in candidates:
+        try:
+            return json.loads(AESGCM(candidate).decrypt(nonce, ct, _WORM_ENC_AAD))
+        except InvalidTag:  # wrong key for THIS envelope — try the next retained key
+            continue
+    raise InvalidTag(
+        "no content key (active or retained) could decrypt the WORM event body"
+    )
+
+
+def _stream_id_ms(stream_id: str) -> Optional[int]:
+    """Millisecond component of a Redis stream id, tolerating the ``(`` exclusive prefix.
+
+    Returns None for a sentinel (``-``/``+``) or anything unparseable — callers then treat
+    the horizon as unknown rather than guessing, which is the whole point of the field.
+    """
+    raw = stream_id[1:] if stream_id.startswith("(") else stream_id
+    head = raw.split("-", 1)[0]
+    try:
+        return int(head)
+    except (TypeError, ValueError):
+        return None
+
+
 class WormLogger:
     """Append-only, tamper-evident audit sink (hybrid Merkle-epoch by default)."""
 
@@ -577,9 +694,20 @@ class WormLogger:
         path: Optional[str] = None,
         mode: str = "epoch",
         anchor: Optional[AnchorStore] = None,
+        wait_replicas: int = 0,
+        wait_timeout_ms: int = 2000,
+        content_key: Optional[bytes] = None,
+        content_key_fallbacks: tuple[bytes, ...] = (),
     ) -> None:
         if mode not in ("epoch", "per_event"):
             raise ValueError("mode must be 'epoch' or 'per_event'")
+        if wait_replicas < 0:
+            raise ValueError("wait_replicas must be >= 0")
+        if wait_timeout_ms <= 0:
+            raise ValueError("wait_timeout_ms must be > 0")
+        if content_key_fallbacks and content_key is None:
+            # A retired key with no active key can never SEAL — a misconfiguration.
+            raise ValueError("content_key_fallbacks require an active content_key")
         self._redis = redis_client
         self._private_key = private_key
         self._public_key: Ed25519PublicKey = private_key.public_key()
@@ -594,6 +722,28 @@ class WormLogger:
         # tail-truncation / rollback that ALSO rewrites the in-Redis counters is caught
         # (finding: anchorless verify + counters in the tamper domain).
         self._anchor = anchor
+        # Opt-in synchronous-replication quorum (SOC2_READINESS.md #31, A1.2): with
+        # ``wait_replicas`` > 0, every emit additionally requires that many Redis
+        # replicas acknowledge the write (WAIT) BEFORE the authorize proceeds — the
+        # write-before-execute durability contract extended across a replica, so a
+        # master loss + replica promotion can never drop an acked audit record. 0 (the
+        # default) issues no WAIT at all: byte-identical single-node behavior. Scope is
+        # deliberately the EVENT EMIT only — the one correctness-critical write. Epoch
+        # headers are crash-recoverable (a re-close re-seals the identical tail), and
+        # every other Redis datum (payload locks, grants, counters) fails CLOSED when
+        # lost, so extending WAIT to them would buy latency, not safety.
+        self._wait_replicas = wait_replicas
+        self._wait_timeout_ms = wait_timeout_ms
+        # Opt-in at-rest confidentiality for the event body (SOC2_READINESS.md #14). None
+        # (default) ⇒ the body is the plaintext dict, byte-identical to today. Set ⇒ the
+        # ``event`` payload is AES-256-GCM-wrapped before it enters ``record_core``, so the
+        # Merkle leaf (over the whole record) and verify_chain are UNAFFECTED and the chain
+        # stays verifiable without the key; only reading the body needs it. Rotation:
+        # ``content_key`` always seals; ``content_key_fallbacks`` are RETIRED keys retained
+        # so bodies sealed under a superseded key stay readable on the operator reads (the
+        # active key is tried first, then each fallback). Empty ⇒ single-key behavior.
+        self._content_key = content_key
+        self._content_key_fallbacks = content_key_fallbacks
         self._release_script = redis_client.register_script(_RELEASE_LUA)
         self._emit_script = redis_client.register_script(_EMIT_LUA)
         self._close_commit_script = redis_client.register_script(_CLOSE_COMMIT_LUA)
@@ -622,7 +772,15 @@ class WormLogger:
         record_core = {
             "event_id": event_id,
             "timestamp_ns": ts,
-            "event": redacted,
+            # Opt-in at-rest confidentiality: the sensitive payload is wrapped in a
+            # self-describing AES-GCM envelope when a content key is set. The leaf below
+            # commits to record_core AS STORED (envelope string), so verify_chain is
+            # unaffected. None ⇒ the plaintext dict, byte-identical.
+            "event": (
+                _encrypt_worm_event(redacted, self._content_key)
+                if self._content_key is not None
+                else redacted
+            ),
         }
         canonical = canonical_json(record_core)           # computed ONCE.
         leaf_hash = leaf_digest(canonical).hex()          # domain-separated leaf.
@@ -632,9 +790,34 @@ class WormLogger:
         )
         seq = int(raw[0])
         stream_id = str(raw[1])
+        await self._enforce_replica_quorum()
         return WormReceipt(
             seq=seq, event_id=event_id, stream_id=stream_id, leaf_hash=leaf_hash
         )
+
+    async def _enforce_replica_quorum(self) -> None:
+        """
+        Enforce the opt-in synchronous-replication quorum on an emitted event.
+
+        No-op when ``wait_replicas`` is 0 (the default). Otherwise issue a Redis
+        ``WAIT`` and FAIL CLOSED (raise) unless at least that many replicas have
+        acknowledged the just-committed write within the timeout — the emit then
+        counts as NOT durable, the receipt is never returned, and the authorize
+        denies rather than proceed on an audit record a failover could lose. The
+        raise surfaces as the same opaque deny any emit failure produces.
+        """
+        if self._wait_replicas <= 0:
+            return
+        acked_raw: Any = await self._redis.execute_command(
+            "WAIT", self._wait_replicas, self._wait_timeout_ms
+        )
+        acked = int(acked_raw)
+        if acked < self._wait_replicas:
+            raise RuntimeError(
+                "WORM replica quorum not met: "
+                f"{acked}/{self._wait_replicas} replicas acknowledged within "
+                f"{self._wait_timeout_ms}ms — refusing to treat the emit as durable"
+            )
 
     # ------------------------------------------------------------------ epochs
 
@@ -945,6 +1128,17 @@ class WormLogger:
             # Fail-closed: only checkpoint a prefix that verifies intact right now.
             intact, _bad = await self._verify_epoch(None)
             if not intact:
+                # Declining to compact over a non-intact prefix is correct — but do NOT
+                # do it silently: surface it to stderr so a tamper that stalls compaction
+                # is visible even before the off-hot-path integrity monitor's next
+                # verify_chain pass (which raises mcpip_audit_integrity_total{tamper_detected}
+                # + a CRITICAL mcpip.audit log). See docs/SOC2_READINESS.md #8.
+                print(
+                    "MCPIP AUDIT: compaction declined — the epoch prefix is NOT intact "
+                    f"(first_bad_epoch={_bad}); investigate possible tamper",
+                    file=sys.stderr,
+                    flush=True,
+                )
                 return None
             header = await self._read_epoch_header(target)
             if header is None:
@@ -1134,7 +1328,9 @@ class WormLogger:
             return []
         out: list[dict[str, Any]] = []
         for _sid, fields in entries:
-            row = self._project_decision_row(tenant_id, fields)
+            row = self._project_decision_row(
+                tenant_id, fields, self._content_key, self._content_key_fallbacks
+            )
             if row is None:
                 continue
             out.append(row)
@@ -1144,7 +1340,10 @@ class WormLogger:
 
     @staticmethod
     def _project_decision_row(
-        tenant_id: str, fields: dict[str, Any]
+        tenant_id: str,
+        fields: dict[str, Any],
+        content_key: Optional[bytes] = None,
+        content_key_fallbacks: tuple[bytes, ...] = (),
     ) -> Optional[dict[str, Any]]:
         """
         Project ONE raw ``_EVENTS_STREAM`` entry to the operator-safe whitelist row, or
@@ -1155,7 +1354,9 @@ class WormLogger:
         """
         try:
             record = json.loads(fields["record"])
-            event = record.get("event")
+            event = _decrypt_worm_event(
+                record.get("event"), content_key, content_key_fallbacks
+            )
         except (ValueError, TypeError, KeyError):
             return None
         if not isinstance(event, dict):
@@ -1204,7 +1405,19 @@ class WormLogger:
         field yields zero matches (fail-closed, never a silent full scan).
 
         Returns ``{"decisions": [...], "next_cursor": str|None, "scanned": int,
-        "exhausted": bool}``. ``next_cursor`` is ``None`` only when the time range is fully
+        "exhausted": bool, "retention_floor_ms": int|None,
+        "window_precedes_retention": bool}``.
+
+        **The retention fields exist so an empty result can never lie.** Events are trimmed
+        out of the hot buffer once their epoch falls outside ``WORM_HOT_EPOCHS``; their
+        signed Merkle roots remain, but the per-decision rows do not. Without a horizon a
+        caller cannot distinguish "nothing happened in this window" from "this window is
+        older than anything I still hold" — and for an audit product those two answers are
+        opposites. ``retention_floor_ms`` is the timestamp of the OLDEST row still present
+        (``None`` when the buffer is empty); ``window_precedes_retention`` is True when the
+        requested range ends before that floor, i.e. the emptiness is ignorance, not absence.
+
+        ``next_cursor`` is ``None`` only when the time range is fully
         walked; otherwise it is the last raw stream id examined (re-pass as
         ``end_id="(<cursor>"``). Best-effort: a transport error ends the walk with whatever
         matched so far. Bounded scan, tenant-scoped, read-only — NOT the authoritative record
@@ -1218,7 +1431,16 @@ class WormLogger:
         # An unknown filter field can never match a whitelist projection → zero rows, never
         # a silent unfiltered scan (fail-closed).
         if any(field not in _DECISION_SAFE_KEYS for field in active):
-            return {"decisions": [], "next_cursor": None, "scanned": 0, "exhausted": True}
+            return {
+                "decisions": [],
+                "next_cursor": None,
+                "scanned": 0,
+                "exhausted": True,
+                # An unknown filter field matched nothing because it is INVALID, not
+                # because history is short — never blame retention for a caller error.
+                "retention_floor_ms": None,
+                "window_precedes_retention": False,
+            }
 
         rows: list[dict[str, Any]] = []
         scanned = 0
@@ -1240,7 +1462,9 @@ class WormLogger:
             for sid, fields in entries:
                 scanned += 1
                 last_sid = str(sid)
-                row = self._project_decision_row(tenant_id, fields)
+                row = self._project_decision_row(
+                    tenant_id, fields, self._content_key, self._content_key_fallbacks
+                )
                 if row is None:
                     continue
                 if not all(
@@ -1264,11 +1488,35 @@ class WormLogger:
             # round never re-sees it regardless of how many rows matched this round.
             cursor_max = f"({last_sid}"
         next_cursor = None if exhausted else last_sid
+        # The retention horizon — read ONCE per query, from the oldest row still in the
+        # stream. This is what turns an empty page from an assertion ("nothing happened")
+        # into an honest one ("nothing I still hold"). Best-effort by design: if the probe
+        # fails we report an UNKNOWN horizon rather than a confident zero, because the
+        # failure mode we are removing is precisely over-confidence about absence.
+        retention_floor_ms: Optional[int] = None
+        try:
+            oldest = await self._redis.xrange(_EVENTS_STREAM, count=1)
+            if oldest:
+                retention_floor_ms = int(str(oldest[0][0]).split("-", 1)[0])
+        except Exception:  # noqa: BLE001 - horizon is advisory; never fail a read for it
+            retention_floor_ms = None
+
+        # True only when we KNOW the window closes before the oldest row we hold. An
+        # unbounded ("+") end or an unknown floor stays False — we never claim ignorance
+        # we cannot demonstrate.
+        window_precedes_retention = False
+        if retention_floor_ms is not None and not rows and end_id not in ("+", "-"):
+            end_ms = _stream_id_ms(end_id)
+            if end_ms is not None and end_ms < retention_floor_ms:
+                window_precedes_retention = True
+
         return {
             "decisions": rows,
             "next_cursor": next_cursor,
             "scanned": scanned,
             "exhausted": exhausted,
+            "retention_floor_ms": retention_floor_ms,
+            "window_precedes_retention": window_precedes_retention,
         }
 
     async def stream_tail_id(self) -> str:
@@ -1322,7 +1570,9 @@ class WormLogger:
             cursor = str(sid)
             try:
                 record = json.loads(fields["record"])
-                event = record.get("event")
+                event = _decrypt_worm_event(
+                    record.get("event"), self._content_key, self._content_key_fallbacks
+                )
             except (ValueError, TypeError, KeyError):
                 continue
             if not isinstance(event, dict) or event.get("decision") != "deny":
@@ -1466,6 +1716,109 @@ class WormLogger:
             first_bad_epoch=first_bad,
             anchor_epoch=anchor[0] if anchor is not None else None,
             anchor_epoch_hash=anchor[1] if anchor is not None else None,
+        )
+
+    async def proof_scope(self) -> ProofScope:
+        """
+        Measure the window in which a per-event inclusion proof can be produced — READ-ONLY.
+
+        Reads only bounded, O(1)-or-O(hot epochs) keys: the eventloc population (one HLEN),
+        the retained leaf-digest epochs (one HKEYS over at most ``WORM_HOT_EPOCHS`` fields),
+        the sealed-coverage high-water mark, and the two boundary headers. It mints nothing,
+        seals nothing, and never runs on or blocks the emit hot path.
+
+        The numbers are deliberately derived from what is PRESENT rather than from
+        ``head - WORM_HOT_EPOCHS``: after a restart, a partial trim, or an operator's manual
+        intervention the arithmetic answer and the real answer can differ, and an evidence
+        bundle must report the one an auditor could reproduce by asking for the proofs.
+
+        NOT A SNAPSHOT — and the bundle must not be read as if it were. These keys are read
+        sequentially, without a lock (deliberately: the epoch lock belongs to the close
+        daemon, and a compliance read has no business contending for it). A close or a trim
+        landing mid-read can therefore mix a population counted before it with an epoch
+        range counted after. The skew is bounded by one epoch in either direction and is
+        self-correcting on the next call, which is why it is acceptable here: every field is
+        a monitoring quantity, none is a signed commitment, and no decision is made from
+        them. What it must never become is an input to an integrity verdict — ``verify_chain``
+        takes the lock precisely because IT is that verdict, and this is not.
+
+        Per-event (legacy migration) mode has no epochs and no Merkle proofs at all: every
+        window field comes back ``None``/zero, which is the honest answer for that mode
+        rather than an empty-looking epoch window.
+        """
+        if self._mode == "per_event":
+            return ProofScope(
+                hot_epochs=WORM_HOT_EPOCHS,
+                oldest_proof_epoch=None,
+                newest_proof_epoch=None,
+                first_proof_seq=None,
+                last_proof_seq=None,
+                proof_bearing_events=0,
+                unsealed_events=0,
+                sealed_through_seq=None,
+            )
+
+        # Population: eventloc holds exactly one entry per individually provable event —
+        # written at close, deleted at trim — so its cardinality IS the population.
+        raw_pop: Any = await cast("Awaitable[Any]", self._redis.hlen(_EVENTLOC_KEY))
+        proof_bearing = int(raw_pop or 0)
+
+        # Period: the epochs whose leaf-digest vectors survive. Bounded by WORM_HOT_EPOCHS,
+        # so reading the field names is cheap and exact.
+        raw_epochs: Any = await cast(
+            "Awaitable[Any]", self._redis.hkeys(_EPOCH_LEAVES_KEY)
+        )
+        retained: list[int] = []
+        for field in raw_epochs or []:
+            try:
+                retained.append(int(str(field)))
+            except (TypeError, ValueError):
+                continue
+
+        sealed_through: Optional[int] = None
+        raw_sealed: Any = await cast(
+            "Awaitable[Any]", self._redis.get(_EPOCH_LAST_SEQ_KEY)
+        )
+        if raw_sealed is not None:
+            try:
+                sealed_through = int(str(raw_sealed))
+            except (TypeError, ValueError):
+                sealed_through = None
+
+        # Unsealed tail: emitted (so already durable and write-before-execute covered) but
+        # not yet in a signed epoch. Never negative — a close racing this read can only make
+        # the sealed mark newer than the seq snapshot.
+        raw_seq: Any = await cast("Awaitable[Any]", self._redis.get(_SEQ_KEY))
+        try:
+            head_seq = int(str(raw_seq)) if raw_seq is not None else 0
+        except (TypeError, ValueError):
+            head_seq = 0
+        unsealed = max(0, head_seq - (sealed_through or 0))
+
+        if not retained:
+            return ProofScope(
+                hot_epochs=WORM_HOT_EPOCHS,
+                oldest_proof_epoch=None,
+                newest_proof_epoch=None,
+                first_proof_seq=None,
+                last_proof_seq=None,
+                proof_bearing_events=proof_bearing,
+                unsealed_events=unsealed,
+                sealed_through_seq=sealed_through,
+            )
+
+        oldest, newest = min(retained), max(retained)
+        first_header = await self._read_epoch_header(oldest)
+        last_header = await self._read_epoch_header(newest)
+        return ProofScope(
+            hot_epochs=WORM_HOT_EPOCHS,
+            oldest_proof_epoch=oldest,
+            newest_proof_epoch=newest,
+            first_proof_seq=first_header.start_seq if first_header else None,
+            last_proof_seq=last_header.end_seq if last_header else None,
+            proof_bearing_events=proof_bearing,
+            unsealed_events=unsealed,
+            sealed_through_seq=sealed_through,
         )
 
     async def _verify_epoch(
@@ -1880,7 +2233,11 @@ class WormLogger:
                 "sequence": sequence,
                 "timestamp_ns": timestamp_ns,
                 "prev_hash": prev_hash,
-                "event": redacted,
+                "event": (
+                    _encrypt_worm_event(redacted, self._content_key)
+                    if self._content_key is not None
+                    else redacted
+                ),
             }
             record_hash = sha256_hex(canonical_json(core))
             signature = self._private_key.sign(bytes.fromhex(record_hash)).hex()
@@ -1891,6 +2248,7 @@ class WormLogger:
                 handle.write(line + "\n")
             await self._redis.set(_SEQ_KEY, str(sequence))
             await self._redis.set(_LAST_HASH_KEY, record_hash)
+            await self._enforce_replica_quorum()
         return WormReceipt(
             seq=sequence, event_id="", stream_id="", leaf_hash=record_hash
         )
@@ -1997,6 +2355,7 @@ __all__ = [
     "WormReceipt",
     "EpochHeader",
     "InclusionProof",
+    "ProofScope",
     "PersistencePosture",
     "read_persistence_posture",
     "assert_persistence_posture",

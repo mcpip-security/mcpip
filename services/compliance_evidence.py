@@ -33,7 +33,7 @@ import copy
 from typing import TYPE_CHECKING, Any, Optional
 
 if TYPE_CHECKING:  # pragma: no cover — type-only; keeps this module import-cycle-free.
-    from audit.worm_logger import WormAttestation
+    from audit.worm_logger import ProofScope, WormAttestation
 
 
 # The single certification-hygiene sentence stamped onto every framework block: the mechanism
@@ -164,12 +164,28 @@ _CONTROL_MAPPING: tuple[dict[str, Any], ...] = (
         "clauses": (
             {
                 "clause": "AU-10 — Non-repudiation",
-                "mechanism": "Per-epoch Ed25519 signatures + O(log n) inclusion proofs (T7)",
-                "mcpip_evidence": (
-                    "Each epoch is Ed25519-signed and every event has a Merkle inclusion proof "
-                    "bound to the public signing_key_id, so a recorded decision cannot be repudiated."
+                "mechanism": (
+                    "Per-epoch Ed25519 signatures over a root-chained Merkle ledger, plus "
+                    "O(log n) per-event inclusion proofs within the retention window (T7)"
                 ),
-                "code_pointer": "audit/worm_logger.py, audit/merkle.py",
+                "mcpip_evidence": (
+                    "Two claims of DIFFERENT strength, and the bundle's evidence_scope block "
+                    "reports which applies to a given event. (1) DURABLE, whole-lifetime: every "
+                    "sealed epoch is Ed25519-signed and root-chained to its predecessor under the "
+                    "public signing_key_id, so no epoch — and no sequence range within it — can "
+                    "be altered, reordered, or dropped undetected. (2) BOUNDED: a per-event Merkle "
+                    "inclusion proof binding one decision's exact bytes to a signed root is "
+                    "producible only while that event's epoch is both sealed and still retained "
+                    "(WORM_HOT_EPOCHS deep). An event in the still-open epoch is durably recorded "
+                    "before execution but not yet individually provable, and an event whose epoch "
+                    "has aged out is covered by the signed chain, not by an individual proof. "
+                    "Deployments needing per-event proofs over a longer period must export them "
+                    "within the window or widen retention."
+                ),
+                "code_pointer": (
+                    "audit/worm_logger.py (inclusion_proof, proof_scope, _trim_retention), "
+                    "audit/merkle.py"
+                ),
                 "coverage": "provides-evidence-for",
             },
             {
@@ -292,11 +308,40 @@ _EMPTY_STATE_NOTE = (
 )
 
 
+# The two questions an assessor asks of ANY evidence artifact — what PERIOD does it cover and
+# what POPULATION — stated for this bundle. Reported alongside the measured numbers so the
+# scope is never inferred from the presence of a signature.
+_SCOPE_NOTE = (
+    "PERIOD AND POPULATION. This bundle is a POINT-IN-TIME snapshot taken at generated_at; it "
+    "is not a report over an observation window, and no field asserts that controls operated "
+    "effectively for any period. Two coverages apply and they differ in strength. (1) The "
+    "signed epoch chain covers the ledger's WHOLE retained history: verify_chain's intact "
+    "verdict is a statement about every epoch still present plus the super-checkpoint "
+    "subsuming older ones, so alteration, reordering, or truncation anywhere in it is "
+    "detectable. (2) PER-EVENT inclusion proofs cover only the bounded window reported in "
+    "proof_window below — proof_bearing_events is the EXACT count of decisions provable "
+    "individually right now, not an estimate. Events in the still-open epoch "
+    "(unsealed_events) were durably recorded BEFORE their action executed, but their epoch "
+    "is not yet sealed, so no signed root commits to them yet. Events older than the window "
+    "have been trimmed from the hot buffer; the signed chain still covers their epoch and "
+    "sequence range, but their individual Merkle paths can no longer be produced. An "
+    "assessor sampling decisions outside proof_window should expect chain-level evidence, "
+    "not per-event proofs."
+)
+
+_SCOPE_UNAVAILABLE_NOTE = (
+    "The proof window could not be measured on this gateway (the audit engine did not return "
+    "a scope). Reported as unavailable rather than defaulted — an absent measurement must "
+    "never read as full coverage."
+)
+
+
 def build_evidence_bundle(
     attestation: "WormAttestation",
     gateway_version: str,
     release_provenance: dict[str, Optional[object]],
     generated_at: str,
+    proof_scope: "Optional[ProofScope]" = None,
 ) -> dict[str, Any]:
     """
     Assemble the portable compliance-evidence bundle from ALREADY-FETCHED real gateway state.
@@ -307,8 +352,34 @@ def build_evidence_bundle(
     ``CONTROL_MAPPING``, and ``BUNDLE_DISCLAIMER``. Derives ``sealed`` honestly from whether an
     epoch has been sealed and attaches an ``empty_state_note`` when it has not. Contains NO
     target, payload, PIN/OTP, or vended credential — only signed commitments and static text.
+
+    ``proof_scope`` carries the MEASURED per-event proof window (``WormLogger.proof_scope``).
+    It becomes the ``evidence_scope`` block, which states the bundle's period and population
+    — the first two things an assessor asks of any evidence artifact, and the pair that
+    decides whether "the signed WORM chain" may be read as "a proof for every event". When it
+    is absent the block says the window is UNAVAILABLE; it never silently omits the question,
+    because a missing scope statement reads as unlimited scope.
     """
     sealed = attestation.epoch is not None
+    scope: dict[str, Any] = {
+        "point_in_time": generated_at,
+        "covers_observation_period": False,
+        "scope_note": _SCOPE_NOTE,
+    }
+    if proof_scope is None:
+        scope["proof_window"] = None
+        scope["proof_window_note"] = _SCOPE_UNAVAILABLE_NOTE
+    else:
+        scope["proof_window"] = {
+            "retention_epochs": proof_scope.hot_epochs,
+            "oldest_provable_epoch": proof_scope.oldest_proof_epoch,
+            "newest_provable_epoch": proof_scope.newest_proof_epoch,
+            "first_provable_seq": proof_scope.first_proof_seq,
+            "last_provable_seq": proof_scope.last_proof_seq,
+            "proof_bearing_events": proof_scope.proof_bearing_events,
+            "unsealed_events": proof_scope.unsealed_events,
+            "sealed_through_seq": proof_scope.sealed_through_seq,
+        }
     bundle: dict[str, Any] = {
         "generated_at": generated_at,
         "gateway_version": gateway_version,
@@ -330,6 +401,7 @@ def build_evidence_bundle(
             "anchor_epoch": attestation.anchor_epoch,
             "anchor_epoch_hash": attestation.anchor_epoch_hash,
         },
+        "evidence_scope": scope,
         "control_mapping": copy.deepcopy(CONTROL_MAPPING),
         "disclaimer": BUNDLE_DISCLAIMER,
     }

@@ -26,9 +26,15 @@ from bridge.connectors import (
     claude,
     copilot,
     deepseek,
+    enterprise_ai,
     ernie,
     formats,
     gemini,
+    kimi,
+    llm_gateway,
+    local_runtime,
+    mcp_framework,
+    mcp_platform,
     mcp_standard,
     openai,
     openai_compatible,
@@ -48,6 +54,8 @@ class Vendor(str, Enum):
     DEEPSEEK = "deepseek"
     QWEN = "qwen"
     ERNIE = "ernie"
+    KIMI = "kimi"
+    MOONSHOT = "moonshot"
     # OpenAI-compatible third-party model providers (same tool-call shape).
     MISTRAL = "mistral"
     GROQ = "groq"
@@ -55,8 +63,37 @@ class Vendor(str, Enum):
     FIREWORKS = "fireworks"
     OPENROUTER = "openrouter"
     XAI = "xai"
+    ZHIPU = "zhipu"
+    GLM = "glm"
+    MINIMAX = "minimax"
+    PERPLEXITY = "perplexity"
+    CEREBRAS = "cerebras"
+    SAMBANOVA = "sambanova"
+    NVIDIA_NIM = "nvidia_nim"
+    DEEPINFRA = "deepinfra"
+    NEBIUS = "nebius"
+    # Self-hosted OpenAI-compatible inference runtimes (the air-gapped path).
+    OLLAMA = "ollama"
+    VLLM = "vllm"
+    SGLANG = "sglang"
+    LLAMA_CPP = "llama_cpp"
+    LMSTUDIO = "lmstudio"
+    TGI = "tgi"
+    LOCALAI = "localai"
+    # Enterprise data-platform model endpoints (OpenAI-compatible chat surface).
+    DATABRICKS = "databricks"
+    WATSONX = "watsonx"
+    SNOWFLAKE_CORTEX = "snowflake_cortex"
+    # LLM gateways / routers that re-emit the OpenAI tool-call shape.
+    LITELLM = "litellm"
+    PORTKEY = "portkey"
+    CLOUDFLARE_WORKERS_AI = "cloudflare_workers_ai"
+    VERCEL_AI_GATEWAY = "vercel_ai_gateway"
+    GITHUB_MODELS = "github_models"
+    # Anthropic tool_use — the model, incl. its Bedrock- and Vertex-hosted forms.
     CLAUDE = "claude"
     CLAUDE_BEDROCK = "claude_bedrock"
+    CLAUDE_VERTEX = "claude_vertex"
     BEDROCK = "bedrock"
     GEMINI = "gemini"
     VERTEX = "vertex"
@@ -70,12 +107,43 @@ class Vendor(str, Enum):
     GOOSE = "goose"
     OPENHANDS = "openhands"
     OPENCLAW = "openclaw"
+    # Editors / IDEs / terminals that ship a first-party MCP client.
+    ZED = "zed"
+    VSCODE = "vscode"
+    JETBRAINS = "jetbrains"
+    CONTINUE = "continue"
+    ROO = "roo"
+    KILOCODE = "kilocode"
+    CODEX = "codex"
+    GEMINI_CLI = "gemini_cli"
+    AMP = "amp"
+    CRUSH = "crush"
+    WARP = "warp"
+    # Assistant surfaces + automation platforms acting as MCP clients.
+    CHATGPT = "chatgpt"
+    COPILOT_STUDIO = "copilot_studio"
+    LIBRECHAT = "librechat"
+    OPENWEBUI = "openwebui"
+    N8N = "n8n"
+    DIFY = "dify"
+    LANGFLOW = "langflow"
+    FLOWISE = "flowise"
+    # Agent frameworks acting as MCP clients.
+    LANGGRAPH = "langgraph"
+    CREWAI = "crewai"
+    AUTOGEN = "autogen"
+    OPENAI_AGENTS = "openai_agents"
+    PYDANTIC_AI = "pydantic_ai"
+    LLAMAINDEX = "llamaindex"
+    SEMANTIC_KERNEL = "semantic_kernel"
+    MASTRA = "mastra"
+    STRANDS = "strands"
     # A2A (Agent-to-Agent) task envelope — the 7th SOURCE_FORMAT, added as a
     # DELIBERATE vendor-mapped connector wave (the conscious registry re-pin below).
     A2A = "a2a"
 
 
-REGISTRY_VERSION: Final[str] = "3"
+REGISTRY_VERSION: Final[str] = "4"
 
 # Format → parser table. RAW_MCP is legacy and NOT vendor-mapped (frozen ingress).
 _PARSER_FOR: Final[dict[SourceFormat, FormatParser]] = {
@@ -96,10 +164,16 @@ _BINDINGS: Final[tuple[tuple[tuple[str, ...], SourceFormat, FormatParser], ...]]
     (deepseek.VENDORS, deepseek.SOURCE_FORMAT, deepseek.PARSER),
     (qwen.VENDORS, qwen.SOURCE_FORMAT, qwen.PARSER),
     (ernie.VENDORS, ernie.SOURCE_FORMAT, ernie.PARSER),
+    (kimi.VENDORS, kimi.SOURCE_FORMAT, kimi.PARSER),
+    (local_runtime.VENDORS, local_runtime.SOURCE_FORMAT, local_runtime.PARSER),
+    (enterprise_ai.VENDORS, enterprise_ai.SOURCE_FORMAT, enterprise_ai.PARSER),
+    (llm_gateway.VENDORS, llm_gateway.SOURCE_FORMAT, llm_gateway.PARSER),
     (claude.VENDORS, claude.SOURCE_FORMAT, claude.PARSER),
     (bedrock.VENDORS, bedrock.SOURCE_FORMAT, bedrock.PARSER),
     (gemini.VENDORS, gemini.SOURCE_FORMAT, gemini.PARSER),
     (mcp_standard.VENDORS, mcp_standard.SOURCE_FORMAT, mcp_standard.PARSER),
+    (mcp_platform.VENDORS, mcp_platform.SOURCE_FORMAT, mcp_platform.PARSER),
+    (mcp_framework.VENDORS, mcp_framework.SOURCE_FORMAT, mcp_framework.PARSER),
     (a2a.VENDORS, a2a.SOURCE_FORMAT, a2a.PARSER),
 )
 
@@ -132,8 +206,17 @@ VENDOR_FORMAT: Final[dict[Vendor, SourceFormat]] = _assemble_vendor_format()
 # --- Hash pin: any mapping edit without a deliberate pin + REGISTRY_VERSION bump ---
 # refuses to boot. Computed over the canonical JSON of the value-string mapping,
 # reusing the engine's canonical_json/sha256_hex so the pin is byte-exact stable.
+#
+# v3 → v4 (DELIBERATE re-pin, connector-coverage wave): 27 → 82 vendor ids.
+# Added Kimi/Moonshot; the remaining popular OpenAI-compatible inference clouds;
+# self-hosted runtimes (Ollama/vLLM/SGLang/llama.cpp/LM Studio/TGI/LocalAI);
+# enterprise platforms (Databricks/watsonx/Snowflake Cortex); LLM gateways
+# (LiteLLM/Portkey/Workers AI/Vercel/GitHub Models); `claude_vertex`; and the
+# editors, assistant platforms and agent frameworks that ship an MCP client.
+# EVERY addition is a pure alias onto an EXISTING parser — no new wire shape, no
+# new parsing code, and no change to any pre-existing vendor→format binding.
 _PINNED_REGISTRY_SHA256: Final[str] = (
-    "8357e2b296fec70fc26d31e59f71b27ad7b6fbe246f9319d91af35e516e38597"
+    "c755c47019d17271f2b1a8ccd30ff2020dc0b27beaa0466e1f3a49fbcafb622a"
 )
 REGISTRY_SHA256: Final[str] = sha256_hex(
     canonical_json({v.value: f.value for v, f in VENDOR_FORMAT.items()})

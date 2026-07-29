@@ -24,7 +24,6 @@ import {
   ArrowUpRight,
   BookOpen,
   Braces,
-  ChevronRight,
   Fingerprint,
   KeyRound,
   Package,
@@ -37,6 +36,7 @@ import {
 import type { LucideIcon } from 'lucide-react';
 import { Badge, Panel, PanelHeader } from '../ui';
 import { CodeSnippet } from '../CodeSnippet';
+import { TabbedCommand } from '../TabbedCommand';
 import { ApiConsole } from './DeveloperConsole';
 import type { GatewayLive } from '../../lib/useGatewayLive';
 
@@ -158,6 +158,33 @@ try {
 } catch (err) {
   if (err instanceof McpipDenied) console.error('denied', err.correlationId);
 }`;
+}
+
+/* ------------------------------------------------ quick-start (tabbed card) */
+
+/** Minimal Python block — the essential lines of `pythonSnippet`, nothing new. */
+function pythonQuickstart(ctx: SnippetContext): string {
+  return `from mcpip_sdk import SandboxClient
+
+with SandboxClient("${ctx.base}") as client:
+    client.set_token(lambda: client.dev_token(tenant_id="${ctx.tenant}"))
+    outcome = client.authorize("${ctx.alias}", {})
+    print(outcome.transaction_ref, outcome.worm_sequence)`;
+}
+
+/** Minimal TypeScript block — the essential lines of `typescriptSnippet`. */
+function typescriptQuickstart(ctx: SnippetContext): string {
+  return `import { McpipClient, McpipSandboxClient, rawMcp } from '@mcpip/sdk';
+
+const sandbox = new McpipSandboxClient({ baseUrl: '${ctx.base}' });
+const client = new McpipClient({
+  baseUrl: '${ctx.base}',
+  token: sandbox.devTokenSource({ tenant_id: '${ctx.tenant}' }),
+});
+const outcome = await client.authorize({
+  source_format: 'raw_mcp',
+  tool_call: rawMcp('${ctx.alias}', {}),
+});`;
 }
 
 /* ------------------------------------------------------------- static facts */
@@ -315,10 +342,8 @@ function OfflineBanner(): JSX.Element {
       <p className="flex min-w-0 items-start gap-2 text-[11.5px] leading-relaxed text-slate-500">
         <PlugZap size={14} className="mt-px shrink-0 text-slate-500" />
         <span>
-          No gateway connected — snippets show the{' '}
-          <span className="font-mono text-[10.5px] text-ink">&lt;gateway-host&gt;</span> placeholder.
-          Connect to substitute this gateway&apos;s real endpoint, first skill alias and tenant
-          everywhere below.
+          No gateway connected — snippets show{' '}
+          <span className="font-mono text-[10.5px] text-ink">&lt;placeholder&gt;</span> values.
         </span>
       </p>
       <button
@@ -354,10 +379,8 @@ function McpPanel({ ctx }: { ctx: SnippetContext }): JSX.Element {
       />
       <div className="space-y-3 px-5 py-4">
         <p className="text-[11.5px] leading-relaxed text-slate-500">
-          Native JSON-RPC 2.0 edge, Streamable-HTTP single-request mode: one JSON-RPC object per
-          POST (batch arrays are rejected with -32600). Identity on this edge is the{' '}
-          <span className="font-mono text-[10.5px] text-ink">Authorization: Bearer</span> header
-          only — no body jwt.
+          One JSON-RPC 2.0 object per POST; identity is the{' '}
+          <span className="font-mono text-[10.5px] text-ink">Authorization: Bearer</span> header.
         </p>
         <CodeSnippet label="POST · streamable http" code={`${ctx.base}/v1/mcp`} />
 
@@ -381,13 +404,8 @@ function McpPanel({ ctx }: { ctx: SnippetContext }): JSX.Element {
         <CodeSnippet label=".mcp.json — Claude Code project registration" code={mcpJsonSnippet(ctx)} />
       </div>
       <Footnote icon={KeyRound}>
-        A static header pins the token — sandbox dev tokens expire in ~5 minutes, after which every
-        call is an opaque deny (correct, not broken). Long sessions: the SDK&apos;s re-minting stdio
-        bridge (Protocol reference below) or a long-lived IdP JWT. A staged{' '}
-        <span className="font-mono">pin_required</span> call completes on{' '}
-        <span className="font-mono">/v1/authorize</span> with{' '}
-        <span className="font-mono">source_format=&quot;mcp_jsonrpc&quot;</span> and the identical
-        JSON-RPC dict — the payload lock is format-independent.
+        Sandbox tokens expire in ~5 minutes — for long sessions use the SDK&apos;s re-minting token
+        source or a long-lived IdP JWT.
       </Footnote>
     </Panel>
   );
@@ -403,12 +421,10 @@ function RestPanel({ ctx }: { ctx: SnippetContext }): JSX.Element {
       />
       <div className="space-y-3 px-5 py-4">
         <p className="text-[11.5px] leading-relaxed text-slate-500">
-          The single authorization choke point. Body: exactly one of{' '}
-          <span className="font-mono text-[10.5px] text-ink">source_format</span> or{' '}
-          <span className="font-mono text-[10.5px] text-ink">vendor</span> (&quot;openai&quot;,
-          &quot;claude&quot;, &quot;cursor&quot;, …), plus the raw provider{' '}
-          <span className="font-mono text-[10.5px] text-ink">tool_call</span> envelope. One tool
-          call per request — batches are denied. The schema is strict: unknown keys are a 422.
+          Send one of <span className="font-mono text-[10.5px] text-ink">source_format</span> or{' '}
+          <span className="font-mono text-[10.5px] text-ink">vendor</span> plus the raw provider{' '}
+          <span className="font-mono text-[10.5px] text-ink">tool_call</span> — one tool call per
+          request.
         </p>
 
         <div className="flex flex-wrap gap-1.5">
@@ -451,32 +467,21 @@ function RestPanel({ ctx }: { ctx: SnippetContext }): JSX.Element {
         <div>
           <p className="eyebrow mb-1">Every deny — one opaque envelope</p>
           <p className="text-[11px] leading-relaxed text-slate-500">
-            Whatever the cause — unknown alias, cross-tenant reference, wrong PIN, tripped canary —
-            the agent sees exactly these two keys; the concrete{' '}
-            <span className="font-mono text-[10.5px] text-ink">deny_reason</span> is written to the
-            WORM ledger only.
+            Every deny carries exactly these two keys — search the correlation id in the audit log
+            for the real reason.
           </p>
           <CodeSnippet label="http" code={DENY_SNIPPET} className="mt-2" />
-          <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
-            On the MCP edge the same deny arrives as HTTP 200 with JSON-RPC error{' '}
-            <span className="font-mono text-[10.5px] text-ink">-32000</span> and{' '}
-            <span className="font-mono text-[10.5px] text-ink">data.correlation_id</span>. Either
-            way, the correlation id is the handle: search it in the Audit Ledger to see the real
-            reason and the event&apos;s Merkle inclusion proof.
-          </p>
           <button
             type="button"
             className="btn-ghost mt-2"
             onClick={() => navigateTo('ledger', 'events')}
           >
-            <ScrollText size={13} /> Correlate in the Audit Ledger
+            <ScrollText size={13} /> Correlate in the audit log
           </button>
         </div>
       </div>
       <Footnote icon={ShieldAlert}>
-        Never auto-retry this POST. A deny is opaque (expiry and policy look identical), and
-        replaying a step-up consume is a real <span className="font-mono">pin_not_found</span> deny
-        — every retry double-counts WORM events.
+        Never auto-retry this POST — every retry is a fresh, WORM-logged decision.
       </Footnote>
     </Panel>
   );
@@ -523,34 +528,22 @@ function JwtPanel(): JSX.Element {
           ))}
         </div>
 
-        <details className="group">
-          <summary className="flex cursor-pointer list-none items-center gap-1.5 [&::-webkit-details-marker]:hidden">
-            <ChevronRight
-              size={12}
-              className="shrink-0 text-slate-500 transition-transform group-open:rotate-90"
-            />
-            <span className="eyebrow">Optional authorization claims ({OPTIONAL_CLAIMS.length})</span>
-          </summary>
-          <div className="mt-1">
-            {OPTIONAL_CLAIMS.map((c) => (
-              <div
-                key={c.claim}
-                className="flex items-start gap-3 border-b border-hairline/60 py-2 last:border-0"
-              >
-                <span className="w-24 shrink-0 pt-px font-mono text-[11px] text-ink">
-                  {c.claim}
-                </span>
-                <p className="min-w-0 text-[11px] leading-relaxed text-slate-500">{c.meaning}</p>
-              </div>
-            ))}
-          </div>
-        </details>
+        <div>
+          <p className="eyebrow mb-1">Optional claims</p>
+          {OPTIONAL_CLAIMS.map((c) => (
+            <div
+              key={c.claim}
+              className="flex items-start gap-3 border-b border-hairline/60 py-2 last:border-0"
+            >
+              <span className="w-24 shrink-0 pt-px font-mono text-[11px] text-ink">{c.claim}</span>
+              <p className="min-w-0 text-[11px] leading-relaxed text-slate-500">{c.meaning}</p>
+            </div>
+          ))}
+        </div>
       </div>
       <Footnote icon={ShieldAlert}>
-        <span className="font-mono">alg=none</span> and every HS* algorithm are rejected. And
-        identity-shaped keys inside tool_call arguments (<span className="font-mono">role</span>,{' '}
-        <span className="font-mono">sub</span>, <span className="font-mono">tenant_id</span>, …)
-        are a hard deny — identity comes only from the verified JWT, never from the payload.
+        <span className="font-mono">alg=none</span> and HS* are rejected; identity-shaped keys
+        inside arguments are a hard deny.
       </Footnote>
     </Panel>
   );
@@ -578,9 +571,7 @@ function PinPanel(): JSX.Element {
         ))}
       </div>
       <Footnote icon={Fingerprint}>
-        Lock parameters: 6-digit CSPRNG code · 300 s TTL · 5 attempts · single-use consume ·
-        stagings rate-limited per identity (60/min). Model the code as an injectable callback —
-        the SDKs default it to the sandbox authenticator.
+        6-digit code · 300 s TTL · 5 attempts · single-use consume.
       </Footnote>
     </Panel>
   );
@@ -593,11 +584,7 @@ function ProbeNote(): JSX.Element {
     <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-hairline bg-surface px-3.5 py-2.5 shadow-panel">
       <p className="flex min-w-0 items-start gap-2 text-[11.5px] leading-relaxed text-slate-500">
         <Play size={14} className="mt-px shrink-0 text-slate-500" />
-        <span>
-          Want a real authorize round-trip? The <span className="text-ink">Authorize Probe</span> is
-          Build&apos;s single live tester — it mints a sandbox identity and fires one call through
-          the choke point, printing the raw receipt or the opaque deny verbatim.
-        </span>
+        <span>Fire a real authorize round-trip with the Authorize Probe.</span>
       </p>
       <button
         type="button"
@@ -612,11 +599,19 @@ function ProbeNote(): JSX.Element {
 
 function ConnectTab({ gateway }: { gateway: GatewayLive }): JSX.Element {
   const ctx = snippetContext(gateway);
-  // ONE job: get an agent talking to this gateway. The deep contract lives on
-  // the sibling Protocol child tab, not stacked below.
+  // ONE job: get an agent talking to this gateway. The quick start comes
+  // first; the deep contract lives on the sibling Protocol child tab.
   return (
     <div className="flex min-h-full flex-col gap-4">
       {!ctx.live ? <OfflineBanner /> : null}
+      <TabbedCommand
+        tabs={[
+          { id: 'curl', label: 'curl', code: curlSnippet(ctx), prompt: true },
+          { id: 'python', label: 'Python', code: pythonQuickstart(ctx) },
+          { id: 'typescript', label: 'TypeScript', code: typescriptQuickstart(ctx) },
+          { id: 'mcp-json', label: '.mcp.json', code: mcpJsonSnippet(ctx) },
+        ]}
+      />
       <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-2">
         <McpPanel ctx={ctx} />
         <RestPanel ctx={ctx} />
@@ -671,7 +666,7 @@ const SDK_FACTS: ReadonlyArray<{ keyword: string; body: string }> = [
   {
     keyword: 'envelopes',
     body:
-      'Typed builders for all six dialects — openai_tool_call, anthropic_tool_use, gemini_function_call, bedrock_tool_use, mcp_jsonrpc, raw_mcp — so you never hand-roll a strict ingress shape.',
+      'Typed builders for every dialect — openai_tool_call, anthropic_tool_use, gemini_function_call, bedrock_tool_use, mcp_jsonrpc, raw_mcp, a2a_task — so you never hand-roll a strict ingress shape.',
   },
   {
     keyword: 'token providers',
@@ -713,10 +708,9 @@ function SdkBlock({ ctx }: { ctx: SnippetContext }): JSX.Element {
       />
       <div className="space-y-3 px-5 py-4">
         <p className="text-[11px] leading-relaxed text-slate-500">
-          Two first-party SDKs wrap this exact contract —{' '}
-          <span className="font-mono text-[10.5px] text-ink">sdk/python · mcpip-sdk</span> and{' '}
-          <span className="font-mono text-[10.5px] text-ink">sdk/typescript · @mcpip/sdk</span> —
-          with one shape between them. Toggle the snippet above.
+          Two first-party SDKs, one shape:{' '}
+          <span className="font-mono text-[10.5px] text-ink">mcpip-sdk</span> (Python) and{' '}
+          <span className="font-mono text-[10.5px] text-ink">@mcpip/sdk</span> (TypeScript).
         </p>
         <CodeSnippet label="bash" code={isPy ? 'pip install mcpip-sdk' : 'npm install @mcpip/sdk'} />
         <CodeSnippet
@@ -732,9 +726,7 @@ function SdkBlock({ ctx }: { ctx: SnippetContext }): JSX.Element {
         </div>
       </div>
       <Footnote icon={Package}>
-        Python: httpx-only runtime dep (≥ 3.10, frozen dataclasses, py.typed). TypeScript: ESM-only,
-        zero runtime deps (global fetch on Node ≥ 18, browsers, workers), AbortSignal on every
-        method. Neither logs tokens or PINs, and neither auto-retries an authorize POST.
+        Neither SDK logs tokens or PINs, and neither auto-retries an authorize.
       </Footnote>
     </Panel>
   );
@@ -789,9 +781,8 @@ function ReferencePanel({ ctx }: { ctx: SnippetContext }): JSX.Element {
         </div>
       </div>
       <Footnote icon={BookOpen}>
-        The generated schema is exact on routes and request bodies but thin on responses (raw
-        JSONResponse handlers) — this page and the SDK types are the richer contract. Both SDKs live
-        in the gateway repository under <span className="font-mono text-ink">sdk/python</span> and{' '}
+        Both SDKs live in the gateway repository under{' '}
+        <span className="font-mono text-ink">sdk/python</span> and{' '}
         <span className="font-mono text-ink">sdk/typescript</span>.
       </Footnote>
     </Panel>

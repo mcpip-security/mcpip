@@ -1055,20 +1055,15 @@ function PrincipalInspector({
             </span>
           </div>
           {license !== null && license.claims !== null ? (
-            <details className="group">
-              <summary className="flex cursor-pointer list-none items-center gap-1.5 text-[11px] font-medium text-slate-400 transition-colors hover:text-ink">
-                <ChevronRight className="h-3 w-3 shrink-0 text-slate-500 transition-transform group-open:rotate-90" />
-                View claims
-                <span className="ml-auto font-mono text-[10px] text-slate-500">minted {fmtClock(license.mintedAtMs)}</span>
-              </summary>
+            <div>
+              <p className="flex items-center text-[10px] text-slate-500">
+                Decoded verbatim from the minted JWT
+                <span className="ml-auto font-mono">minted {fmtClock(license.mintedAtMs)}</span>
+              </p>
               <pre className="mt-1.5 max-h-44 overflow-y-auto whitespace-pre-wrap break-all rounded-lg border border-hairline bg-canvas p-2.5 font-mono text-[10.5px] leading-relaxed text-ink">
                 {JSON.stringify(license.claims, null, 2)}
               </pre>
-              <p className="mt-1.5 text-[10.5px] leading-relaxed text-slate-500">
-                Decoded verbatim from the JWT minted at {fmtClock(license.mintedAtMs)} — never
-                re-stated from form inputs.
-              </p>
-            </details>
+            </div>
           ) : (
             <p className="rounded-lg border border-hairline bg-canvas px-3 py-2 text-[11px] leading-relaxed text-slate-500">
               No license minted for this principal this session. The directory holds metadata only —
@@ -1112,10 +1107,7 @@ function PrincipalInspector({
                 })}
               </div>
               <p className="mt-1.5 text-[10.5px] leading-relaxed text-slate-500">
-                Committed by the gateway — Redis <span className="font-mono">EX=ttl</span> enforces
-                expiry. This build wires no grant-revoke mandate (
-                <span className="font-mono">CAP_COMPARTMENT_REVOKE</span> is reserved), so a live
-                grant cannot be cut early here; to block the principal now, revoke it below.
+                Grants expire by TTL — to block the principal now, revoke it below.
               </p>
             </>
           )}
@@ -1245,7 +1237,7 @@ function KnowledgeGraphPanel({ gateway }: { gateway: GatewayLive }): JSX.Element
 
   return (
     <Panel className="shrink-0">
-      <PanelHeader title="Knowledge graph · relation projection" icon={Network} right={right} />
+      <PanelHeader title="Relationships" icon={Network} right={right} />
       <div className="min-h-0 max-h-[42vh] overflow-y-auto p-3">
         {state.status === 'ok' && grouped.length > 0 ? (
           <div className="flex flex-col gap-3">
@@ -1712,6 +1704,8 @@ function Licensing({ gateway }: { gateway: GatewayLive }): JSX.Element {
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [revokingId, setRevokingId] = useState<string | null>(null);
+  // Advanced mint options (vendor · role · grant officer) — collapsed by default.
+  const [showAdvanced, setShowAdvanced] = useState(false);
   // Which roster rows are expanded to reveal the minted JWT + proven blast radius.
   // Absent entry ⇒ the newest license (latest) is open by default, the rest closed.
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
@@ -1813,7 +1807,7 @@ function Licensing({ gateway }: { gateway: GatewayLive }): JSX.Element {
         <EmptyState
           icon={Fingerprint}
           title="No gateway connected"
-          detail="Licensing is live-only: the sandbox IdP mints a real principal and the catalog proves its blast radius. Nothing is simulated offline — production licenses are minted offline by your IdP (scripts/mint_principal.py)."
+          detail="Connect a gateway to mint and license real principals."
           action={<ConnectCta />}
         />
       </Panel>
@@ -1862,13 +1856,20 @@ function Licensing({ gateway }: { gateway: GatewayLive }): JSX.Element {
             </Select>
           </Field>
 
-          <details className="group">
-            <summary className="flex cursor-pointer list-none items-center gap-1.5 text-[11px] font-medium text-slate-400 transition-colors hover:text-ink">
-              <ChevronRight className="h-3 w-3 shrink-0 text-slate-500 transition-transform group-open:rotate-90" />
-              Advanced
-              <span className="ml-auto text-[10px] text-slate-500">vendor · role · grant officer</span>
-            </summary>
-            <div className="mt-3 flex flex-col gap-3.5">
+          <button
+            type="button"
+            aria-expanded={showAdvanced}
+            onClick={() => setShowAdvanced((v) => !v)}
+            className="flex w-full items-center gap-1.5 text-[11px] font-medium text-slate-400 transition-colors hover:text-ink"
+          >
+            <ChevronRight
+              className={`h-3 w-3 shrink-0 text-slate-500 transition-transform ${showAdvanced ? 'rotate-90' : ''}`}
+            />
+            Advanced
+            <span className="ml-auto text-[10px] text-slate-500">vendor · role · grant officer</span>
+          </button>
+          {showAdvanced ? (
+            <div className="flex flex-col gap-3.5">
               <Field label="Vendor (part of the agent id)">
                 <Select value={vendor} onChange={(e) => setVendor(e.target.value as VendorId)}>
                   {VENDORS.map((v) => (
@@ -1899,12 +1900,11 @@ function Licensing({ gateway }: { gateway: GatewayLive }): JSX.Element {
               </label>
               {grantOfficer && compartment.uuid === null ? (
                 <p className="-mt-1 text-[10.5px] leading-relaxed text-staged">
-                  Company-wide officer mints the coarse capability only — scoped issuing authority is
-                  per-team; pick a team to derive it into the JWT.
+                  Pick a team to derive scoped issuing authority into the JWT.
                 </p>
               ) : null}
             </div>
-          </details>
+          ) : null}
 
           {error !== null ? (
             <p className="rounded-lg border border-denied/25 bg-denied/5 px-2.5 py-1.5 text-[11px] leading-relaxed text-denied">{error}</p>
@@ -2218,18 +2218,14 @@ function LicensePanel({ gateway }: { gateway: GatewayLive }): JSX.Element {
           )}
         </div>
         {missing.length > 0 ? (
-          <details className="group">
-            <summary className="flex cursor-pointer list-none items-center gap-1.5 text-slate-400 transition-colors hover:text-ink">
-              <ChevronRight className="h-3 w-3 shrink-0 text-slate-500 transition-transform group-open:rotate-90" />
-              <span className={LABEL}>Not in this license</span>
-              <span className="ml-auto font-mono text-[10.5px] text-slate-500">{missing.length}</span>
-            </summary>
-            <div className="mt-1.5 overflow-hidden rounded-lg border border-hairline">
+          <div>
+            <p className={`mb-1.5 ${LABEL}`}>Not in this license · {missing.length}</p>
+            <div className="overflow-hidden rounded-lg border border-hairline">
               {missing.map((id) => (
                 <EntitlementRow key={id} id={id} state="not licensed" />
               ))}
             </div>
-          </details>
+          </div>
         ) : null}
       </div>
     );
@@ -2245,10 +2241,7 @@ function LicensePanel({ gateway }: { gateway: GatewayLive }): JSX.Element {
       {body}
       <div className="shrink-0 border-t border-hairline px-4 py-2.5">
         <p className="text-[10.5px] leading-relaxed text-slate-500">
-          Entitlements gate <span className="font-medium text-ink">process boot only</span> —
-          verified fail-closed at start, never consulted by the per-request pipeline. That
-          separation keeps commercial state out of the security decision path
-          (<span className="font-mono">core/licensing.py</span>).
+          Entitlements gate process boot only — never per-request decisions.
         </p>
       </div>
     </Panel>
@@ -2368,11 +2361,9 @@ function DeriveScopedCap({ teams }: { teams: ReadonlyArray<CompanyTeam> }): JSX.
         </div>
       ) : null}
       <p className="mt-2 text-[10.5px] leading-relaxed text-slate-500">
-        <span className="font-mono">uuid5(CAP_COMPARTMENT_GRANT, X)</span> — derived here with
-        WebCrypto, byte-identical to <span className="font-mono">interfaces.py grant_capability_for</span>.
-        Put it (plus the coarse capability) in an officer&apos;s JWT{' '}
-        <span className="font-mono">capabilities</span> claim to authorize grant issuance for exactly
-        that compartment.
+        Put this (plus the coarse capability) in an officer&apos;s JWT{' '}
+        <span className="font-mono">capabilities</span> claim to authorize issuing for exactly that
+        compartment.
       </p>
     </div>
   );
@@ -2389,12 +2380,8 @@ function Entitlements({ gateway }: { gateway: GatewayLive }): JSX.Element {
   return (
     <div className="flex h-full min-h-0 flex-col gap-3">
       <p className="shrink-0 text-[12.5px] leading-relaxed text-slate-500">
-        <span className="font-medium text-ink">The role claim authorizes nothing.</span> A principal
-        may perform a privileged action iff it holds the required{' '}
-        <span className="font-medium text-ink">capability UUID</span> — carried in the JWT{' '}
-        <span className="font-mono text-[11.5px]">capabilities</span> claim and/or a Redis-held
-        grant (<span className="font-mono text-[11.5px]">interfaces.py §1.1b</span>). There is no
-        role × permission matrix to edit, because the gateway never consults one.
+        Access comes from capability UUIDs in the JWT — the{' '}
+        <span className="font-mono text-[11.5px]">role</span> claim authorizes nothing.
       </p>
 
       <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 xl:grid-cols-2">
@@ -2416,20 +2403,19 @@ function Entitlements({ gateway }: { gateway: GatewayLive }): JSX.Element {
                 </div>
                 <p className="mt-1.5 text-[11px] leading-relaxed text-slate-500">{cap.authority}</p>
                 {cap.unlocks.length > 0 ? (
-                  <details className="group mt-1.5">
-                    <summary className="flex cursor-pointer list-none items-center gap-1.5 text-[10.5px] font-medium uppercase tracking-[0.08em] text-slate-500 transition-colors hover:text-ink">
-                      <ChevronRight className="h-3 w-3 shrink-0 transition-transform group-open:rotate-90" />
+                  <div className="mt-1.5">
+                    <p className="text-[10.5px] font-medium uppercase tracking-[0.08em] text-slate-500">
                       Unlocks {cap.unlocks.length} surface{cap.unlocks.length === 1 ? '' : 's'}
-                    </summary>
+                    </p>
                     <ul className="mt-1.5 space-y-0.5">
                       {cap.unlocks.map((u) => (
                         <li key={u} className="flex items-baseline gap-1.5 text-[10.5px] leading-relaxed text-slate-500">
-                          <span className="select-none text-slate-600">·</span>
+                          <span aria-hidden="true" className="select-none text-slate-600">·</span>
                           <span className="font-mono">{u}</span>
                         </li>
                       ))}
                     </ul>
-                  </details>
+                  </div>
                 ) : null}
                 {cap.note !== undefined ? (
                   <p className="mt-1.5 text-[10.5px] leading-relaxed text-slate-500">{cap.note}</p>

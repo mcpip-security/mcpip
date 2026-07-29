@@ -648,13 +648,31 @@ _PINNED_VENDOR_CASES = [
     ("azure_openai", SourceFormat.OPENAI_TOOL_CALL),
     ("mistral", SourceFormat.OPENAI_TOOL_CALL),
     ("xai", SourceFormat.OPENAI_TOOL_CALL),
+    # Kimi/Moonshot: both ids bound, neither aliased to the other.
+    ("kimi", SourceFormat.OPENAI_TOOL_CALL),
+    ("moonshot", SourceFormat.OPENAI_TOOL_CALL),
+    # A self-hosted runtime resolves exactly like a hosted cloud — the air-gapped
+    # operator gets the identical boundary, not a degraded one.
+    ("ollama", SourceFormat.OPENAI_TOOL_CALL),
+    ("vllm", SourceFormat.OPENAI_TOOL_CALL),
+    # A router in front of the model does not change the declared dialect.
+    ("litellm", SourceFormat.OPENAI_TOOL_CALL),
+    ("databricks", SourceFormat.OPENAI_TOOL_CALL),
     ("claude", SourceFormat.ANTHROPIC_TOOL_USE),
+    # Bedrock- and Vertex-hosted Claude: the HOST changes, the wire shape does not.
     ("claude_bedrock", SourceFormat.ANTHROPIC_TOOL_USE),
+    ("claude_vertex", SourceFormat.ANTHROPIC_TOOL_USE),
+    # …while RAW bedrock/vertex keep their own native dialects. Same product names,
+    # deliberately different bindings — the exact drift a sniffing gateway gets wrong.
     ("bedrock", SourceFormat.BEDROCK_TOOL_USE),
     ("gemini", SourceFormat.GEMINI_FUNCTION_CALL),
     ("vertex", SourceFormat.GEMINI_FUNCTION_CALL),
     ("mcp", SourceFormat.MCP_JSONRPC),
     ("cursor", SourceFormat.MCP_JSONRPC),
+    ("zed", SourceFormat.MCP_JSONRPC),
+    ("codex", SourceFormat.MCP_JSONRPC),
+    ("n8n", SourceFormat.MCP_JSONRPC),
+    ("langgraph", SourceFormat.MCP_JSONRPC),
     ("a2a", SourceFormat.A2A_TASK),
 ]
 

@@ -21,12 +21,12 @@ real deny-reason never cross the boundary.
 > production.
 
 For deeper reading: the product overview and 7 security invariants live in `README.md`;
-the design thesis ("an interceptor, never a proxy") in [`STRATEGY.md`](STRATEGY.md); the
+the design thesis ("an interceptor, never a proxy") in the internal strategy notes; the
 attack → defense → code threat model and request pipeline in
 [`ARCHITECTURE.md`](ARCHITECTURE.md); deploy, upgrade, compliance and runbook procedures
 in [`OPERATIONS.md`](OPERATIONS.md); workload-identity / provider-dialect / cloud-IAM
 integration in [`INTEGRATIONS.md`](INTEGRATIONS.md); and what is delivered vs deferred
-(with the honest residual-risk boundary) in [`ROADMAP.md`](ROADMAP.md).
+(with the honest residual-risk boundary) in the internal roadmap.
 
 ---
 
@@ -223,16 +223,18 @@ if result.is_staged:                      # 202 — a challenge_id was returned
     receipt = client.complete(result, pin=one_time_code)   # same payload + pin → 200
 ```
 
-The payload lock is format-independent and byte-identical across the six dialects; the
+The payload lock is format-independent and byte-identical across all seven dialects; the
 client never sees the target. Over the MCP edge, the same step-up can ride the opt-in MRT /
 SEP-2322 transport (`stepUp:"mrt"`) — see [`INTEGRATIONS.md`](INTEGRATIONS.md).
 
-### Envelopes — all six dialects
+### Envelopes — every dialect
 
 Both SDKs ship builders for every wire shape (`openai_tool_call`, `anthropic_tool_use`,
-`gemini_function_call`, `bedrock_tool_use`, `mcp_jsonrpc`, `raw_mcp`) so a caller
-constructs the provider envelope without hand-assembling JSON. The A2A `a2a_task` dialect
-is the 7th connector format, gated the same way. Format is **declared, never sniffed**.
+`gemini_function_call`, `bedrock_tool_use`, `mcp_jsonrpc`, `raw_mcp`, `a2a_task`) so a
+caller constructs the provider envelope without hand-assembling JSON. Format is
+**declared, never sniffed** — and a `tests/test_connector_conformance.py` guard runs each
+builder's output through the real strict ingress, so a builder can never drift from the
+dialect it claims to speak.
 
 ### The `mcpip` CLI
 
@@ -418,8 +420,11 @@ unless the integrity manifest and license verify.
 # Offline-root-signed release manifest + every artifact hash (read-only, no network; exit 0 / 2):
 mcpip verify --manifest release/manifest.json \
   --pubkey release/keys/release_root_ed25519.pub.pem --base-dir .
-# Read-only WORM audit export + independent Merkle re-verification:
-mcpip export-audit --redis-url "$MCPIP_REDIS_URL" --out audit_export.jsonl --verify
+# Read-only WORM audit export + independent re-verification of the signed chain
+# (Merkle roots, epoch_hash, prev_epoch_hash linkage, Ed25519 epoch signatures, and the
+# out-of-tamper-domain anchor low-watermark). --pubkey is REQUIRED by --verify:
+mcpip export-audit --redis-url "$MCPIP_REDIS_URL" --out audit_export.jsonl --verify \
+  --pubkey worm_signing_ed25519.pub.pem
 ```
 
 Both are pure local cryptography — no network, no trust in us at runtime.
@@ -436,7 +441,7 @@ python scripts/provision_gateway_keys.py --keys-dir <offline> --public-dir <stag
 | Output | Role | Wire to |
 |---|---|---|
 | `worm_signing_ed25519.key` (private, 0600) | signs the WORM audit epochs | `MCPIP_WORM_SIGNING_KEY_PATH` (gateway-held) |
-| `worm_signing_ed25519.pub.pem` | auditor re-verification | `mcpip export-audit --verify --pubkey …` |
+| `worm_signing_ed25519.pub.pem` | auditor re-verification (**required** by `--verify`: it checks the epoch signatures *and* the anchor watermark lines) | `mcpip export-audit --verify --pubkey …` |
 | `idp_signing_ed25519.key` (private, 0600) | your IdP signs agent tokens | your token minter / KMS — **never** the gateway |
 | `idp_signing_ed25519.pub.pem` | gateway verifies tokens | `MCPIP_JWT_PUBLIC_KEY_PATH` |
 
@@ -639,9 +644,9 @@ through a transport table. Identity is **sovereign**: `tenant_id` / `agent_id` /
 come *only* from a verified JWT; the `role` claim authorizes nothing; an identity- or
 capability-shaped key in a tool-call payload is a **hard deny, not a strip**. The reading
 path for the security owner, before any code runs: `README.md` (what it is + the 5
-invariants), [`STRATEGY.md`](STRATEGY.md) (the design thesis),
+invariants), the internal strategy notes (the design thesis),
 [`ARCHITECTURE.md`](ARCHITECTURE.md) (attack → defense → code), [`OPERATIONS.md`](OPERATIONS.md)
-(control mapping), and [`ROADMAP.md`](ROADMAP.md) (delivered vs deferred, self-audit).
+(control mapping), and the internal roadmap (delivered vs deferred, self-audit).
 
 ### The human factor — PIN step-up 🙋
 
@@ -708,7 +713,7 @@ correlation_id}`) — the attacker learns nothing:
 |---|---|
 | Liveness / readiness | `GET /healthz`, `GET /readyz` (gated on Redis) |
 | Metrics | `GET /metrics` — decision/latency counters, closed-enum labels only (no tenant/agent/alias) |
-| Tamper-evidence | `GET /v1/audit/verify` (signed Merkle-epoch chain), `GET /v1/audit/proof/{event_id}` (O(log n) inclusion proof), `mcpip export-audit --verify` (independent re-verify) |
+| Tamper-evidence | `GET /v1/audit/verify` (signed Merkle-epoch chain), `GET /v1/audit/proof/{event_id}` (O(log n) inclusion proof), `mcpip export-audit --verify --pubkey …` (offline re-verify of the Merkle roots, `epoch_hash`, chain linkage, Ed25519 epoch signatures and the anchor rollback watermark — the production path, since `/v1/audit/*` is sandbox-only) |
 | Deception | Canary aliases trip `CANARY_TRIPPED` → TTL-bounded quarantine; the operator gets the alert, the attacker gets a generic deny |
 | Console | The dashboard's WORM Audit Ledger + live stream + tenant/compartment views (`:5173`) |
 
@@ -730,7 +735,7 @@ linearizable, NTP discipline), and your real catalog's policy.
 node-foothold adversary that forges attestation binds `cnf` to its own key and MCPIP
 verifies it flawlessly. That boundary is named, not hidden; the MCPIP-side roadmap
 (delegation-chain attenuation re-verified at execute, replay-guard Redis hardening, a PoP
-stage for the legacy demo pipeline) is tracked in [`ROADMAP.md`](ROADMAP.md).
+stage for the legacy demo pipeline) is tracked in the internal roadmap.
 
 ---
 
@@ -746,9 +751,9 @@ compartment**:
 
 ```
 mcpip-inc
-├── team-engineering   → skill_engineering_roadmap, skill_aws_s3_read (vends a scoped AWS credential)
+├── team-engineering   → skill_engineering_roadmap, skill_aws_s3 (vends a scoped AWS credential)
 ├── team-finance       → skill_financial_wage_sheet, skill_financial_ledger_post
-└── (company-wide)     → skill_company_overview, skill_data_lake_read
+└── (company-wide)     → skill_company_overview, skill_data_lake
 ```
 
 - An **Engineering** agent reads the company overview and the engineering roadmap, but is
@@ -820,7 +825,7 @@ ENG_TOKEN=$(curl -s -X POST http://localhost:8080/v1/dev/token \
 
 ### More use cases to demonstrate
 
-- **Cloud IAM — vend a scoped credential, no standing key:** `skill_aws_s3_read` is a
+- **Cloud IAM — vend a scoped credential, no standing key:** `skill_aws_s3` is a
   `cloud_iam` skill scoped to team-engineering. An Engineering agent that invokes it gets a
   **short-lived, scoped AWS session credential** vended for that one call (the receipt's
   `vended_credential`) — the agent never holds a permanent key. A Finance agent is denied
@@ -829,7 +834,7 @@ ENG_TOKEN=$(curl -s -X POST http://localhost:8080/v1/dev/token \
 
   ```
   mcp❯ login agent-eng-1 engineering
-  mcp❯ call skill_aws_s3_read
+  mcp❯ call skill_aws_s3
   ✓ ALLOW — committed through the pipeline (WORM-logged before dispatch)
     ⛅ vended cloud credential (SANDBOX — fake): AWS STS AssumeRole → mcpip-eng-readonly · us-east-1 · 900s
        the agent uses this directly, then it expires — no standing key ever existed.

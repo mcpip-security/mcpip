@@ -170,6 +170,88 @@ def test_broker_without_vault_fails_closed_on_reference() -> None:
     _run(scenario())
 
 
+class _RecordingWorm:
+    """A minimal async WORM stand-in for the secret-access audit tests."""
+
+    def __init__(self, *, fail: bool = False) -> None:
+        self.events: list[dict[str, Any]] = []
+        self._fail = fail
+
+    async def emit(self, event: dict[str, Any]) -> Any:
+        if self._fail:
+            raise RuntimeError("worm unavailable")
+        self.events.append(event)
+        return None
+
+
+def test_broker_audits_secret_access_read() -> None:
+    """A vault-tier vend emits a WORM ``secret_access`` record — tenant + secret_id + a
+    keyed-HMAC fingerprint, NEVER the material (SOC2_READINESS #4, CC6.7)."""
+    async def scenario() -> None:
+        vault, client = await _fresh_vault()
+        try:
+            await vault.put(
+                "mcpip-inc", "broker", "aws", "",
+                {"access_key_id": "AK", "secret_access_key": "sk"},
+            )
+            worm = _RecordingWorm()
+            broker = CloudBroker(sandbox_mode=False, vault=vault, worm=worm)
+            vault_env = CloudEnvironment("e", "aws", "arn:...:role/r", "us-east-1", None, 900, "broker")
+            resolved = await broker._broker_material(vault_env, "mcpip-inc")
+            assert resolved == {"access_key_id": "AK", "secret_access_key": "sk"}
+            assert len(worm.events) == 1
+            rec = worm.events[0]
+            assert rec["decision"] == "admin_action"
+            assert rec["admin_action"] == "secret_access"
+            assert rec["tenant_id"] == "mcpip-inc"
+            assert rec["secret_id"] == "broker"
+            assert isinstance(rec["fingerprint"], str) and rec["fingerprint"]
+            # The material and its secret values NEVER appear in the audit record.
+            assert "material" not in rec
+            assert "access_key_id" not in rec and "secret_access_key" not in rec
+        finally:
+            await client.aclose()
+
+    _run(scenario())
+
+
+def test_broker_host_identity_emits_no_secret_access() -> None:
+    """A host-identity binding spends no vault secret, so there is no secret_access record."""
+    async def scenario() -> None:
+        vault, client = await _fresh_vault()
+        try:
+            worm = _RecordingWorm()
+            broker = CloudBroker(sandbox_mode=False, vault=vault, worm=worm)
+            host_env = CloudEnvironment("e", "aws", "arn:...:role/r", "us-east-1", None, 900, None)
+            assert await broker._broker_material(host_env, "mcpip-inc") is None
+            assert worm.events == []
+        finally:
+            await client.aclose()
+
+    _run(scenario())
+
+
+def test_broker_fails_closed_when_secret_access_audit_fails() -> None:
+    """Emit-before-use is fail-closed: a credential is never spent if the access can't be
+    audited (the WORM emit failing raises LockError → TRANSPORT_ERROR)."""
+    async def scenario() -> None:
+        vault, client = await _fresh_vault()
+        try:
+            await vault.put(
+                "mcpip-inc", "broker", "aws", "",
+                {"access_key_id": "AK", "secret_access_key": "sk"},
+            )
+            worm = _RecordingWorm(fail=True)
+            broker = CloudBroker(sandbox_mode=False, vault=vault, worm=worm)
+            vault_env = CloudEnvironment("e", "aws", "arn:...:role/r", "us-east-1", None, 900, "broker")
+            with pytest.raises(LockError):
+                await broker._broker_material(vault_env, "mcpip-inc")
+        finally:
+            await client.aclose()
+
+    _run(scenario())
+
+
 def test_real_vend_dispatches_per_provider_and_fails_closed_without_sdk() -> None:
     """Each vendor has a real vend path; when its optional SDK is absent (as in CI) the
     vend fails CLOSED (LockError), never a silent nothing. An unknown provider also fails

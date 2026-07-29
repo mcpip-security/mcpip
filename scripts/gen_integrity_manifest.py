@@ -30,9 +30,15 @@ import sys
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+# ``cryptography`` is imported LAZILY inside the signing-only helpers below, so the
+# pure file-set/hashing helpers (``_collect_files``/``_sha256_file``/``_read_version``)
+# can be imported by a signature-free consumer (``check_integrity_manifest_drift.py``,
+# run in a minimal CI job that does not install runtime deps) without pulling in
+# ``cryptography``. Signing (``main``) still requires it.
+if TYPE_CHECKING:
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _CHUNK = 1024 * 1024
@@ -71,7 +77,10 @@ def _canonical_bytes(manifest: dict[str, object]) -> bytes:
     return json.dumps(unsigned, sort_keys=True, separators=(",", ":")).encode("utf-8")
 
 
-def _load_private_key(path: Path) -> Ed25519PrivateKey:
+def _load_private_key(path: Path) -> "Ed25519PrivateKey":
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
     key = serialization.load_pem_private_key(path.read_bytes(), password=None)
     if not isinstance(key, Ed25519PrivateKey):
         print("private key is not Ed25519", file=sys.stderr)
@@ -79,7 +88,9 @@ def _load_private_key(path: Path) -> Ed25519PrivateKey:
     return key
 
 
-def _key_id(private_key: Ed25519PrivateKey) -> str:
+def _key_id(private_key: "Ed25519PrivateKey") -> str:
+    from cryptography.hazmat.primitives import serialization
+
     raw_public = private_key.public_key().public_bytes(
         serialization.Encoding.Raw, serialization.PublicFormat.Raw
     )

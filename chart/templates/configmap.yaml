@@ -17,6 +17,14 @@ data:
   MCPIP_REDIS_URL: "redis://{{ include "mcpip.redis.fullname" . }}:6379/0"
   {{- end }}
   MCPIP_WORM_PATH: "/var/lib/mcpip/mcpip_worm.jsonl"
+  {{- if gt (int .Values.durability.waitReplicas) 0 }}
+  # Synchronous-replication quorum: every emitted audit event must be acked by this
+  # many Redis replicas before the authorize proceeds (write-before-execute across a
+  # replica). Requires the bundled/external Redis to run with >= this many synced
+  # replicas — see docs/OPERATIONS.md "Availability".
+  MCPIP_WORM_WAIT_REPLICAS: {{ .Values.durability.waitReplicas | quote }}
+  MCPIP_WORM_WAIT_TIMEOUT_MS: {{ .Values.durability.waitTimeoutMs | quote }}
+  {{- end }}
   MCPIP_JWT_PUBLIC_KEY_PATH: "/etc/mcpip/keys/jwt_public.pem"
   MCPIP_WORM_SIGNING_KEY_PATH: "/etc/mcpip/keys/worm_signing.pem"
   MCPIP_LICENSE_PATH: "/etc/mcpip/keys/license.json"

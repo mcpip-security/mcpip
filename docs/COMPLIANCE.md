@@ -65,12 +65,66 @@ surrounding process evidence.
 | PI1 (Processing integrity) | Complete, accurate, timely, authorized processing | T6/T7/T10: authorization-before-execution with a durable record emitted before the action, exactly-once semantics on approvals, fail-closed on every ambiguity. |
 | C1 (Confidentiality) | Identify and protect confidential information | T9/T13 + obfuscation: compartment need-to-know, alias indirection, redaction of `pin`/`jwt`/`token` fields in audit records, sanitized metrics. |
 
+## 2.1 SOC 2 Privacy category (P1–P8) & data governance
+
+MCPIP governs **machine-to-machine tool calls**, not data-subject interactions: the deploying
+organization is the controller and typically runs MCPIP as one technical control inside its own
+environment. MCPIP's strongest privacy property is **data minimization by construction** — the
+permanent audit ledger records tool-call *metadata + a payload hash*, **not request content**.
+
+**Data footprint & retention schedule** (what personal data can exist, where, and for how long):
+
+| Store | May contain personal data | Retention | Erasable |
+|---|---|---|---|
+| WORM signed epoch chain | `agent_id`, `jti`, delegation actors (`act_sub`/`delegation_chain`), alias, resolved target, `payload_hash` — **never the raw arguments** | Indefinite (integrity commitment; hot events trimmed at `WORM_HOT_EPOCHS`, roots kept) | No — immutable by design (see erasure reconciliation below) |
+| Forensic captures | **Raw normalized arguments** (the only content store) + identity context | `MCPIP_FORENSIC_TTL` (default 3600 s) | Yes — TTL auto-expiry **and** crypto-shred via key destruction; default-OFF in production |
+| PIN payload-lock | scrypt PIN digest + `payload_hash` | `PIN_TTL_SECONDS` (300 s) | Yes (TTL) |
+| Grant / relation stores | subject/grantor `agent_id` | caller `EX=ttl` | Yes (TTL / revoke) |
+| Telemetry (opt-in, default-OFF) | none retrievable — HyperLogLog cardinality + aggregate integers only | n/a | n/a (no personal data leaves the box) |
+
+**P-series mapping:**
+
+| TSC | Criterion (abbrev.) | Status | Product contribution |
+|---|---|---|---|
+| P1 | Notice & communication | Partial / Org | This section is the product-side notice of what MCPIP does/does not collect; the data-subject-facing notice is the controller's. |
+| P2 | Choice & consent | Out-of-scope-by-design / Org | Data subjects never interact with MCPIP. Vendor telemetry is the model consent pattern: opt-in, default-OFF, loud (`docs/TELEMETRY.md`); data-subject consent for downstream processing is the controller's. |
+| P3 | Collection limited to necessary | **Met (structural)** | The permanent ledger stores a `payload_hash`, not arguments; metrics carry closed-set labels; telemetry is aggregate-only. Full-content collection occurs *only* in forensic capture (default-OFF in prod, 1 h, encrypted). |
+| P4 | Use, retention & disposal | Partial | Transient stores auto-dispose via TTL; the WORM ledger is retained indefinitely for audit-integrity (legal-obligation basis below). Retention windows are bounded (`WORM_HOT_EPOCHS`/`WORM_CHECKPOINT_EPOCHS`; being promoted to `MCPIP_*` settings — see `docs/SOC2_READINESS.md` §4.2). |
+| P5 | Access (data-subject) | Gap / Org | No product mechanism enumerates "all records about natural person X" (DSAR); `query_decisions` (by agent/time) + forensic reconstruction are partial evidence sources. Records are metadata+hash, limiting exposure. |
+| P6 | Disclosure & breach notification | Partial / Org | Strong breach-**detection** substrate (`verify_chain`/`first_bad_epoch`/anchor/forensic); the notification **process** (GDPR 33/34, HIPAA §164.410) is the controller's. See `docs/OPERATIONS.md` § 9. |
+| P7 | Quality (accuracy) | Met-by-design | MCPIP is not a system of record for personal data; canonical-JSON + payload-lock guarantee the recorded `payload_hash` matches the executed payload. |
+| P8 | Monitoring & enforcement | Partial | Redaction is enforced at write (`_redact`); the payload-hash-only invariant is a named privacy control asserted by a test that the WORM ctx never carries an `arguments` key. |
+
+**Immutable WORM vs. right-to-erasure (GDPR Art. 17 / CCPA) — reconciliation.** The append-only,
+signed, root-chained ledger makes per-record deletion structurally impossible (that is the T7
+control). MCPIP reconciles this with erasure obligations at three layers:
+
+1. **Content is never durably retained.** The WORM holds a `sha256` payload hash, not the
+   arguments — so the erasure obligation over *request content* is satisfied by *not keeping it*.
+2. **The only raw-content store is crypto-shreddable and short-lived.** Forensic captures are
+   AES-256-GCM under a dedicated key held outside Redis, expire in ~1 h, and are rendered
+   permanently undecryptable by destroying/rotating `MCPIP_FORENSIC_KEY_PATH` (crypto-shred).
+3. **Principal / delegation identifiers can be pseudonymized in WORM** (opt-in
+   `MCPIP_PSEUDONYMIZE_PRINCIPALS`, default OFF): with it enabled, `act_sub` and each
+   `delegation_chain` entry (which can name a human delegator) are recorded as a stable
+   keyed-HMAC pseudonym under a dedicated crypto-shreddable key (`MCPIP_PSEUDONYM_KEY_PATH`)
+   — destroy the key to sever the natural-person link, without breaking `verify_chain`. Left
+   OFF the raw identifiers are recorded (better forensic readability). See
+   `docs/SOC2_READINESS.md` §4.7.
+
+The signed roots + machine identifiers that remain fall under the **legal-obligation retention
+exemption** (GDPR Art. 17(3)(b)/(e); SEC 17a-4, DORA Art. 9, HIPAA §164.530) and Recital-65
+integrity grounds — a defensible basis that the deploying organization documents in its RoPA. A
+full per-tenant crypto-shred of the audit ledger (envelope-encrypting WORM event bodies under a
+deletable tenant key, preserving `verify_chain` over ciphertext) is a larger design option tracked
+in `docs/SOC2_READINESS.md` §4.3/§6.
+
 ## 3. FedRAMP mapping (NIST SP 800-53 rev. 5 families)
 
 | Family | Representative controls | Product contribution |
 |---|---|---|
 | **AC** — Access Control | AC-2, AC-3, AC-4, AC-6 | T8/T9: enforcement of approved authorizations (AC-3) via capability UUIDs; least privilege (AC-6) via compartments + scoped grant issuance (no tenant-wide master key); information-flow control (AC-4) via alias indirection and catalog filtering. |
-| **AU** — Audit & Accountability | AU-2, AU-4, AU-9, AU-10, AU-12 | T7: signed Merkle-epoch WORM with write-before-execute ordering; AU-9 (protection of audit information) via Ed25519-signed epoch chain + out-of-domain anchor; AU-10 (non-repudiation) via per-epoch signatures and inclusion proofs; export tooling for AU-6 review support. |
+| **AU** — Audit & Accountability | AU-2, AU-4, AU-9, AU-10, AU-12 | T7: signed Merkle-epoch WORM with write-before-execute ordering; AU-9 (protection of audit information) via Ed25519-signed epoch chain + out-of-domain anchor; AU-10 (non-repudiation) via per-epoch signatures over the whole retained chain, plus per-event Merkle inclusion proofs **within the retention window only** (see §3.1); export tooling for AU-6 review support. |
 | **CM** — Configuration Management | CM-2, CM-3, CM-5, CM-6, CM-7, CM-14 | T1/T4/T5: baseline = the signed release manifest; CM-5 (access restrictions for change) enforced cryptographically — an unsigned change cannot boot; CM-14 (signed components) directly implemented; CM-7 via the minimal, parser-only, no-egress design. |
 | **IA** — Identification & Authentication | IA-2/IA-9 (service auth), IA-5 | T8: cryptographic machine-to-machine identity with pinned algorithms and full claim validation; IA-5 partially — the product consumes operator-managed PEMs and documents rotation; credential lifecycle is organizational. |
 | **SC** — System & Communications Protection | SC-8, SC-13, SC-28, SC-39 | T1/T7/T12: FIPS-standard primitives (SHA-256, Ed25519) via the `cryptography` library; verification independent of transport security; compartment isolation; note MCPIP does not itself terminate TLS — SC-8 in transit is the deployment's ingress concern. |
@@ -78,6 +132,39 @@ surrounding process evidence.
 | **CP** — Contingency Planning | CP-9, CP-10 | Partial — documented, verifiable backup/restore of the audit ledger (`docs/OPERATIONS.md` § 8), with restore verification that detects restoring a rolled-back ledger. Organizational CP program is out of scope. |
 | **SR** — Supply Chain Risk Management | SR-3, SR-4, SR-11 | T1/T2/T3/T16: provenance (SR-4) via signed manifests + SBOM; SR-11 (component authenticity) via offline-verifiable signatures and out-of-band key fingerprints; the air-gap bundle gives acquirers a network-free acceptance-testing path. |
 | **IR** — Incident Response | IR-4, IR-5 | Partial — tamper localization (first bad epoch), forensic export, and a written IR runbook ship with the product; the IR capability/organization is the deployer's. |
+
+### 3.1 What AU-10 actually covers — two claims of different strength
+
+Non-repudiation is often read as one claim. In MCPIP it is two, and an assessor should
+know which one applies to the decision in front of them.
+
+**Durable, over the whole retained chain.** Every sealed epoch is Ed25519-signed and
+root-chained to its predecessor, mirrored to an out-of-tamper-domain anchor, and — once
+compacted — subsumed by a signed super-checkpoint committing `(epoch, epoch_hash,
+end_seq)`. Altering, reordering, truncating, or deleting anywhere in that history is
+detectable by `verify_chain`. This holds for the ledger's full retained lifetime.
+
+**Bounded, per individual event.** A Merkle *inclusion proof* — the artifact that binds
+one decision's exact bytes to a signed root — is producible only while that event's epoch
+is both **sealed** and **still retained**:
+
+| Event's position | Individually provable? | What still covers it |
+|---|---|---|
+| In the current, unsealed epoch | **No** — no signed root commits to it yet | Durably recorded before its action executed (write-before-execute); provable once the epoch seals, ~`EPOCH_INTERVAL_S` later |
+| In a sealed epoch inside the window (`WORM_HOT_EPOCHS = 32`) | **Yes** — `GET /v1/audit/proof/{event_id}` | Full per-event Merkle path to a signed root |
+| In a sealed epoch older than the window | **No** — `_trim_retention` drops the eventloc entry and the epoch's leaf-digest vector, then `XTRIM`s the buffer | The signed epoch chain, which still commits to that epoch and its sequence range |
+
+The mechanics live in `audit/worm_logger.py` (`inclusion_proof`, `_trim_retention`).
+The window is not a doc claim to be trusted: `WormLogger.proof_scope()` **measures** it
+from live state, and `GET /v1/admin/compliance/evidence` returns it as the bundle's
+`evidence_scope.proof_window` — including `proof_bearing_events`, the exact count of
+decisions provable at that instant.
+
+**What this means for a deployment.** If your control objective requires per-event proofs
+over a period longer than the window, the operator must either export proofs inside the
+window or widen retention. The long-term record of retention is the **export archive**,
+not the in-system buffer — see `docs/SOC2_READINESS.md` §4.2 item 7, which tracks this as
+an open gap rather than a solved one.
 
 ---
 
@@ -105,9 +192,24 @@ Persistent stores and their contents:
 |---|---|---|
 | Redis (internal-only network, AOF `appendfsync always`) | Payload-lock **hashes**, delegated grants, WORM event buffer + signed epoch headers, sequence counters | Raw PINs (only salted/derived hashes), JWTs, vendor keys |
 | Anchor file (gateway volume) | Ed25519-signed `(epoch, epoch_hash)` lines | Any request/tenant payload |
-| WORM records | Decision, deny reason, redacted intent metadata, `payload_hash` | `pin`, `jwt`, `token` and similar fields — recursively redacted before write |
+| WORM records | Decision, deny reason, the opaque alias **and the resolved real target**, compartment/classification, principal ids (`agent_id`, `jti`, delegation actors), `payload_hash` (**not** the raw arguments) | Raw arguments / request content (only their `payload_hash` is kept); `pin`, `otp`, `jwt`, `token`, vended credentials — recursively redacted before write |
 | `/metrics` | Aggregate counters/histograms/chain heights with closed-set labels | Tenant ids, agent ids, aliases, compartments, capability UUIDs, correlation ids, codes |
 | Container image | Code, venv, integrity manifest, **public** keys | Private keys, licenses, tokens, `.env` (excluded by `.dockerignore`/`.gitignore`) |
+
+> **Confidentiality caveat (at rest).** The WORM event buffer is **integrity**-protected
+> (Ed25519-signed Merkle epochs) but is **not** application-layer **encrypted** at rest: the
+> resolved real target, the opaque alias, and the principal identifiers are stored as cleartext
+> in the Redis AOF and any backup of it. Request *content* never lands there (only its
+> `payload_hash`), and raw secrets are recursively redacted — but the alias→target de-obfuscation
+> map and identifiers are confidential and rely on **deployment controls** for at-rest
+> confidentiality: internal-only Redis network isolation (T14), plus encrypted volumes/backups
+> and (recommended) Redis TLS+AUTH. **Application-layer encryption of the WORM event body is
+> available opt-in** (`MCPIP_ENCRYPT_WORM_AT_REST` + a 32-byte `MCPIP_WORM_CONTENT_KEY_PATH`):
+> the sensitive payload is AES-256-GCM-wrapped before storage, so the alias→target map is
+> ciphertext in Redis + AOF, while the signed Merkle leaf hashes the stored record so
+> `verify_chain` is unaffected and integrity stays verifiable without the key (destroy the key
+> to crypto-shred the bodies). Default OFF = plaintext bodies. The encrypted stores (secret
+> vault, forensic captures) already carry AES-256-GCM at rest under keys held outside Redis.
 
 ### 4.2 Egress profile
 
@@ -186,7 +288,7 @@ attestation of conformity — those are external third-party processes (see §6.
 | | Detection of alteration/deletion | Out-of-tamper-domain anchor low-watermark (T7) | A signed anchor head outside the tamper domain detects tail truncation/rollback; the bundle surfaces the anchor watermark + `first_bad_epoch`. |
 | **DORA** (Reg. (EU) 2022/2554) | Art. 9 — ICT logging integrity & retention | Durable WORM (Redis AOF `appendfsync always`) + tamper-evident retention (T7) | Prod refuses to boot without AOF `always`; the retention low-watermark ties content integrity to the retention window so recent-epoch deletion reads as tamper. |
 | | Art. 17 — ICT incident management | Fail-closed boot + opaque fail-closed deny posture (T6) | Ambiguity/dependency failure fails closed; concrete reasons are preserved only in the tamper-evident log for incident reconstruction. |
-| **NIST SP 800-53 r5** | AU-10 — Non-repudiation | Per-epoch Ed25519 signatures + inclusion proofs (T7) | Each epoch is signed and every event has a Merkle inclusion proof bound to the public `signing_key_id`. |
+| **NIST SP 800-53 r5** | AU-10 — Non-repudiation | Per-epoch Ed25519 signatures over the retained chain + per-event inclusion proofs inside the retention window (T7) | Every sealed epoch is signed and root-chained under the public `signing_key_id`. A per-event Merkle proof is producible while the event's epoch is sealed and retained; outside that window the signed chain covers the epoch and its sequence range, not the individual event. The bundle reports the measured window ([§3.1](#31-what-au-10-actually-covers--two-claims-of-different-strength)). |
 | | AC-3 — Access enforcement | Capability-UUID gating; role authorizes nothing (T8/T9) | Privileged actions gate on capability UUIDs matched constant-time. |
 | | AC-6 — Least privilege | Compartments + TTL-bounded scoped grants (T9) | Compartmented aliases deny without a direct claim or an active delegated grant. |
 | | IA-2 / IA-9 — Identification & service auth | JWT-only verified identity + identity-key hard deny (T8) | Identity comes only from a verified JWT (EdDSA/RS256); identity-shaped argument keys hard-deny. |
@@ -195,6 +297,23 @@ attestation of conformity — those are external third-party processes (see §6.
 | **ISO/IEC 42001** | Annex A — Logging & traceability | Write-before-execute WORM traceability (T7) | Every AI tool-call decision is traceable to a signed, tamper-evident, independently verifiable record. |
 | | Annex A — Human oversight | Payload-bound one-time PIN oversight (T10) | High-risk AI actions require an out-of-band human-approved payload-bound PIN. |
 | | Annex A — Resilience / fail-safe | Opaque fail-closed posture (T6) | Ambiguity/failure fails closed as an opaque deny; reasons live only in the tamper-evident log. |
+
+> **Retention honesty (17a-4 / DORA / AU-11).** The WORM ledger is a **tamper-evidence**
+> mechanism, not a long-term archival store by itself. Full decision **records** live in-system
+> for a bounded hot window (`WORM_HOT_EPOCHS`, default 32 epochs) before the event bodies
+> are trimmed from the durable buffer; the signed Merkle **roots** + anchor are retained
+> indefinitely as cryptographic commitments, but the events themselves are not. **Long-term
+> record retention (e.g. the 5–7 year windows those regimes cite) is operator-provided** by
+> scheduling the read-only `mcpip_verify export-audit --verify --pubkey <worm pubkey>
+> --require-anchor` export to a durable, immutable
+> archive (WORM-mode object store / S3 Object-Lock). That invocation re-verifies the Merkle
+> roots, each `epoch_hash`, the `prev_epoch_hash` chain linkage, the Ed25519 epoch signatures
+> and the out-of-tamper-domain rollback watermark offline, and exits nonzero naming the failed
+> check. So these rows provide evidence for the
+> *non-rewritable, tamper-evident, integrity* clauses; the *retention-duration* clause is
+> satisfied by the operator's export archive, whose cadence and immutable custody are the
+> deploying organization's controls. See `docs/OPERATIONS.md` § "Verify & export" and
+> `docs/SOC2_READINESS.md` §4.2.
 
 ### 6.1 Portable evidence export — `GET /v1/admin/compliance/evidence`
 

@@ -274,7 +274,7 @@ export function ApiConsole({ gateway }: { gateway: GatewayLive }): JSX.Element {
                   </div>
                   <div className={`mt-0.5 ${tone}`}>
                     {e.status === null ? `✕ ${e.statusText}` : `${e.status} ${e.statusText}`}
-                    <span className="ml-2 text-slate-600">· {e.ms} ms</span>
+                    <span className="ml-2 text-slate-500">· {e.ms} ms</span>
                   </div>
                   {e.body ? (
                     <pre className="mt-1 whitespace-pre-wrap break-words text-[11.5px] text-slate-300">

@@ -63,6 +63,7 @@ from core.security import AGENT_FACING_DENY_MESSAGE
 from interfaces import (
     CAP_COMPARTMENT_GRANT,
     CAP_DIRECTORY_ADMIN,
+    JWT_CLOCK_SKEW_LEEWAY_SECONDS,
     grant_capability_for,
 )
 from obfuscator.tenant_catalog import (
@@ -87,13 +88,13 @@ _AUTO_ALIAS = "skill_spend_summary"          # acme AUTO, cloud_rest → rest.le
 _AUTO_ALIAS2 = "skill_customer_lookup"       # acme AUTO
 _PIN_ALIAS = "skill_payroll_run"             # acme PIN_REQUIRED, legacy_mainframe
 _GRANT_ALIAS = "skill_compartment_grant"     # aegis governance alias (CAP_COMPARTMENT_GRANT)
-_FALCON_ALIAS = "skill_falcon_telemetry"     # aegis FALCON, AUTO, require_sender_constraint
-_AEGIS_ALIAS = "skill_aegis_radar_tune"      # aegis AEGIS, PIN
-_SENTINEL_ALIAS = "skill_sentinel_recon_feed"  # aegis SENTINEL, AUTO, require_sender_constraint
+_FALCON_ALIAS = "skill_airframe_telemetry"     # aegis FALCON, AUTO, require_sender_constraint
+_AEGIS_ALIAS = "skill_radar_calibration_set"      # aegis AEGIS, PIN
+_SENTINEL_ALIAS = "skill_recon_feed_read"  # aegis SENTINEL, AUTO, require_sender_constraint
 _STATUS_ALIAS = "skill_status_probe"         # aegis + globex tenant-wide AUTO
 _ENG_ALIAS = "skill_engineering_roadmap"     # mcpip-inc ENGINEERING AUTO
 _FIN_ALIAS = "skill_financial_wage_sheet"    # mcpip-inc FINANCE AUTO
-_AWS_ALIAS = "skill_aws_s3_read"             # mcpip-inc ENGINEERING cloud_iam AUTO
+_AWS_ALIAS = "skill_aws_s3"             # mcpip-inc ENGINEERING cloud_iam AUTO
 _COMPANY_ALIAS = "skill_company_overview"    # mcpip-inc tenant-wide AUTO
 _CANARY_ALIAS = "skill_export_all_credentials"  # deception tripwire (AUTO, canary=True)
 
@@ -495,9 +496,16 @@ def test_a17_alg_none_token(client: TestClient, idp: _DemoIdP) -> None:
 
 
 def test_a18_expired_jwt(client: TestClient, idp: _DemoIdP) -> None:
-    """A validly-signed but EXPIRED JWT → opaque 403; WORM records jwt_invalid."""
+    """A validly-signed but EXPIRED JWT → opaque 403; WORM records jwt_invalid.
+
+    Expired by MORE than the clock-skew leeway. The gateway tolerates
+    JWT_CLOCK_SKEW_LEEWAY_SECONDS of drift on exp/iat/nbf (interfaces.py) because
+    without it a one-second disagreement with the IdP's clock is a total auth outage.
+    This test must therefore prove expiry is still ENFORCED beyond that window — it is
+    derived from the constant so widening the leeway can never silently defang it.
+    """
     claims = _base_claims(idp, tenant_id=_ACME, agent_id=_aid("expired"))
-    claims["exp"] = claims["iat"] - 10
+    claims["exp"] = claims["iat"] - (JWT_CLOCK_SKEW_LEEWAY_SECONDS + 10)
     claims["iat"] = claims["nbf"] = claims["exp"] - 120
     resp = _post(client, alias=_AUTO_ALIAS, arguments={"period": "Q1"}, token=_sign(idp, claims))
     _assert_opaque_denial(resp)
@@ -1001,7 +1009,9 @@ def test_x10_jwt_forgery_swarm_legit_survives(client: TestClient, idp: _DemoIdP)
     with a legit control. Every forgery variant denies jwt_invalid; the control ALLOWs."""
     control = _aid("control")
     expired = _base_claims(idp, tenant_id=_ACME, agent_id=_aid("exp"))
-    expired["exp"] = expired["iat"] - 5
+    # Beyond the clock-skew leeway, so this stays a genuine expiry rejection rather
+    # than a token the gateway now deliberately tolerates (see test_a18).
+    expired["exp"] = expired["iat"] - (JWT_CLOCK_SKEW_LEEWAY_SECONDS + 5)
     expired["iat"] = expired["nbf"] = expired["exp"] - 60
     wrong_iss = _base_claims(idp, tenant_id=_ACME, agent_id=_aid("iss"))
     wrong_iss["iss"] = "rogue-idp"

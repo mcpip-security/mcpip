@@ -12,21 +12,36 @@
      Tailwind tokens (rgb(var(--c-*) / <alpha>)) resolve and opacity still works. */
   :root {
     color-scheme: light;
-    --c-canvas: 249 249 249;
+    /* A half-step deeper than porcelain so white panels visibly float (the
+       hex-style canvas/card separation) without reading as gray. */
+    --c-canvas: 246 246 247;
     --c-surface: 255 255 255;
     --c-elevated: 249 249 249;
     --c-hairline: 229 229 229;
     --c-ink: 17 17 17;
-    --c-verified: 5 150 105;
-    --c-denied: 220 38 38;
-    --c-staged: 217 119 6;
+    /* Status hues sit at the 700 step, not the 600: the Badge tint renders the
+       SAME token as text over a `/8` wash of itself, and the composited pair is
+       what a reader actually sees. At the 600 step verified/staged/denied
+       composited to 3.18 / 2.72 / 3.96 on canvas — all under the 4.5 floor for
+       this 10.5px label. These clear it on canvas, surface AND elevated. */
+    --c-verified: 4 120 87;
+    --c-denied: 185 28 28;
+    --c-staged: 170 77 10;
     /* Inverted slate ramp — reads correctly on the light canvas. */
     --c-slate-50: 17 17 17;
     --c-slate-100: 17 17 17;
     --c-slate-200: 23 23 23;
     --c-slate-300: 64 64 64;
     --c-slate-400: 82 82 82;
-    --c-slate-500: 115 115 115;
+    /* 113, not 115: slate-500 is the MUTED BODY step (captions, 10.5–11px prose,
+       the shell command prompt) — real text, so it owes 4.5:1 on its WORST
+       ground, which is the canvas (the darkest of the three). At 115 it measured
+       4.39 there and cleared only on surface. Two points darker is
+       imperceptible and clears canvas/elevated/surface alike. */
+    --c-slate-500: 113 113 113;
+    /* The DECORATIVE step — inert separators (·) and disabled glyphs only. It is
+       deliberately below 4.5 and must NOT be used for text a reader has to read;
+       EmptyState's icon was moved off it for exactly that reason. */
     --c-slate-600: 163 163 163;
     --c-slate-700: 212 212 212;
     --c-slate-800: 229 229 229;
@@ -34,6 +49,17 @@
     --c-scrollbar: 212 212 212;
     --c-selection: 17 17 17;
     --c-selection-text: 249 249 249;
+    /* Elevation is a TOKEN, not a hardcoded near-black. Both the colour and the
+       alphas are per-theme, because a shadow that works on porcelain is
+       arithmetically invisible on an ink canvas (see the dark block). */
+    --c-shadow: 17 17 17;
+    --c-shadow-key: 0.04;
+    --c-shadow-ambient: 0.06;
+    /* Focus-ring accent. Paired with a surface-coloured offset ring (see
+       tailwind.config.js) so the indicator clears 3:1 against canvas, surface
+       and elevated alike — WCAG 2.4.7 / 1.4.11, which the old
+       rgba(17,17,17,0.08) ring missed at 1.18:1 light and 1.00:1 dark. */
+    --c-focus: 17 17 17;
   }
 
   /* DARK theme — a considered neutral-ink canvas with a porcelain foreground.
@@ -54,7 +80,11 @@
     --c-slate-200: 228 228 231;
     --c-slate-300: 200 200 206;
     --c-slate-400: 161 161 170;
-    --c-slate-500: 130 130 139;
+    /* 135, not 130: the mirror of the light fix. Here the muted step is LIGHT on
+       a dark ground, so its worst case is the LIGHTEST surface — `elevated`,
+       where the inactive sub-tab label sits. At 130 that measured 4.26. */
+    --c-slate-500: 135 135 144;
+    /* Decorative only — see the light block. */
     --c-slate-600: 100 100 110;
     --c-slate-700: 63 63 70;
     --c-slate-800: 45 45 51;
@@ -62,6 +92,13 @@
     --c-scrollbar: 63 63 70;
     --c-selection: 244 244 245;
     --c-selection-text: 12 12 14;
+    /* A near-black shadow on a 12-12-14 canvas moves the pixel by ~0.4/255 —
+       elevation you cannot see. Dark uses a true black at a real opacity, so
+       panels actually sit above the canvas instead of floating on the hairline. */
+    --c-shadow: 0 0 0;
+    --c-shadow-key: 0.45;
+    --c-shadow-ambient: 0.6;
+    --c-focus: 244 244 245;
   }
 
   html,

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronRight, Loader2, Play, PlugZap, ShieldAlert, SquareTerminal } from 'lucide-react';
-import { authenticatorOtp, authorize, mintDevToken } from '../lib/api';
+import { Loader2, Play, PlugZap, ShieldAlert, SquareTerminal } from 'lucide-react';
+import { authenticatorOtp, authnReveal, authorize, mintDevToken } from '../lib/api';
 import { loadCompanyConfig } from '../lib/companyConfig';
 import { truncateId } from '../lib/format';
 import { EmptyState, Field, Panel, PanelHeader, Select } from './ui';
@@ -111,6 +111,8 @@ export function AuthorizeProbe({ gateway }: { gateway: GatewayLive }): JSX.Eleme
   const [argsText, setArgsText] = useState('{}');
   const [busy, setBusy] = useState(false);
   const [pending, setPending] = useState<PendingChallenge | null>(null);
+  /** 6-digit code typed for the user-based-2FA approval of the staged challenge. */
+  const [totpCode, setTotpCode] = useState('');
   /** Console-measured round-trips of TERMINAL decisions this session (real only). */
   const [trips, setTrips] = useState<number[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -313,6 +315,50 @@ export function AuthorizeProbe({ gateway }: { gateway: GatewayLive }): JSX.Eleme
     setBusy(false);
   };
 
+  /** USER-BASED 2FA completion: a fresh code from the operator's enrolled
+      authenticator app releases the staged one-time PIN (single-use reveal),
+      which then completes the classic two-step. Works in production too —
+      unlike the sandbox stand-in, this path needs no dev oracle, only an
+      enrollment (Settings → Identity → 2FA). */
+  const completeWithAuthenticator = async (): Promise<void> => {
+    if (busy || pending === null || totpCode.length !== 6) {
+      return;
+    }
+    setBusy(true);
+    push([
+      {
+        kind: 'cmd',
+        text: `POST /v1/authenticator/reveal · challenge=${truncateId(pending.challengeId, 8, 4)} · code=<authenticator>`,
+      },
+    ]);
+    const token = await mintProbeToken();
+    const otp =
+      token === null
+        ? null
+        : await authnReveal(token, pending.challengeId, totpCode, { base: gateway.apiBase });
+    if (token === null || otp === null) {
+      push([
+        {
+          kind: 'deny',
+          text: 'reveal refused — wrong/replayed code, no enrollment for this principal, or the challenge expired (enroll under Settings → Identity → 2FA)',
+        },
+      ]);
+      setBusy(false);
+      return;
+    }
+    const result = await fireDirect(token, pending.alias, pending.args, {
+      otp,
+      challengeId: pending.challengeId,
+    });
+    if (result === null) {
+      push([{ kind: 'deny', text: 'no round-trip — the completion failed before reaching the gateway' }]);
+    } else {
+      setTotpCode('');
+      renderOutcome(pending.alias, pending.args, result);
+    }
+    setBusy(false);
+  };
+
   if (gateway.mode !== 'live') {
     return (
       <Panel className="h-full">
@@ -421,31 +467,35 @@ export function AuthorizeProbe({ gateway }: { gateway: GatewayLive }): JSX.Eleme
               >
                 Complete step-up · sandbox authenticator
               </button>
+              <div className="mt-2 flex items-center gap-1.5">
+                <input
+                  value={totpCode}
+                  onChange={(e) => setTotpCode(e.target.value.replace(/\D/g, ''))}
+                  inputMode="numeric"
+                  maxLength={6}
+                  placeholder="2FA code"
+                  aria-label="6-digit code from your enrolled authenticator app"
+                  className="w-full min-w-0 flex-1 rounded-lg border border-hairline bg-canvas px-2.5 py-1.5 font-mono text-[11.5px] text-ink outline-none placeholder:text-slate-500 focus:border-ink/30"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    void completeWithAuthenticator();
+                  }}
+                  disabled={busy || totpCode.length !== 6}
+                  className="btn shrink-0 border border-staged/25 bg-surface text-staged hover:bg-staged/5"
+                  title="Release the staged code with a fresh code from your enrolled authenticator app"
+                >
+                  Approve · 2FA
+                </button>
+              </div>
             </div>
           ) : null}
 
-          <details className="group mt-auto border-t border-hairline pt-3">
-            <summary className="eyebrow flex cursor-pointer list-none items-center gap-1.5 text-slate-500 transition-colors hover:text-slate-400">
-              <ChevronRight
-                size={13}
-                className="shrink-0 transition-transform group-open:rotate-90"
-                aria-hidden="true"
-              />
-              About this probe
-            </summary>
-            <div className="mt-2 space-y-1.5 text-[10.5px] leading-relaxed text-slate-500">
-              <p>
-                Identity-shaped argument keys (<span className="font-mono">role</span>,{' '}
-                <span className="font-mono">sub</span>, <span className="font-mono">tenant_id</span>,
-                …) are a hard deny — identity comes only from the verified JWT. Try one to watch the
-                gateway refuse it.
-              </p>
-              <p>
-                Round-trips are wall-clock measured by this console and always labelled
-                console-measured; the gateway-side histogram (all agents) lives in Overview.
-              </p>
-            </div>
-          </details>
+          <p className="mt-auto border-t border-hairline pt-3 text-[10.5px] leading-relaxed text-slate-500">
+            Tip: an identity-shaped argument key (<span className="font-mono">role</span>,{' '}
+            <span className="font-mono">tenant_id</span>, …) is a hard deny — try one.
+          </p>
         </div>
 
         {/* Response tape */}

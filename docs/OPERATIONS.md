@@ -14,7 +14,7 @@ root (substitute your checkout path) and references only files that ship in this
 Deeper, still-authoritative references are linked where they stay separate:
 [`ARCHITECTURE.md`](ARCHITECTURE.md) (components, invariants, SPIFFE / workload-identity model,
 OAuth resource-server surface), [`TELEMETRY.md`](TELEMETRY.md) (opt-in telemetry + privacy
-boundary), [`STRATEGY.md`](STRATEGY.md) (positioning, GA readiness), [`ROADMAP.md`](ROADMAP.md),
+boundary), the internal strategy notes (positioning, GA readiness), the internal roadmap,
 [`COMPLIANCE.md`](COMPLIANCE.md) (auditor / attestation), and [`GETTING_STARTED.md`](GETTING_STARTED.md)
 (client + CLI onboarding).
 
@@ -69,6 +69,23 @@ CI/CD secret injection) are in the Runbook → [Deployment](#deployment-compose-
 below; the ceremony that produces the digest is in
 [Building & signing a release](#building--signing-a-release).
 
+**Hardened compliance overlay.** The opt-in SOC 2 controls that ship default-OFF (WORM
+at-rest encryption, principal pseudonymization, the synchronous-replication quorum, disruption
+budgets, reference alerts) are turned on together by a values overlay so a compliance
+deployment converts the *control design* into controls that actually RUN:
+
+```bash
+helm upgrade --install mcpip ./chart -n mcpip \
+  -f chart/values.yaml -f chart/values-compliance.yaml \
+  --set image.repository=<registry>/mcpip-gateway \
+  --set image.digest=sha256:<digest-from-the-signed-release>
+```
+
+Enable it consciously — the overlay documents its prerequisites (two 32-byte keys added to
+the keys Secret, an HA Redis with ≥2 synced replicas, a Prometheus Operator). Flag-on with a
+missing key is a fail-closed boot error, by design. See `docs/SOC2_READINESS.md` for why a
+default install scores below the control design.
+
 ### Redis in the cloud tier — who supplies it, and the managed-Redis trap
 
 **Ours or the client's?** For the cloud tier as built today it is the **client's Redis**, running
@@ -104,6 +121,64 @@ the default — and even then the audit buffer should stay pinned to the custome
 - **No durability override exists, by design.** There is no env to skip the posture check: the WORM
   ordering guarantee *is* the product. If Redis can't prove `appendfsync always`, the gateway fails
   closed rather than degrade to a weaker audit promise.
+
+### Availability & the fail-closed tradeoff
+
+MCPIP fails **closed**: if Redis or the gateway is unavailable, the gateway denies rather than
+degrade (there is deliberately no read-only / weaker-audit mode — degrading would break
+write-before-execute). State the blast radius explicitly and design around it:
+
+- **Blast radius.** A total loss of the gateway *or* its Redis denies **100% of governed agent
+  actions** until recovery. This is a business-continuity risk to accept consciously; the
+  compensating controls below are how you bound it.
+
+- **Gateway tier.** Stateless — run ≥2 replicas (the chart default: `hpa.minReplicas: 2`) behind
+  the Service, with the shipped `PodDisruptionBudget` (`pdb.enabled`) so a node drain can't evict
+  every replica at once. A single gateway pod loss is transparent.
+
+  *Caveat — the WORM anchor volume.* The anchor mirror PVC defaults to `ReadWriteOnce`
+  (`persistence.accessModes`), which a single node can mount. To run gateway replicas across
+  nodes, set `persistence.accessModes: [ReadWriteMany]` on an RWX StorageClass, or scope that
+  deployment to one node. (The authoritative anchor is per-write fsync'd; the PVC is a
+  convenience mirror.)
+
+- **Redis tier — HA without weakening durability.** Plain async-replicated failover can silently
+  lose an acked write on promotion (see the managed-Redis trap above), so it is **not** a
+  supported durability posture on its own. The supported HA path is the **synchronous-replication
+  quorum**: set `durability.waitReplicas: N` (env `MCPIP_WORM_WAIT_REPLICAS`) and run Redis with
+  ≥N synced replicas. Every emitted audit event then also requires N replica acknowledgements
+  (`WAIT`) **before** the authorize proceeds — write-before-execute extended across a replica —
+  so promoting a synced replica after a master loss never drops an acked record. A quorum
+  miss/timeout is **fail-closed** (the request denies), never a silent weaker promise. Enable
+  `redis.pdb.enabled` so a drain can't take the master and its synced replicas together.
+
+- **RTO / RPO.**
+  - **RPO ≈ 0 for acknowledged audit writes** — the durability contract (`appendfsync always`,
+    and with the quorum, replica-acknowledged) means an acked decision is never lost. This is a
+    committed objective, not incidental.
+  - **RTO** is deployment-specific and operator-owned. Same-region recovery = reschedule the
+    gateway (seconds, stateless) + restore/promote Redis. Publish your own numeric RTO per shape.
+
+- **Same-region standby / promotion runbook (single-writer Redis).**
+  1. Detect: `/readyz` failing on all gateways, or `McpipGatewayDown` firing (Redis unreachable).
+  2. Promote the synced replica to master (or restore Redis from AOF/snapshot — see
+     [Backup](#backup)); repoint `MCPIP_REDIS_URL` if the endpoint changed.
+  3. Verify the restored/promoted ledger did **not** roll back:
+     `mcpip_verify export-audit --verify --pubkey <worm pubkey> --anchor-path <anchor>` — a
+     restore older than the fsync'd anchor low-watermark is flagged as
+     `audit chain: TAMPERED — anchor low-watermark failed at epoch <k>`, which is the correct
+     signal to investigate, not to ignore. (The anchor file must survive the failover — it is
+     the out-of-tamper-domain witness; pass `--require-anchor` so a lost anchor fails loudly
+     instead of downgrading the check.)
+  4. Confirm `/readyz` returns 200 and `mcpip_audit_integrity_total{event="tamper_detected"}`
+     is not incrementing.
+
+  Cross-region failover / tenant migration remains a **formally accepted deferred risk** (a
+  cross-region control plane is not shipped — see [Multi-region](#the-worm-ledger--anchor-across-regions)).
+
+- **Capacity ceiling.** The `appendfsync always` fsync rate is the true system throughput ceiling
+  (the WORM emit rate = the authorize rate); horizontal gateway scaling lifts CPU, not this. Size
+  Redis storage/IO accordingly and alert on `mcpip_requests_shed_total{cause="overload"}`.
 
 ### Fail-closed production boot
 
@@ -261,6 +336,22 @@ The audit epoch key rotates independently through your secret-management process
 (update the `mcpip-keys` Secret / mounted PEM and redeploy); previously sealed epochs
 remain verifiable because each epoch header records its signature at sealing time.
 
+**WORM content key (opt-in at-rest encryption).** When `MCPIP_ENCRYPT_WORM_AT_REST` is
+on, each event body is sealed with AES-256-GCM under a fresh random 96-bit nonce
+(`MCPIP_WORM_CONTENT_KEY_PATH`, a 32-byte key). Random-nonce GCM is safe up to roughly
+2³² seals under one key before nonce-collision risk becomes non-negligible (NIST SP
+800-38D); a collision would leak only the XOR of two encrypted *bodies* and can **never**
+defeat `verify_chain` (chain integrity is Merkle + Ed25519, independent of the content
+key). To stay well inside that bound on a high-volume ledger, **rotate the content key
+periodically** — annually, or sooner if sustained emit volume would approach ~10⁹ events
+under one key. Rotation is a plain secret-management step: add the new key file, point
+`MCPIP_WORM_CONTENT_KEY_PATH` at it, and redeploy. The self-describing `encv1:` envelope
+means new events seal under the new key while records written under the retired key stay
+readable **as long as you keep the retired key available** to the content readers — so
+retain superseded content keys for the audit-retention window rather than destroying them
+(destroying a key crypto-shreds every body sealed under it, which is the erasure lever,
+not a rotation step). `verify_chain` needs no content key either way.
+
 **Suspected root-key compromise** is [Incident response §9.4](#suspected-signing-key-compromise).
 
 #### Gateway master keys & principal minting
@@ -377,11 +468,14 @@ zero extra mounts.
 `[project.scripts] mcpip = "mcpip_verify.cli:main"`); from a source checkout use
 `./.venv/bin/python -m mcpip_verify.cli` interchangeably.
 
-**Fail-closed contract:** on ANY verification failure the tool prints exactly
+**Fail-closed contract:** on ANY *release* verification failure the tool prints exactly
 `verification failed` to stderr (opaque — no reason, no path, no hash) and exits `2`.
-Success prints `verified: mcpip <version> (<n> artifacts)` and exits `0`. The tool
-never writes anything except the explicit `--out` file of `export-audit`, and never
-self-updates anything.
+Success prints `verified: mcpip <version> (<n> artifacts)` and exits `0`. `export-audit
+--verify` is the one operator-facing exception to the opacity: it names the failed
+integrity check and the first bad epoch (see [Verify & export](#verify--export)) — that
+output goes to the operator running the tool, never to an agent — and also exits `2`.
+The tool never writes anything except the explicit `--out` file of `export-audit`, and
+never self-updates anything.
 
 ```bash
 # Verify a release manifest + every listed artifact on disk:
@@ -593,24 +687,59 @@ Setting only one of the two license env vars is a misconfiguration and refuses b
 #### Verify & export (read-only, production-safe)
 
 ```bash
-# Export the WORM stream + epoch headers to JSONL and independently recompute
-# every exported epoch's Merkle root:
+# Export the WORM stream + epoch headers to JSONL and independently re-verify the
+# whole signed chain (Merkle roots, epoch_hash, prev_epoch_hash linkage, the Ed25519
+# epoch signatures, and the out-of-tamper-domain anchor low-watermark):
 ./.venv/bin/python -m mcpip_verify.cli export-audit \
   --redis-url redis://localhost:63790/0 \
   --out audit_export.jsonl \
-  --verify
+  --verify \
+  --pubkey /path/to/worm_signing_ed25519.pub.pem \
+  --anchor-path /var/lib/mcpip/mcpip_worm.jsonl.anchor \
+  --require-anchor
 ```
 
+`--verify` performs five checks, and the verdict line NAMES every one it ran:
+
+| Check | Catches |
+|---|---|
+| `prev_epoch_hash linkage` (+ monotonic epoch numbers, contiguous `seq` coverage) | a dropped, duplicated or reordered epoch — even when every surviving signature verifies |
+| `Merkle roots` (leaves recomputed from the exported records, cross-checked against the stored `leaf_hash`) | a mutated or partially-deleted event body |
+| `epoch_hash recomputation` (over **every** persisted header field) | any header-field mutation |
+| `Ed25519 epoch signatures` (against `--pubkey`) | forgery / signature substitution |
+| `anchor low-watermark` (against `--anchor-path`) | rollback / tail-truncation, including the case where the in-Redis counters were rewritten too |
+
+`--pubkey` is the `worm_signing_ed25519.pub.pem` half of the key ceremony and is
+**required** by `--verify` — without it the epoch signatures cannot be checked at all,
+so the tool refuses to print a verdict rather than a green one no signature backed.
+`--anchor-path` defaults to `MCPIP_WORM_ANCHOR_PATH`, else `<MCPIP_WORM_PATH>.anchor`;
+if no signed watermark is found the success line says so explicitly (`NOT checked:
+anchor low-watermark …`), and `--require-anchor` turns that into a failure — use it for
+scheduled checks, where a silently-missing rollback witness is itself the incident.
+
 Success prints the event/epoch counts plus
-`audit chain: intact (<n> epochs verified, <m> compacted epochs skipped)`; a tampered
-chain prints `audit chain: TAMPERED (first bad epoch <k>)` and exits `2`. In sandbox
-mode the same checks are reachable over HTTP (`GET /v1/audit/verify`,
+`audit chain: intact — <n> epochs fully verified, <m> signature-only (events trimmed),
+anchor low-watermark epoch <k> matched` followed by the `checked:` list; a tampered
+chain prints `audit chain: TAMPERED — <check> failed at epoch <k>` to stderr and exits
+`2`. Epochs whose events have aged out of the hot buffer are verified **signature-only**
+against their signed root and are reported separately — never folded into the verified
+count. In sandbox mode the same checks are reachable over HTTP (`GET /v1/audit/verify`,
 `GET /v1/audit/proof/{event_id}`); those endpoints return `404` in production —
 use `export-audit` there. The self-contained proof also runs as part of
 `./.venv/bin/python main.py` (gate C9), which exits `0` only with the chain INTACT.
 
-Schedule `export-audit --verify` (cron/CI) as your continuous tamper check, and archive
-the JSONL exports as offline evidence. (For a cross-region "one pane of glass" auditor
+One deliberate difference from the in-gateway `verify_chain`: the exporter takes **no
+epoch lock** (that is what makes it production-safe), so it cannot distinguish a
+whole-epoch event deletion inside the hot retention window from a trim the close daemon
+performed while the export was streaming — those epochs are accepted signature-only.
+Everything above the retention watermark must have its events present, and a *partial*
+epoch is tamper at any depth. The gateway's own `verify_chain` (`GET /v1/audit/verify`
+in sandbox, the background integrity monitor in production) is the surface that makes
+that last distinction.
+
+Schedule `export-audit --verify --pubkey … --require-anchor` (cron/CI) as your
+continuous tamper check, and archive the JSONL exports as offline evidence. (For a
+cross-region "one pane of glass" auditor
 view, see [Multi-region — the deferred global auditor view](#the-worm-ledger--anchor-across-regions)
 and [`COMPLIANCE.md`](COMPLIANCE.md).)
 
@@ -633,7 +762,7 @@ Back up **both** halves — they deliberately live in different tamper domains:
 2. Restore the anchor file to the gateway's anchor path **before** starting the
    gateway.
 3. Verify before serving traffic:
-   `./.venv/bin/python -m mcpip_verify.cli export-audit --redis-url <url> --out /tmp/restore_check.jsonl --verify`
+   `./.venv/bin/python -m mcpip_verify.cli export-audit --redis-url <url> --out /tmp/restore_check.jsonl --verify --pubkey <worm pubkey> --anchor-path <anchor> --require-anchor`
 4. The anchor is a **monotonic low-watermark**: if the restored Redis chain stops short
    of the anchored head (someone restored an older Redis backup than the anchor
    witnessed), verification reports tamper. That is correct behavior — restore a
@@ -662,9 +791,11 @@ file, or a stale integrity manifest (source edited after the integrity-manifest 
 
 1. Freeze: stop writes if feasible, snapshot the Redis volume and anchor file
    immediately (evidence).
-2. The output names the first bad epoch; the anchor distinguishes **forgery/mutation**
-   (a signature fails) from **rollback/truncation** (chain stops short of the
-   witnessed head).
+2. The output names the failed CHECK and the first bad epoch — read it directly:
+   `Ed25519 epoch signatures` / `epoch_hash recomputation` / `Merkle roots` are
+   **forgery/mutation**; `anchor low-watermark` is **rollback/truncation** (the chain
+   stops short of, or substitutes, the fsync'd witnessed head); `prev_epoch_hash
+   linkage` is a **dropped/reordered epoch**.
 3. Export everything (`export-audit`, no `--verify`, to a second copy) before any
    remediation. Rotate Redis credentials, rebuild the Redis host, restore from the
    last intact backup pair (see [Restore](#restore)), and file through your security process.
@@ -766,10 +897,11 @@ by the NetworkPolicy, not the process):
 
 | Metric | Labels | Meaning |
 |---|---|---|
-| `mcpip_authorize_decisions_total` | `decision` ∈ {allow, deny, staged}; `deny_reason` (closed enum or `none`) | Decision counts |
+| `mcpip_authorize_decisions_total` | `decision` ∈ {allow, deny, staged} — the concrete `deny_reason` is DELIBERATELY NOT a metric label (it stays in the WORM log / structured logs only, so `/metrics`, which is unauthenticated, cannot be scraped as a low-cost deny-reason oracle) | Decision counts |
 | `mcpip_authorize_latency_seconds` | `decision` | End-to-end `/v1/authorize` latency histogram |
 | `mcpip_requests_shed_total` | `cause` ∈ {overload, timeout, oversized, unauthorized} | Edge-shed requests |
 | `mcpip_worm_epoch` / `mcpip_worm_sequence` | — | Audit chain heights (alert if they stall while decisions flow) |
+| `mcpip_audit_integrity_total` | `event` ∈ {verified, tamper_detected, verify_error} | Off-hot-path audit-integrity monitor: a periodic (~5 min) fresh `verify_chain`. **Alert on `tamper_detected`** — it also emits a CRITICAL `mcpip.audit` log naming `first_bad_epoch`. |
 
 Label discipline is enforced by construction (`core/metrics.py`): every label value in
 the codebase is a string literal or a closed-enum value — **no** tenant, agent, alias,
@@ -777,9 +909,33 @@ compartment, capability UUID, correlation id, JWT material, or approval code can
 in a metric name or label. Multi-worker aggregation uses `PROMETHEUS_MULTIPROC_DIR`
 (set by the Dockerfile); a scrape of any worker returns the fleet-of-workers aggregate.
 
+**Continuous audit-integrity monitoring (shipped).** The gateway runs an always-on,
+off-hot-path monitor (`_audit_integrity_daemon`) that re-runs `verify_chain` every ~5
+minutes and turns the result into the `mcpip_audit_integrity_total{event}` counter plus a
+CRITICAL `mcpip.audit` log on tamper — so a non-verifiable chain is detected continuously,
+not only when an operator asks. The compaction path likewise no longer declines silently
+on a non-intact prefix (it logs an audit warning). Route the `mcpip.audit` CRITICAL logs to
+your incident channel.
+
+**Reference alerts (shipped, opt-in).** Starter Prometheus rules ship as
+`k8s/prometheus-rules.yaml` (plain) and the Helm `prometheusRule` template
+(`prometheusRule.enabled=true`): gateway-down, sustained overload shed, p99 authorize
+latency, WORM epoch stalled, and `mcpip_audit_integrity_total{event="tamper_detected"}`.
+Tune them to your SLA. A gateway `PodDisruptionBudget` (`k8s/pdb.yaml` / `pdb.enabled`)
+keeps ≥1 gateway serving through node drains — important because MCPIP fails closed, so
+losing every gateway denies all agent actions.
+
+**Log forwarding (SIEM).** Structured JSON logs go to stderr (`core/logging_setup.py`).
+Ship them with your platform's log collector (e.g. a Fluent Bit / Vector sidecar or the
+node agent) to your SIEM; there is no built-in remote sink. The WORM ledger is the
+authoritative audit record — forward the `export-audit --verify` JSONL to immutable
+long-term storage (WORM-mode object store / S3 Object-Lock) for retention beyond the
+in-system hot window (see [Verify & export](#verify--export)).
+
 Suggested alerts: `readyz` failing (Redis down); `mcpip_worm_epoch` flat while
 `mcpip_authorize_decisions_total` rises; shed-rate > a few %; a scheduled
-`export-audit --verify` exiting nonzero.
+`export-audit --verify --pubkey … --require-anchor` exiting nonzero (it names the failed
+check on stderr); any `mcpip_audit_integrity_total{event="tamper_detected"}`.
 
 ### Upgrades = redeploy (never in-place)
 
@@ -790,7 +946,7 @@ Suggested alerts: `readyz` failing (Redis down); `mcpip_worm_epoch` flat while
    tag; Helm — `helm upgrade mcpip ./chart -n mcpip --set image.digest=sha256:<new>`;
    air-gap — deliver + verify a new bundle, load, re-pin, roll.
 4. Post-deploy: `curl -s http://<host>:8080/healthz` shows the new `version`;
-   `export-audit --verify` confirms the audit chain carried across intact.
+   `export-audit --verify --pubkey …` confirms the audit chain carried across intact.
 5. Rollback is the same operation with the previous digest — previous releases stay
    valid because their signatures never expire with the deployment.
 
@@ -806,7 +962,7 @@ in-binary mechanism.
 
 *The answer to "an app-layer authorizer can be bypassed — do we need to be a layer on VPN?"
 Short answer: **no VPN; this is a packaging concern, not a design flaw.** Companion to
-[`ROADMAP.md`](ROADMAP.md) and the positioning in [`STRATEGY.md`](STRATEGY.md). The two
+the internal roadmap and the positioning in the internal strategy notes. The two
 packaging artifacts this called for now ship: `k8s/agent-egress-lockdown.networkpolicy.yaml`
 (agent-side egress lock) and the mesh reference in
 [Deploying behind a service mesh](#deploying-behind-a-service-mesh--identity-aware-proxy-compose).*
@@ -1347,7 +1503,7 @@ built from an older tree keeps showing its own baked version until it is rebuilt
 *The answer to "can MCPIP run region-pinned tenants with data residency?" Short answer: **yes as
 a deployment topology today — one MCPIP + Redis stack per region — because every Redis key is
 already tenant-prefixed; a cross-region control plane is deliberately DEFERRED.** Companion to
-[`ROADMAP.md`](ROADMAP.md) ("keep every Redis key tenant-prefixed so multi-region stays an edge
+the internal roadmap ("keep every Redis key tenant-prefixed so multi-region stays an edge
 concern"). This wave ships this design plus a **behavior-neutral `MCPIP_REGION` observability
 tag** (`core/config.py`, surfaced read-only on `/healthz` + `/v1/version`); it changes NO routing,
 authorization, key, or storage behavior.*
@@ -1403,7 +1559,7 @@ Because a tenant's entire state (`mcpip:*:{tenant}:*`) lives in exactly one cell
 is region-pinned the moment its callers are routed to that cell. No data leaves the region. There
 is no shared write path across cells, so there is no cross-region consistency, replication, or
 split-brain question to solve inside the process — it is genuinely an **edge routing concern**,
-exactly as [`ROADMAP.md`](ROADMAP.md) claims.
+exactly as the internal roadmap claims.
 
 #### Why tenant-prefixed keys are the whole argument
 
@@ -1501,7 +1657,7 @@ feature would add (all deferred, see [What stays deferred](#4-what-stays-deferre
 
 ### 4. What stays deferred (explicitly unbuilt)
 
-Per [`ROADMAP.md`](ROADMAP.md) ("None of the deferred set should be built speculatively — they are
+Per the internal roadmap ("None of the deferred set should be built speculatively — they are
 enterprise procurement features, built on demand"), the following are **design intent, not code**:
 
 1. **A cross-region control plane.** An authoritative tenant→region directory, region-aware edge

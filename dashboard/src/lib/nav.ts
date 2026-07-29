@@ -105,7 +105,7 @@ export const SECTIONS: ReadonlyArray<Section> = [
       { id: 'analytics', label: 'Analytics', component: 'analytics' },
       {
         id: 'ledger',
-        label: 'Ledger',
+        label: 'Audit log',
         component: 'ledger',
         children: [
           { id: 'events', label: 'Events', component: 'ledger' },
@@ -126,7 +126,7 @@ export const SECTIONS: ReadonlyArray<Section> = [
         component: 'skills',
         children: [
           { id: 'registry', label: 'Registry', component: 'skills' },
-          { id: 'canaries', label: 'Canaries', component: 'skills' },
+          { id: 'canaries', label: 'Tripwires', component: 'skills' },
           { id: 'separation', label: 'Separation', component: 'skills' },
           { id: 'community', label: 'Community', component: 'skills' },
         ],
@@ -167,6 +167,7 @@ export const SECTIONS: ReadonlyArray<Section> = [
         children: [
           { id: 'cloud', label: 'Cloud', component: 'gateway' },
           { id: 'vault', label: 'Vault', component: 'gateway' },
+          { id: 'security', label: '2FA', component: 'gateway' },
         ],
       },
       { id: 'company', label: 'Company', component: 'gateway' },

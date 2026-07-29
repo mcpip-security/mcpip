@@ -76,8 +76,8 @@ _AEGIS = "aegis-dynamics"
 _AUTO_ALIAS = "skill_spend_summary"                # tenant-acme AUTO, un-compartmented.
 _PIN_ALIAS = "skill_payroll_run"                   # tenant-acme PIN_REQUIRED, un-comp.
 _CANARY_ALIAS = "skill_export_all_credentials"     # seeded deception tripwire (every tenant).
-_FALCON_SC_ALIAS = "skill_falcon_telemetry"        # aegis FALCON, AUTO, require_sender_constraint.
-_FALCON_PIN_ALIAS = "skill_falcon_flight_cmd"      # aegis FALCON, PIN_REQUIRED (no SC).
+_FALCON_SC_ALIAS = "skill_airframe_telemetry"        # aegis FALCON, AUTO, require_sender_constraint.
+_FALCON_PIN_ALIAS = "skill_flight_command_issue"      # aegis FALCON, PIN_REQUIRED (no SC).
 _EVENTS_STREAM = "mcpip:worm:events"
 _CORR_HEADER = "x-mcpip-correlation-id"
 

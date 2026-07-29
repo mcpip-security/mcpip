@@ -9,6 +9,11 @@
    catalog (an overview read every company gets, team-scoped reads, and a guarded
    write), NOT a call to any external service — so it works offline and never invents
    a real target. The operator improves it from here; nothing is locked in.
+
+   Naming convention: skill_{platform-or-domain}_{tool} — never a _read/_write alias
+   suffix. The access level is the STRUCTURED `access` field ('read'/'write'), paired
+   with a human `service` label; both are advisory display metadata the permission
+   table groups by (service listed once, Read/Write as controls).
 --------------------------------------------------------------------------- */
 
 export interface StarterSkill {
@@ -17,6 +22,10 @@ export interface StarterSkill {
   team: string;
   description: string;
   risk: 'auto' | 'pin_required';
+  /** Human service label the permission table groups by (e.g. 'General ledger'). */
+  service: string;
+  /** Structured access level — display metadata, decoupled from the alias name. */
+  access: 'read' | 'write';
   /** A plausible internal target the operator will repoint at their real system. */
   target: string;
 }
@@ -31,8 +40,16 @@ interface TeamArchetype {
   name: string;
   /** Keywords (lowercase) that select this team from the description. */
   match: string[];
-  /** Skills seeded for this team: [suffix, description, risk]. */
-  skills: Array<[suffix: string, description: string, risk: 'auto' | 'pin_required']>;
+  /** Skills seeded for this team: [tool suffix, description, risk, service, access]. */
+  skills: Array<
+    [
+      suffix: string,
+      description: string,
+      risk: 'auto' | 'pin_required',
+      service: string,
+      access: 'read' | 'write',
+    ]
+  >;
 }
 
 // Base library — modelled on the reference catalog (read / team-read / guarded write).
@@ -41,73 +58,73 @@ const ARCHETYPES: TeamArchetype[] = [
     name: 'Engineering',
     match: ['engineer', 'eng', 'dev', 'platform', 'infra', 'sre', 'devops', 'backend', 'frontend'],
     skills: [
-      ['roadmap', 'Read the engineering roadmap', 'auto'],
-      ['deploy_status', 'Read deployment / build status', 'auto'],
-      ['prod_deploy', 'Trigger a production deploy', 'pin_required'],
+      ['roadmap', 'Read the engineering roadmap', 'auto', 'Engineering roadmap', 'read'],
+      ['deploy_status', 'Read deployment / build status', 'auto', 'Deployments', 'read'],
+      ['prod_deploy', 'Trigger a production deploy', 'pin_required', 'Deployments', 'write'],
     ],
   },
   {
     name: 'Finance',
     match: ['finance', 'financial', 'account', 'payroll', 'treasury', 'billing', 'fintech', 'bank', 'wage'],
     skills: [
-      ['wage_sheet', 'Read the payroll / wage sheet', 'auto'],
-      ['ledger_read', 'Read the general ledger', 'auto'],
-      ['ledger_post', 'Post a journal entry to the ledger', 'pin_required'],
-      ['wire_transfer', 'Create a wire transfer', 'pin_required'],
+      ['wage_sheet', 'Read the payroll / wage sheet', 'auto', 'Payroll wage sheet', 'read'],
+      ['ledger', 'Read the general ledger', 'auto', 'General ledger', 'read'],
+      ['ledger_post', 'Post a journal entry to the ledger', 'pin_required', 'General ledger', 'write'],
+      ['wire_transfer', 'Create a wire transfer', 'pin_required', 'Wire transfers', 'write'],
     ],
   },
   {
     name: 'Support',
     match: ['support', 'success', 'service', 'helpdesk', 'customer'],
     skills: [
-      ['ticket_lookup', 'Look up a support ticket', 'auto'],
-      ['customer_lookup', 'Look up a customer record', 'auto'],
-      ['refund_issue', 'Issue a customer refund', 'pin_required'],
+      ['ticket_lookup', 'Look up a support ticket', 'auto', 'Support tickets', 'read'],
+      ['customer_lookup', 'Look up a customer record', 'auto', 'Customer records', 'read'],
+      ['refund_issue', 'Issue a customer refund', 'pin_required', 'Refunds', 'write'],
     ],
   },
   {
     name: 'Sales',
     match: ['sales', 'revenue', 'account executive', 'crm', 'pipeline'],
     skills: [
-      ['pipeline_read', 'Read the sales pipeline', 'auto'],
-      ['quote_create', 'Create a customer quote', 'auto'],
-      ['discount_approve', 'Approve a non-standard discount', 'pin_required'],
+      ['pipeline', 'Read the sales pipeline', 'auto', 'Sales pipeline', 'read'],
+      ['quote_create', 'Create a customer quote', 'auto', 'Quotes', 'write'],
+      ['discount_approve', 'Approve a non-standard discount', 'pin_required', 'Discounts', 'write'],
     ],
   },
   {
     name: 'People',
     match: ['hr', 'people', 'recruit', 'talent', 'human resources'],
     skills: [
-      ['directory_read', 'Read the employee directory', 'auto'],
-      ['comp_read', 'Read a compensation record', 'auto'],
-      ['offer_send', 'Send an employment offer', 'pin_required'],
+      ['directory', 'Read the employee directory', 'auto', 'Employee directory', 'read'],
+      ['compensation', 'Read a compensation record', 'auto', 'Compensation records', 'read'],
+      ['offer_send', 'Send an employment offer', 'pin_required', 'Employment offers', 'write'],
     ],
   },
   {
     name: 'Data',
     match: ['data', 'analytics', 'ml', 'ai', 'science', 'bi', 'warehouse'],
     skills: [
-      ['dashboard_read', 'Read an analytics dashboard', 'auto'],
-      ['query_run', 'Run a warehouse query', 'auto'],
-      ['pii_export', 'Export a PII dataset', 'pin_required'],
+      ['dashboard', 'Read an analytics dashboard', 'auto', 'Analytics dashboards', 'read'],
+      ['query_run', 'Run a warehouse query', 'auto', 'Warehouse queries', 'read'],
+      ['pii_export', 'Export a PII dataset', 'pin_required', 'PII datasets', 'read'],
     ],
   },
   {
     name: 'Security',
     match: ['security', 'infosec', 'soc', 'trust', 'compliance', 'grc'],
     skills: [
-      ['alert_read', 'Read security alerts', 'auto'],
-      ['audit_export', 'Export an audit log', 'auto'],
-      ['access_revoke', 'Revoke a principal / credential', 'pin_required'],
+      ['alerts', 'Read security alerts', 'auto', 'Security alerts', 'read'],
+      ['audit_export', 'Export an audit log', 'auto', 'Audit logs', 'read'],
+      ['access_revoke', 'Revoke a principal / credential', 'pin_required', 'Access control', 'write'],
     ],
   },
   {
     name: 'Operations',
     match: ['ops', 'operation', 'it', 'logistics', 'supply', 'facilities'],
     skills: [
-      ['status_read', 'Read operational status', 'auto'],
-      ['inventory_read', 'Read inventory levels', 'auto'],
-      ['order_adjust', 'Adjust a fulfillment order', 'pin_required'],
+      ['status', 'Read operational status', 'auto', 'Operational status', 'read'],
+      ['inventory', 'Read inventory levels', 'auto', 'Inventory', 'read'],
+      ['order_adjust', 'Adjust a fulfillment order', 'pin_required', 'Fulfillment orders', 'write'],
     ],
   },
 ];
@@ -137,26 +154,32 @@ export function generateStarter(description: string): Starter {
       team: 'company',
       description: 'Read the company overview',
       risk: 'auto',
+      service: 'Company overview',
+      access: 'read',
       target: 'rest.company.overview.get',
     },
     // Default data tool for EVERY company: read-only access to the shared data
     // lake — the useful-out-of-the-box skill all teams get, regardless of brief.
     {
-      alias: 'skill_data_lake_read',
+      alias: 'skill_data_lake',
       team: 'company',
       description: 'Query the company data lake (read-only)',
       risk: 'auto',
+      service: 'Data lake',
+      access: 'read',
       target: 'rest.datalake.query.get',
     },
   ];
   for (const team of chosen) {
     const teamSlug = slug(team.name);
-    for (const [suffix, desc, risk] of team.skills) {
+    for (const [suffix, desc, risk, service, access] of team.skills) {
       skills.push({
         alias: `skill_${teamSlug}_${suffix}`,
         team: team.name,
         description: desc,
         risk,
+        service,
+        access,
         target: `rest.${teamSlug}.${suffix.replace(/_/g, '.')}`,
       });
     }

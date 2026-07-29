@@ -33,13 +33,18 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
-from typing import Any, Optional, Protocol, runtime_checkable
+from typing import Any, Final, Optional, Protocol, runtime_checkable
 
 import jwt
 from jwt import InvalidTokenError
 from jwt.algorithms import ECAlgorithm, OKPAlgorithm
 
-from interfaces import MAX_DELEGATION_CHAIN, constant_time_equals
+from interfaces import (
+    MAX_DELEGATION_CHAIN,
+    POP_CLOCK_SKEW_SECONDS as _POP_CLOCK_SKEW_SECONDS,
+    POP_MAX_AGE_SECONDS as _POP_MAX_AGE_SECONDS,
+    constant_time_equals,
+)
 
 # RFC 8693 token-exchange marker for an "Identity and Authorization Grant JWT"
 # (ID-JAG, draft-ietf-oauth-identity-chaining). A token declaring this token-type
@@ -53,9 +58,12 @@ ID_JAG_TOKEN_TYPE: str = "urn:ietf:params:oauth:token-type:id-jag"
 # ``none``, no HMAC — a PoP proof an attacker can forge is not a proof.
 POP_ALGORITHMS: tuple[str, ...] = ("EdDSA", "ES256")
 
-# A proof is single-use and short-lived; this bounds acceptable clock skew and age.
-POP_MAX_AGE_SECONDS: int = 120
-POP_CLOCK_SKEW_SECONDS: int = 30
+# A proof is single-use and short-lived; these bound acceptable clock skew and age.
+# The VALUES live in interfaces.py with every other hard limit (and beside the identity
+# JWT's clock-skew leeway, which they are deliberately distinct from — see the rationale
+# there). They are re-exported here so the existing import path keeps working.
+POP_MAX_AGE_SECONDS: Final[int] = _POP_MAX_AGE_SECONDS
+POP_CLOCK_SKEW_SECONDS: Final[int] = _POP_CLOCK_SKEW_SECONDS
 
 # Private-key members that must NEVER appear in a proof's public JWK.
 _PRIVATE_JWK_MEMBERS: frozenset[str] = frozenset({"d", "p", "q", "dp", "dq", "qi", "k"})

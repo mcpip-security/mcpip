@@ -67,7 +67,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 TENANT = "mcpip-inc"
 TEAM_ENGINEERING = "e0900000-0000-4000-8000-e0900000e090"
-SKILL = "skill_dynamodb_write"
+SKILL = "skill_aws_dynamodb"
 ENV_ID = "aws-eng-dynamodb-write"
 
 _TTY = sys.stdout.isatty()

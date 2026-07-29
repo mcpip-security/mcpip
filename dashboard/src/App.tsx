@@ -202,7 +202,7 @@ export default function App(): JSX.Element {
                 <EmptyState
                   icon={Lock}
                   title={`${active.label} is not included in this plan`}
-                  detail="This section is gated by the deployment's license tier or a feature that isn't enabled on this gateway. It stays visible so the capability is discoverable — upgrade the plan or enable the backing feature to unlock it. Nothing here is fabricated: the gate reflects the gateway's own honest posture."
+                  detail="Upgrade the plan or enable the backing feature to unlock this section."
                 />
               </div>
             ) : (

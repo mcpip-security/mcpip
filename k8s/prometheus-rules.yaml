@@ -1,0 +1,71 @@
+# Reference alerting rules (SOC2_READINESS.md #9, CC7.2/CC4.1).
+#
+# The product emits the metrics; it deliberately ships no opinion on your SLA.
+# These are STARTER alerts an operator can adopt/tune. Requires the Prometheus
+# Operator CRD (monitoring.coreos.com/v1); if you scrape with vanilla Prometheus,
+# translate these expr/for/labels into your own rule files. The `release` label
+# must match your Prometheus `ruleSelector`.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: mcpip-gateway
+  namespace: mcpip
+  labels:
+    app.kubernetes.io/name: mcpip
+    app.kubernetes.io/component: gateway
+    release: prometheus
+spec:
+  groups:
+    - name: mcpip.availability
+      rules:
+        - alert: McpipGatewayDown
+          # No gateway is being scraped. MCPIP fails closed, so while it is down
+          # EVERY governed agent action is denied — this is a total-outage signal.
+          expr: up{job="mcpip-gateway"} == 0
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "MCPIP gateway target is down"
+            description: "No gateway instance is being scraped. Fail-closed design → all agent actions denied while down."
+        - alert: McpipHighOverloadShed
+          expr: sum(rate(mcpip_requests_shed_total{cause="overload"}[5m])) > 1
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "MCPIP is shedding load (overload)"
+            description: "Sustained 503 admission-control shedding — add gateway replicas or investigate Redis latency (the fsync-always ceiling is the true system limit)."
+        - alert: McpipHighAuthorizeLatencyP99
+          expr: >-
+            histogram_quantile(0.99,
+              sum(rate(mcpip_authorize_latency_seconds_bucket[5m])) by (le)) > 0.5
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "MCPIP p99 authorize latency > 500ms"
+            description: "End-to-end authorize latency is elevated; check Redis and downstream transports."
+    - name: mcpip.audit
+      rules:
+        - alert: McpipAuditChainStalled
+          # The epoch height is flat while authorizations continue → the seal
+          # daemon may be stuck. Audit-integrity risk (records not being sealed).
+          expr: >-
+            increase(mcpip_worm_epoch[15m]) == 0
+            and sum(rate(mcpip_authorize_decisions_total[15m])) > 0
+          for: 15m
+          labels:
+            severity: critical
+          annotations:
+            summary: "WORM epoch chain not advancing while decisions flow"
+            description: "Audit epochs are not sealing though authorizations continue — investigate the epoch-seal daemon immediately."
+        - alert: McpipAuditTamperDetected
+          # Emitted by the off-hot-path audit-integrity monitor when verify_chain
+          # reports a non-intact chain. Treat as a security incident.
+          expr: increase(mcpip_audit_integrity_total{event="tamper_detected"}[10m]) > 0
+          labels:
+            severity: critical
+          annotations:
+            summary: "WORM verify_chain reported tamper"
+            description: "The audit-integrity monitor detected intact=false (a non-verifiable epoch). Treat as a security incident; capture the attestation and first_bad_epoch."

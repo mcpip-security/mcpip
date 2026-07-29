@@ -98,6 +98,34 @@ export function rawMcp(tool: string, args: Record<string, unknown>): Record<stri
   return { tool, arguments: args };
 }
 
+/**
+ * A2A dialect: a `Task` envelope carrying EXACTLY ONE `DataPart` skill
+ * invocation (source_format 'a2a_task').
+ *
+ * MCPIP does not sit on the A2A message bus — it gates the single
+ * side-effecting call a governed identity proposes, so the accepted envelope is
+ * deliberately narrow: one message, one data part, `{skill, arguments}`. A task
+ * carrying zero or several invocations is a hard 422, not a guess.
+ */
+export function a2aTask(
+  skill: string,
+  args: Record<string, unknown> = {},
+  ids: { taskId?: string; contextId?: string; messageId?: string } = {},
+): Record<string, unknown> {
+  return {
+    kind: 'task',
+    id: ids.taskId ?? 'task_1',
+    contextId: ids.contextId ?? 'ctx_1',
+    status: { state: 'submitted' },
+    message: {
+      kind: 'message',
+      role: 'agent',
+      messageId: ids.messageId ?? 'msg_1',
+      parts: [{ kind: 'data', data: { skill, arguments: args } }],
+    },
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Identity: TokenSource + proactive exp-slack refresh (same constants as
 // dashboard useGatewayLive.ts and scripts/claude_mcp_bridge.py).

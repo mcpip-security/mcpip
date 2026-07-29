@@ -27,8 +27,12 @@ Design contract:
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import hmac
+import logging
 import json
 import os
+import stat
 import re
 import secrets
 import sys
@@ -84,9 +88,12 @@ from interfaces import (
     MAX_OPERATOR_PAGE,
     MAX_OPERATOR_USERS,
     MAX_PENDING_SUBMISSIONS,
+    MAX_SERVICE_LABEL_LEN,
+    SKILL_ACCESS_MODES,
     constant_time_equals,
     grant_capability_for,
     project_a2a_context,
+    reject_unsafe_string,
 )
 from bridge import parse as bridge_parse
 from bridge.connectors.registry import resolve_vendor
@@ -101,7 +108,15 @@ from auth import (
     build_protected_resource_metadata,
     verify_pop_proof,
 )
-from obfuscator import AliasEntry, AliasRegistry, CrossTenant, UnknownAlias, build_demo_registry
+from obfuscator import (
+    AliasEntry,
+    AliasRegistry,
+    CrossTenant,
+    UnknownAlias,
+    build_demo_registry,
+    display_service,
+    effective_access,
+)
 from audit import AnchorStore, WormLogger
 
 from core.config import Settings, get_settings
@@ -109,6 +124,8 @@ from core.integrity import verify_boot_integrity, verify_ed25519_signature
 from core.licensing import License, load_and_verify_license
 from core.logging_setup import configure_logging
 from core.metrics import (
+    AUDIT_INTEGRITY,
+    AUTHENTICATOR,
     DECISIONS,
     FORENSIC,
     LATENCY,
@@ -143,9 +160,12 @@ from models.schemas import (
 )
 from services.auth_engine import AuthEngine
 from services.authn_channel import (
+    FanoutAuthenticatorChannel,
     SandboxRedisAuthenticatorChannel,
+    TotpVaultAuthenticatorChannel,
     WebhookAuthenticatorChannel,
 )
+from services.authenticator_enrollment import AuthenticatorEnrollmentStore
 from services.grant_cache import NegativeGrantCache
 from services.grant_store import GrantStore
 from services.relation_store import RelationEdge, RelationTupleStore
@@ -260,9 +280,10 @@ class CloudIAMTransport(BaseTransport):
         store: CloudEnvironmentStore,
         sandbox_mode: bool,
         vault: Optional[SecretVault] = None,
+        worm: Optional[WormLogger] = None,
     ) -> None:
         self._store = store
-        self._broker = CloudBroker(sandbox_mode=sandbox_mode, vault=vault)
+        self._broker = CloudBroker(sandbox_mode=sandbox_mode, vault=vault, worm=worm)
 
     async def execute(self, intent: AuthorizedIntent, target: str) -> TransportResult:
         identity = intent.identity
@@ -306,6 +327,10 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 # Poll interval for the lifespan task that mirrors the last sealed epoch number
 # into the ``mcpip_worm_epoch`` gauge (kept off /readyz to stay dependency-minimal).
 _EPOCH_GAUGE_INTERVAL_S = 15.0
+# Off-hot-path audit-integrity monitor cadence (a fresh verify_chain pass). Longer
+# than the epoch-gauge mirror since a full chain verification is heavier than a GET.
+_AUDIT_INTEGRITY_INTERVAL_S = 300.0
+_AUDIT_LOG = logging.getLogger("mcpip.audit")
 _CORRELATION_HEADER = "X-MCPIP-Correlation-Id"
 # Hard ceiling on the raw request body, enforced at the ASGI edge BEFORE any JSON
 # parsing, model validation, or authentication runs (pre-auth DoS gate). Comfortably
@@ -454,12 +479,23 @@ class Components:
     # store is rebuilt on the running loop in the lifespan (see ``_rebind_redis``).
     forensic: Optional[ForensicCaptureStore]
     forensic_master_key: Optional[bytes]
+    # Opt-in principal-pseudonymization HMAC key (None ⇒ feature OFF, raw delegation-actor
+    # identifiers recorded to WORM as today). Held like the master keys; not Redis-bound.
+    pseudonym_key: Optional[bytes]
     # Out-of-band authenticator webhook signing secret (raw bytes), loaded once at boot.
     # None in sandbox (the Redis stash+peek channel needs no secret) and in an
     # unconfigured production deploy (delivery is then ABSENT and every PIN_REQUIRED
     # staging fails closed). Held (like the master keys) so the Redis-bound channel is
     # rebuilt on the running loop in the lifespan — see ``_rebind_redis``.
     authn_webhook_secret: Optional[bytes]
+    # USER-BASED 2FA (per-principal RFC 6238 TOTP): master key + enrollment store + the
+    # TOTP-gated encrypted OTP stash channel (the reveal path). All None when the feature
+    # is absent (no key configured in production) — the /v1/authenticator enrollment and
+    # reveal endpoints then 404/deny opaquely. The key is held (like the master keys) so
+    # the Redis-bound pair is rebuilt on the running loop in the lifespan (_rebind_redis).
+    authn_totp_key: Optional[bytes]
+    authn_enrollment: Optional[AuthenticatorEnrollmentStore]
+    authn_totp: Optional[TotpVaultAuthenticatorChannel]
     worm: WormLogger
     # Opt-in VENDOR telemetry — the ALWAYS-wired, Redis-bound aggregate store (governed-
     # agent HLL cardinality + decision totals, tenant-prefixed). record_agent/record_decision
@@ -507,6 +543,45 @@ class Components:
     license: Optional[License]
 
 
+def _assert_secure_key_file(path: str, *, sandbox_mode: bool, label: str) -> None:
+    """
+    Harden an operator-provided PRIVATE key / secret file at load (SC-12 / IA-5).
+
+    In production a key protected only by filesystem permissions must not be
+    group/world *writable* — a swappable signing key or master secret is a
+    fail-closed boot refusal (whoever can rewrite it controls identity/audit/vault).
+    Group/world *readable* or not-owned-by-the-runtime-user is a loud WARNING, not a
+    refusal: a common Kubernetes secret-volume default is 0644 read-only, a
+    legitimate-if-loose pattern, so we recommend tightening to 0600/0400 (or setting
+    the secret volume ``defaultMode``) rather than breaking that deployment. Sandbox
+    dev keys (auto-provisioned 0600) are exempt. Only PRIVATE material is checked —
+    a public verification key is never passed here.
+    """
+    if sandbox_mode:
+        return
+    try:
+        st = os.stat(path)
+    except OSError:
+        # The caller's own read fails closed with a clearer error; don't mask it.
+        return
+    mode = stat.S_IMODE(st.st_mode)
+    if mode & 0o022:
+        raise RuntimeError(
+            f"{label} key file {path} is group/world-writable (mode {oct(mode)}); "
+            "production refuses a swappable key/secret — chmod 600 "
+            "(docs/SOC2_READINESS.md #18)."
+        )
+    if (mode & 0o044) or st.st_uid != os.getuid():
+        print(
+            f"MCPIP WARNING: {label} key file {path} is group/world-readable or not "
+            f"owned by the runtime user (mode {oct(mode)}, uid {st.st_uid}); tighten "
+            "to 0600/0400 or set the k8s secret volume defaultMode "
+            "(docs/SOC2_READINESS.md #18).",
+            file=sys.stderr,
+            flush=True,
+        )
+
+
 def _load_verifying_pem(settings: Settings) -> tuple[bytes, Optional[_DemoIdP]]:
     """
     Resolve the JWT verification key.
@@ -542,6 +617,11 @@ def _load_worm_key(settings: Settings) -> Ed25519PrivateKey:
     (rotation is exactly what makes an existing chain read as tampered).
     """
     if settings.worm_signing_key_path is not None:
+        _assert_secure_key_file(
+            settings.worm_signing_key_path,
+            sandbox_mode=settings.sandbox_mode,
+            label="WORM signing",
+        )
         loaded = load_pem_private_key(
             Path(settings.worm_signing_key_path).read_bytes(), password=None
         )
@@ -600,6 +680,11 @@ def _load_vault_key(settings: Settings) -> Optional[bytes]:
     sandbox WORM key: a per-boot key would orphan every stored secret on restart.
     """
     if settings.vault_key_path is not None:
+        _assert_secure_key_file(
+            settings.vault_key_path,
+            sandbox_mode=settings.sandbox_mode,
+            label="vault master",
+        )
         key = Path(settings.vault_key_path).read_bytes()
         if len(key) != 32:
             raise RuntimeError("vault master key file must contain exactly 32 raw bytes")
@@ -660,6 +745,11 @@ def _load_forensic_key(settings: Settings) -> Optional[bytes]:
     auto-provisioned solely when capture is actually active.
     """
     if settings.forensic_key_path is not None:
+        _assert_secure_key_file(
+            settings.forensic_key_path,
+            sandbox_mode=settings.sandbox_mode,
+            label="forensic master",
+        )
         key = Path(settings.forensic_key_path).read_bytes()
         if len(key) != 32:
             raise RuntimeError("forensic master key file must contain exactly 32 raw bytes")
@@ -759,6 +849,11 @@ def _load_authn_webhook_secret(settings: Settings) -> Optional[bytes]:
     """
     if settings.authn_webhook_secret_path is None:
         return None
+    _assert_secure_key_file(
+        settings.authn_webhook_secret_path,
+        sandbox_mode=settings.sandbox_mode,
+        label="authenticator webhook",
+    )
     secret = Path(settings.authn_webhook_secret_path).read_bytes()
     if len(secret) < 32:
         raise RuntimeError(
@@ -767,42 +862,295 @@ def _load_authn_webhook_secret(settings: Settings) -> Optional[bytes]:
     return secret
 
 
+# The sandbox dev pseudonymization key lives beside the other dev keys (gitignored
+# .keys/): persistent across restarts so a pseudonym stays STABLE for the same subject
+# (a per-boot key would make the same person map to different pseudonyms over time,
+# breaking linkage/erasure).
+_SANDBOX_AUTHN_TOTP_KEY_PATH = (
+    Path(__file__).resolve().parent.parent / ".keys" / "sandbox_authn_totp.key"
+)
+
+
+def _load_authn_totp_key(settings: Settings) -> Optional[bytes]:
+    """
+    Resolve the user-based-2FA master key (mirrors ``_load_forensic_key``).
+
+    Production: requires an explicit 32-byte ``MCPIP_AUTHN_TOTP_KEY_PATH`` — absent means
+    the per-user authenticator feature is ABSENT (fail-closed: enrollment/reveal endpoints
+    404 and no TOTP stash channel is composed; a configured webhook channel is unaffected).
+    Sandbox: load-or-create a persistent dev key (0600, exclusive create) so enrollments
+    survive restarts — a per-boot key would orphan every enrolled authenticator.
+    """
+    if settings.authn_totp_key_path is not None:
+        _assert_secure_key_file(
+            settings.authn_totp_key_path,
+            sandbox_mode=settings.sandbox_mode,
+            label="authenticator TOTP master",
+        )
+        key = Path(settings.authn_totp_key_path).read_bytes()
+        if len(key) != 32:
+            raise RuntimeError(
+                "authenticator TOTP master key file must contain exactly 32 raw bytes"
+            )
+        return key
+    if not settings.sandbox_mode:
+        return None
+
+    path = _SANDBOX_AUTHN_TOTP_KEY_PATH
+    if path.exists():
+        key = path.read_bytes()
+        if len(key) != 32:
+            raise RuntimeError(
+                f"sandbox dev authenticator key at {path} is not 32 bytes — delete the "
+                "file to regenerate (this orphans existing enrollments)"
+            )
+        return key
+    key = os.urandom(32)
+    path.parent.mkdir(mode=0o700, exist_ok=True)
+    try:
+        # O_EXCL: never overwrite — a concurrent worker that lost the race loads instead.
+        fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    except FileExistsError:
+        key = path.read_bytes()
+        if len(key) != 32:
+            raise RuntimeError(
+                f"sandbox dev authenticator key at {path} is not 32 bytes"
+            ) from None
+        return key
+    with os.fdopen(fd, "wb") as fh:
+        fh.write(key)
+    print(
+        f"MCPIP SANDBOX: generated persistent dev authenticator TOTP master key at {path}",
+        file=sys.stderr,
+        flush=True,
+    )
+    return key
+
+
+_SANDBOX_PSEUDONYM_KEY_PATH = (
+    Path(__file__).resolve().parent.parent / ".keys" / "sandbox_pseudonym_hmac.key"
+)
+
+
+def _pseudonymize_principal(value: str, key: Optional[bytes]) -> str:
+    """
+    Opt-in privacy transform for a delegation-actor identifier recorded to WORM.
+
+    ``key is None`` (the default, feature OFF) ⇒ return the value UNCHANGED — the raw
+    identifier is recorded exactly as today. With a key ⇒ return a stable keyed-HMAC
+    pseudonym (``psn_`` + truncated HMAC-SHA256 hex): the natural-person link is
+    crypto-shreddable (destroy the key and no one can re-derive or confirm the pseudonym)
+    while the value is deterministic (the same subject → the same pseudonym, so audit
+    correlation still works) and one-way. Pure — takes the key explicitly for testability.
+    """
+    if key is None:
+        return value
+    return "psn_" + hmac.new(key, value.encode("utf-8"), hashlib.sha256).hexdigest()[:24]
+
+
+def _load_pseudonym_key(settings: Settings) -> Optional[bytes]:
+    """
+    Resolve the principal-pseudonymization HMAC key (mirrors ``_load_forensic_key``).
+
+    OFF (the default) ⇒ None: no key, raw identifiers recorded (byte-identical to today).
+    ON with ``pseudonym_key_path`` set ⇒ load ≥32 raw bytes (shorter is a fail-closed boot
+    error). ON in PRODUCTION without a key path ⇒ a fail-closed BOOT error (never a silent
+    disable of the control). ON in SANDBOX without a path ⇒ load-or-create a persistent dev
+    key (0600, exclusive create); a per-boot key would make the same subject map to a new
+    pseudonym each restart, breaking linkage.
+    """
+    if not settings.pseudonymize_principals:
+        return None
+    if settings.pseudonym_key_path is not None:
+        _assert_secure_key_file(
+            settings.pseudonym_key_path,
+            sandbox_mode=settings.sandbox_mode,
+            label="pseudonym",
+        )
+        key = Path(settings.pseudonym_key_path).read_bytes()
+        if len(key) < 32:
+            raise RuntimeError("pseudonym key file must contain at least 32 raw bytes")
+        return key
+    if not settings.sandbox_mode:
+        raise RuntimeError(
+            "MCPIP_PSEUDONYMIZE_PRINCIPALS=true requires MCPIP_PSEUDONYM_KEY_PATH in "
+            "production (a dedicated >=32-byte HMAC key) — flag-on/key-off would silently "
+            "disable the erasure control"
+        )
+    path = _SANDBOX_PSEUDONYM_KEY_PATH
+    if path.exists():
+        key = path.read_bytes()
+        if len(key) < 32:
+            raise RuntimeError(
+                f"sandbox dev pseudonym key at {path} is < 32 bytes — delete it to regenerate"
+            )
+        return key
+    key = os.urandom(32)
+    path.parent.mkdir(mode=0o700, exist_ok=True)
+    try:
+        fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    except FileExistsError:
+        key = path.read_bytes()
+        if len(key) < 32:
+            raise RuntimeError(f"sandbox dev pseudonym key at {path} is < 32 bytes") from None
+        return key
+    with os.fdopen(fd, "wb") as fh:
+        fh.write(key)
+    print(
+        f"MCPIP SANDBOX: generated persistent dev pseudonymization key at {path}",
+        file=sys.stderr,
+        flush=True,
+    )
+    return key
+
+
+_SANDBOX_WORM_CONTENT_KEY_PATH = (
+    Path(__file__).resolve().parent.parent / ".keys" / "sandbox_worm_content_aesgcm.key"
+)
+
+
+def _load_worm_content_key(settings: Settings) -> Optional[bytes]:
+    """
+    Resolve the WORM at-rest content-encryption key (mirrors ``_load_forensic_key``).
+
+    OFF (the default) ⇒ None: the event body is stored as a plaintext dict (byte-identical
+    to today). ON with ``worm_content_key_path`` ⇒ load exactly 32 raw bytes (AES-256;
+    anything else is a fail-closed boot error). ON in PRODUCTION without a path ⇒ a
+    fail-closed BOOT error. ON in SANDBOX without a path ⇒ load-or-create a persistent
+    0600 dev key (a per-boot key would orphan every previously-encrypted event body).
+    """
+    if not settings.encrypt_worm_at_rest:
+        return None
+    if settings.worm_content_key_path is not None:
+        _assert_secure_key_file(
+            settings.worm_content_key_path,
+            sandbox_mode=settings.sandbox_mode,
+            label="WORM content",
+        )
+        key = Path(settings.worm_content_key_path).read_bytes()
+        if len(key) != 32:
+            raise RuntimeError("WORM content key file must contain exactly 32 raw bytes")
+        return key
+    if not settings.sandbox_mode:
+        raise RuntimeError(
+            "MCPIP_ENCRYPT_WORM_AT_REST=true requires MCPIP_WORM_CONTENT_KEY_PATH in "
+            "production (a dedicated 32-byte AES-256 key) — flag-on/key-off would silently "
+            "disable at-rest confidentiality"
+        )
+    path = _SANDBOX_WORM_CONTENT_KEY_PATH
+    if path.exists():
+        key = path.read_bytes()
+        if len(key) != 32:
+            raise RuntimeError(
+                f"sandbox dev WORM content key at {path} is not 32 bytes — delete to regenerate"
+            )
+        return key
+    key = os.urandom(32)
+    path.parent.mkdir(mode=0o700, exist_ok=True)
+    try:
+        fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    except FileExistsError:
+        key = path.read_bytes()
+        if len(key) != 32:
+            raise RuntimeError(f"sandbox dev WORM content key at {path} is not 32 bytes") from None
+        return key
+    with os.fdopen(fd, "wb") as fh:
+        fh.write(key)
+    print(
+        f"MCPIP SANDBOX: generated persistent dev WORM content key at {path}",
+        file=sys.stderr,
+        flush=True,
+    )
+    return key
+
+
+def _load_worm_content_key_fallbacks(settings: Settings) -> tuple[bytes, ...]:
+    """
+    Resolve the RETIRED WORM content keys retained across a rotation (SOC2_READINESS #14).
+
+    OFF, or no ``worm_content_key_fallback_paths`` ⇒ empty tuple (single-key behavior). The
+    active ``worm_content_key_path`` always seals new events; each retained key here (an
+    ``os.pathsep``-separated list of 32-byte files) is additionally tried when READING, so
+    bodies sealed under a superseded key stay readable after the active key rotates. Each
+    file must be exactly 32 bytes and pass the same permission lint as the active key — a
+    malformed retained key is a fail-closed boot error, never a silently dropped key that
+    would leave old bodies unreadable.
+    """
+    if not settings.encrypt_worm_at_rest or not settings.worm_content_key_fallback_paths:
+        return ()
+    keys: list[bytes] = []
+    for raw in settings.worm_content_key_fallback_paths.split(os.pathsep):
+        candidate = raw.strip()
+        if not candidate:
+            continue
+        _assert_secure_key_file(
+            candidate, sandbox_mode=settings.sandbox_mode, label="WORM content (retired)"
+        )
+        key = Path(candidate).read_bytes()
+        if len(key) != 32:
+            raise RuntimeError(
+                f"retired WORM content key file {candidate!r} must contain exactly 32 raw bytes"
+            )
+        keys.append(key)
+    return tuple(keys)
+
+
 def _build_authn_channel(
     settings: Settings,
     redis_client: redis.Redis,
     authn_webhook_secret: Optional[bytes],
-) -> Optional[BaseAuthenticatorChannel]:
+    authn_totp_key: Optional[bytes],
+) -> tuple[Optional[BaseAuthenticatorChannel], Optional[TotpVaultAuthenticatorChannel]]:
     """
-    Compose the out-of-band OTP delivery channel (mirrors ``_resolve_forensic_key``'s
-    per-env resolution; runs inside ``_wire_redis_bound`` so a Redis rebind reconstructs
-    the sandbox channel against the fresh client).
+    Compose the out-of-band OTP delivery channel set (runs inside ``_wire_redis_bound``
+    so a Redis rebind reconstructs every Redis-bound channel against the fresh client).
+    Returns ``(delivery_channel, totp_stash_channel)`` — the second handle is the same
+    object the reveal endpoint reads from, or None when user-based 2FA is absent.
 
-    Sandbox: the runnable-demo ``SandboxRedisAuthenticatorChannel`` (Redis stash + peek)
-    — preserves the demo and the ``/v1/authenticator`` endpoint exactly.
+    Sandbox: the runnable-demo ``SandboxRedisAuthenticatorChannel`` (stash + peek),
+    fanned out with the TOTP-gated encrypted stash (the sandbox auto-provisions the
+    master key, so enrollment/reveal are demonstrable end-to-end).
 
-    Production: the signed HTTPS ``WebhookAuthenticatorChannel`` ONLY when BOTH the url
-    and the secret are configured (the constructor additionally enforces https + a host).
-    Exactly ONE of them set is a half-configuration -> fail-closed BOOT error (same family
-    as the integrity/license half-config refusals). NEITHER set -> None: delivery is
-    ABSENT and every PIN_REQUIRED staging fails closed (``OTP_DELIVERY_FAILED``) rather
-    than staging a challenge no authenticator can answer.
+    Production: the signed HTTPS ``WebhookAuthenticatorChannel`` when BOTH url and
+    secret are configured (exactly one set is a fail-closed BOOT error), AND/OR the
+    ``TotpVaultAuthenticatorChannel`` when the TOTP master key is configured — both
+    present fans out to both (fail-closed as a unit: any delivery failure aborts the
+    staging with ``OTP_DELIVERY_FAILED``). NEITHER configured -> (None, None): delivery
+    is ABSENT and every PIN_REQUIRED staging fails closed rather than staging a
+    challenge no authenticator can answer.
     """
+    totp_channel = (
+        TotpVaultAuthenticatorChannel(redis_client, authn_totp_key)
+        if authn_totp_key is not None
+        else None
+    )
     if settings.sandbox_mode:
-        return SandboxRedisAuthenticatorChannel(redis_client)
+        sandbox = SandboxRedisAuthenticatorChannel(redis_client)
+        if totp_channel is None:
+            return sandbox, None
+        return FanoutAuthenticatorChannel((sandbox, totp_channel)), totp_channel
 
     url = settings.authn_webhook_url
-    if url is None and authn_webhook_secret is None:
-        # Unconfigured production: honest ABSENT state. register_lock fails closed.
-        return None
-    if url is None or authn_webhook_secret is None:
+    if (url is None) != (authn_webhook_secret is None):
         raise RuntimeError(
             "production authenticator webhook requires BOTH "
             "MCPIP_AUTHN_WEBHOOK_URL and MCPIP_AUTHN_WEBHOOK_SECRET_PATH "
             "(a half-configuration is refused, fail-closed)"
         )
-    return WebhookAuthenticatorChannel(
-        url, authn_webhook_secret, settings.authn_webhook_timeout_s
+    webhook = (
+        WebhookAuthenticatorChannel(
+            url, authn_webhook_secret, settings.authn_webhook_timeout_s
+        )
+        if url is not None and authn_webhook_secret is not None
+        else None
     )
+    channels = tuple(c for c in (webhook, totp_channel) if c is not None)
+    if not channels:
+        # Unconfigured production: honest ABSENT state. register_lock fails closed.
+        return None, None
+    if len(channels) == 1:
+        return channels[0], totp_channel
+    return FanoutAuthenticatorChannel(channels), totp_channel
 
 
 def _build_community_gate(settings: Settings) -> CommunityGateProvider:
@@ -1166,6 +1514,7 @@ def _wire_redis_bound(
     vault_master_key: Optional[bytes],
     forensic_master_key: Optional[bytes],
     authn_webhook_secret: Optional[bytes],
+    authn_totp_key: Optional[bytes],
 ) -> tuple[
     AuthEngine,
     WormLogger,
@@ -1185,6 +1534,8 @@ def _wire_redis_bound(
     PolicyDocStore,
     TelemetryStats,
     OperatorUserStore,
+    Optional[AuthenticatorEnrollmentStore],
+    Optional[TotpVaultAuthenticatorChannel],
 ]:
     """
     Build the Redis-bound engine set (auth + PinValidator + worm + grants) on one client.
@@ -1200,14 +1551,30 @@ def _wire_redis_bound(
     anchor_path = settings.worm_anchor_path or (settings.worm_path + ".anchor")
     anchor = AnchorStore(worm_private_key, anchor_path)
     worm = WormLogger(
-        redis_client, worm_private_key, path=settings.worm_path, anchor=anchor
+        redis_client,
+        worm_private_key,
+        path=settings.worm_path,
+        anchor=anchor,
+        wait_replicas=settings.worm_wait_replicas,
+        wait_timeout_ms=settings.worm_wait_timeout_ms,
+        content_key=_load_worm_content_key(settings),
+        content_key_fallbacks=_load_worm_content_key_fallbacks(settings),
     )
     pin = PinValidator(redis_client)
     # Out-of-band OTP delivery channel (sandbox stash+peek / production signed webhook /
     # None when production delivery is unconfigured). Built here so a Redis rebind
     # reconstructs the sandbox channel against the fresh client.
-    authn_channel = _build_authn_channel(settings, redis_client, authn_webhook_secret)
+    authn_channel, authn_totp = _build_authn_channel(
+        settings, redis_client, authn_webhook_secret, authn_totp_key
+    )
     auth = AuthEngine(resolver, pin, redis_client, authn_channel)
+    # Per-user authenticator (TOTP 2FA) enrollment store — present only with the master
+    # key (sandbox auto-key / MCPIP_AUTHN_TOTP_KEY_PATH). Redis-bound: rebuilt on rebind.
+    authn_enrollment = (
+        AuthenticatorEnrollmentStore(redis_client, authn_totp_key)
+        if authn_totp_key is not None
+        else None
+    )
     # One fresh per-worker negative grant cache bound to THIS client (item 3). Built
     # here so a client swap (``_rebind_redis``) always constructs a new, empty cache —
     # a negative marker can never outlive the client whose reads produced it.
@@ -1266,6 +1633,8 @@ def _wire_redis_bound(
         policy_docs,
         telemetry_stats,
         operator_users,
+        authn_enrollment,
+        authn_totp,
     )
 
 
@@ -1291,6 +1660,8 @@ def _rebind_redis(components: Components, redis_client: redis.Redis) -> None:
         components.policy_docs,
         components.telemetry_stats,
         components.operator_users,
+        components.authn_enrollment,
+        components.authn_totp,
     ) = _wire_redis_bound(
         components.settings,
         components.resolver,
@@ -1299,13 +1670,14 @@ def _rebind_redis(components: Components, redis_client: redis.Redis) -> None:
         components.vault_master_key,
         components.forensic_master_key,
         components.authn_webhook_secret,
+        components.authn_totp_key,
     )
     # Transports that hold a Redis-bound store must be rebuilt against the fresh client
     # too (mirrors the bound-set rebind): the grant-issuing transport (GrantStore) and
     # the cloud-IAM transport (CloudEnvironmentStore + SecretVault).
     components.transports["grant_issue"] = GrantIssuingTransport(components.grants)
     components.transports["cloud_iam"] = CloudIAMTransport(
-        components.cloud_env, components.settings.sandbox_mode, components.vault
+        components.cloud_env, components.settings.sandbox_mode, components.vault, components.worm
     )
 
 
@@ -1477,6 +1849,51 @@ def _enforce_sender_constraint_policy(
         )
 
 
+_DEMO_JWT_ISSUER = "mcpip-demo-idp"
+_DEMO_JWT_AUDIENCE = "mcpip-gateway"
+
+
+def _enforce_production_config(settings: Settings) -> None:
+    """
+    Production boot lint for identity + transport config (fail-closed on the
+    unambiguously-wrong cases, loud-warn on the loose-but-legitimate ones).
+
+    In production (``sandbox_mode`` False):
+      * REFUSE the shipped DEMO ``jwt_issuer``/``jwt_audience``. Leaving them at the
+        published defaults (``mcpip-demo-idp``/``mcpip-gateway``) means the gateway
+        validates tokens against a predictable, documented issuer/audience. The
+        signing key must still match, but a needlessly-predictable audience is a
+        downgrade; require the operator to set their own — the same fail-closed
+        family as the key-path / integrity / license boot refusals. (CC6.1)
+      * WARN on a plaintext ``redis://`` backplane. The payload-lock hashes, the WORM
+        buffer, and the rate counters cross it unencrypted + unauthenticated.
+        Internal-only network isolation is a valid documented control (T14), so this
+        is a loud recommendation to move to ``rediss://`` + AUTH/ACL — not a boot
+        refusal that would break an isolated deployment. (SC-8, docs/SOC2_READINESS.md #15)
+    """
+    if settings.sandbox_mode:
+        return
+    if (
+        settings.jwt_issuer == _DEMO_JWT_ISSUER
+        or settings.jwt_audience == _DEMO_JWT_AUDIENCE
+    ):
+        raise RuntimeError(
+            "production boot (MCPIP_SANDBOX_MODE=false) must set a non-demo "
+            "MCPIP_JWT_ISSUER and MCPIP_JWT_AUDIENCE — the shipped demo defaults "
+            f"({_DEMO_JWT_ISSUER!r}/{_DEMO_JWT_AUDIENCE!r}) are published and predictable."
+        )
+    if settings.redis_url.startswith("redis://"):
+        print(
+            "MCPIP WARNING: MCPIP_REDIS_URL is plaintext (redis://) in production — "
+            "the payload-lock hashes, WORM buffer, and rate counters cross it "
+            "unencrypted and unauthenticated. Use rediss:// with a CA + AUTH/ACL, or "
+            "ensure the Redis link is on an isolated internal-only network "
+            "(docs/SOC2_READINESS.md #15).",
+            file=sys.stderr,
+            flush=True,
+        )
+
+
 def _build_components(settings: Settings) -> Components:
     """
     Wire the whole gateway once.
@@ -1501,6 +1918,12 @@ def _build_components(settings: Settings) -> Components:
     _enforce_boot_integrity(settings)
     license_info = _enforce_license_gate(settings)
 
+    # Identity/transport config lint — runs AFTER the more-fundamental integrity/
+    # license gates so those structural boot refusals fire first: refuse the demo
+    # jwt issuer/audience defaults in production; warn on a plaintext Redis
+    # backplane. (docs/SOC2_READINESS.md #3/#15)
+    _enforce_production_config(settings)
+
     public_pem, demo_idp = _load_verifying_pem(settings)
     resolver = TokenResolver(
         StaticPEMKeyProvider(public_pem),
@@ -1510,7 +1933,9 @@ def _build_components(settings: Settings) -> Components:
     worm_private_key = _load_worm_key(settings)
     vault_master_key = _load_vault_key(settings)
     forensic_master_key = _resolve_forensic_key(settings)
+    pseudonym_key = _load_pseudonym_key(settings)
     authn_webhook_secret = _load_authn_webhook_secret(settings)
+    authn_totp_key = _load_authn_totp_key(settings)
 
     registry = build_demo_registry()
     _enforce_sender_constraint_policy(registry, sandbox_mode=settings.sandbox_mode)
@@ -1536,6 +1961,8 @@ def _build_components(settings: Settings) -> Components:
         policy_docs,
         telemetry_stats,
         operator_users,
+        authn_enrollment,
+        authn_totp,
     ) = _wire_redis_bound(
         settings,
         resolver,
@@ -1544,13 +1971,14 @@ def _build_components(settings: Settings) -> Components:
         vault_master_key,
         forensic_master_key,
         authn_webhook_secret,
+        authn_totp_key,
     )
 
     transports: dict[str, BaseTransport] = {
         "cloud_rest": CloudRESTTransport(),
         "legacy_mainframe": LegacyMainframeTransport(),
         "grant_issue": GrantIssuingTransport(grants),
-        "cloud_iam": CloudIAMTransport(cloud_env, settings.sandbox_mode, vault),
+        "cloud_iam": CloudIAMTransport(cloud_env, settings.sandbox_mode, vault, worm),
     }
 
     # Community-gate provider (deny-only, step 4c′), composed with the optional outbound
@@ -1586,7 +2014,11 @@ def _build_components(settings: Settings) -> Components:
         vault_master_key=vault_master_key,
         forensic=forensic,
         forensic_master_key=forensic_master_key,
+        pseudonym_key=pseudonym_key,
         authn_webhook_secret=authn_webhook_secret,
+        authn_totp_key=authn_totp_key,
+        authn_enrollment=authn_enrollment,
+        authn_totp=authn_totp,
         worm=worm,
         telemetry_stats=telemetry_stats,
         operator_users=operator_users,
@@ -1712,7 +2144,7 @@ async def _lifespan(_: FastAPI) -> AsyncIterator[None]:
     # synchronous/in-memory (no I/O on the hot path).
     await _hydrate_catalog_overlay()
 
-    # Sandbox convenience: seed the demo AWS cloud environment so skill_aws_s3_read
+    # Sandbox convenience: seed the demo AWS cloud environment so skill_aws_s3
     # vends out of the box. Production operators create bindings via the admin API;
     # nothing is seeded there (and no cloud secret is ever seeded — bindings hold none).
     await _hydrate_cloud_environments()
@@ -1724,6 +2156,10 @@ async def _lifespan(_: FastAPI) -> AsyncIterator[None]:
     # Cheap 15s mirror of the last sealed epoch number into the Prometheus gauge.
     # A dedicated task (not /readyz) keeps the readiness probe dependency-minimal.
     epoch_gauge_task = asyncio.create_task(_epoch_gauge_daemon())
+    # Always-on audit-integrity monitor: periodic verify_chain → mcpip_audit_integrity_total
+    # + CRITICAL mcpip.audit on tamper. A core integrity control (not opt-in), off the hot
+    # path and swallow-only like the epoch-gauge daemon. (SOC2_READINESS.md #8)
+    audit_integrity_task = asyncio.create_task(_audit_integrity_daemon())
     # Opt-in vendor-telemetry beacon: ONE off-hot-path interval task, scheduled ONLY when the
     # beacon was constructed (enabled + url + not-sandbox). Modeled on the epoch-gauge daemon
     # — its every send failure is swallowed to a metric, so it can never affect serving, the
@@ -1756,6 +2192,9 @@ async def _lifespan(_: FastAPI) -> AsyncIterator[None]:
         epoch_gauge_task.cancel()
         with suppress(asyncio.CancelledError):
             await epoch_gauge_task
+        audit_integrity_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await audit_integrity_task
         if telemetry_task is not None:
             telemetry_task.cancel()
             with suppress(asyncio.CancelledError):
@@ -1786,6 +2225,52 @@ async def _epoch_gauge_daemon() -> None:
         except Exception:  # noqa: BLE001 — advisory only; never disturb serving.
             pass
         await asyncio.sleep(_EPOCH_GAUGE_INTERVAL_S)
+
+
+async def _audit_integrity_daemon() -> None:
+    """Off-hot-path audit-chain integrity monitor (SOC2_READINESS.md #8, CC7.3/CC4.1).
+
+    Periodically runs a FRESH ``verify_chain`` over the signed epoch chain — the SAME
+    read ``GET /v1/audit/attestation`` performs — and turns the result into a continuous,
+    alertable signal: an ``mcpip_audit_integrity_total{event}`` counter plus, on a
+    non-intact chain, a CRITICAL ``mcpip.audit`` log naming the first bad epoch. Without
+    this, ``verify_chain`` only ran pull-based (an operator had to ask), so a tamper could
+    sit undetected until someone looked.
+
+    Strictly OFF the hot path and swallow-only (mirrors ``_epoch_gauge_daemon``):
+    ``verify_chain`` takes only the epoch-close lock, never ``emit``, so this can never
+    block/delay/reorder/flip an authorization, and it mutates no audit state (mints no
+    key, seals no epoch, writes no counter). Before the first epoch seals it verifies an
+    empty chain intact — an honest ``verified``. It checks once at startup, then each
+    interval.
+    """
+    while True:
+        await _run_audit_integrity_check(_components.worm)
+        await asyncio.sleep(_AUDIT_INTEGRITY_INTERVAL_S)
+
+
+async def _run_audit_integrity_check(worm: WormLogger) -> None:
+    """One audit-integrity verification pass (the daemon's loop body, extracted for tests).
+
+    Runs a fresh ``verify_chain`` and records the outcome to ``mcpip_audit_integrity_total``;
+    on a non-intact chain it also emits a CRITICAL ``mcpip.audit`` log naming the first bad
+    epoch. Swallow-only — it NEVER raises into the caller, so a Redis/transient failure is a
+    counted ``verify_error``, never a disturbance to serving or the audit chain.
+    """
+    try:
+        intact, first_bad = await worm.verify_chain()
+        if intact:
+            AUDIT_INTEGRITY.labels("verified").inc()
+        else:
+            AUDIT_INTEGRITY.labels("tamper_detected").inc()
+            _AUDIT_LOG.critical(
+                "WORM audit chain verification FAILED: intact=false "
+                "first_bad_epoch=%s — treat as a security incident "
+                "(capture GET /v1/audit/attestation)",
+                first_bad,
+            )
+    except Exception:  # noqa: BLE001 — advisory monitor; never disturb serving.
+        AUDIT_INTEGRITY.labels("verify_error").inc()
 
 
 async def _license_refresh_daemon() -> None:
@@ -2573,7 +3058,13 @@ async def _run_authorize_pipeline(
         # agent wire (the authorize/catalog/tools-list projections build explicit
         # whitelists and never serialize ctx/Identity). Absent → recorded neither.
         if identity.act_chain:
-            ctx["delegation_chain"] = list(identity.act_chain)
+            # Opt-in pseudonymization (default OFF ⇒ raw, byte-identical): the delegation
+            # actors can name natural persons, so with a key each is recorded as a stable
+            # keyed-HMAC pseudonym — crypto-shreddable, verify_chain-unaffected. #40b/E.
+            ctx["delegation_chain"] = [
+                _pseudonymize_principal(s, _components.pseudonym_key)
+                for s in identity.act_chain
+            ]
         if identity.id_jag:
             ctx["id_jag"] = True
 
@@ -2759,7 +3250,10 @@ async def _run_authorize_pipeline(
                 ) from exc
             if identity.act_sub is not None:
                 # Delegation actor recorded to WORM only (never surfaced to the agent).
-                ctx["act_sub"] = identity.act_sub
+                # Opt-in pseudonymization (default OFF ⇒ raw, byte-identical). #40b/E.
+                ctx["act_sub"] = _pseudonymize_principal(
+                    identity.act_sub, _components.pseudonym_key
+                )
 
         # --- 5b) Deny-only policy overlay: velocity cap + amount ceiling. --------
         # A stateless, opt-in policy step AFTER the entitlement + sender-constraint
@@ -2822,6 +3316,12 @@ async def _run_authorize_pipeline(
             await _components.telemetry_stats.record_decision(
                 identity.tenant_id, "staged"
             )
+            # Prometheus decision counter — incremented HERE, in the shared pipeline,
+            # so EVERY edge (POST /v1/authorize AND the MCP-native POST /v1/mcp) counts
+            # this staged outcome exactly once. Counting it only in the REST handler let
+            # MCP decisions land in WORM/the feed but never in /metrics, so the console's
+            # "decisions since start" tile undercounted vs the WORM-backed stream/analytics.
+            DECISIONS.labels("staged").inc()
             return StagedChallenge(
                 correlation_id=correlation_id,
                 action_required=_STEP_UP_MESSAGE,
@@ -2887,6 +3387,11 @@ async def _run_authorize_pipeline(
         worm_sequence = int(raw_seq) if raw_seq is not None else 0
         WORM_SEQUENCE.set(float(worm_sequence))
 
+        # Prometheus decision counter — incremented HERE (after a successful dispatch,
+        # mirroring the deny count in the except-funnel below) so every edge counts an
+        # allow exactly once. See the staged note above: this closes the /v1/mcp gap
+        # that made the console's decision total disagree with the WORM stream.
+        DECISIONS.labels("allow").inc()
         return ExecutionReceipt(
             correlation_id=correlation_id,
             decision="allow",
@@ -2995,11 +3500,11 @@ async def authorize(body: AuthorizeRequest, request: Request) -> Response:
             http_url=str(request.url),
         )
         if isinstance(outcome, StagedChallenge):
+            # The DECISIONS staged/allow counters now fire inside _run_authorize_pipeline
+            # (so the MCP edge counts too); here we only classify for the latency label.
             decision = "staged"
-            DECISIONS.labels("staged").inc()
             return JSONResponse(status_code=202, content=outcome.model_dump())
         decision = "allow"
-        DECISIONS.labels("allow").inc()
         return JSONResponse(status_code=200, content=outcome.model_dump())
     finally:
         LATENCY.labels(decision).observe(time.perf_counter() - started)
@@ -3705,6 +4210,9 @@ async def catalog(request: Request) -> Response:
             transport_class=e.transport,
             classification=e.classification.value,
             compartment=e.compartment,
+            # Advisory display metadata, derived from already-projected risk data.
+            # The service label is deliberately NOT projected here (operator-only).
+            access=effective_access(e),
         ).model_dump()
         for e in visible
     ]
@@ -4840,11 +5348,21 @@ async def list_registered_skills(request: Request) -> Response:
     """
     identity = await _require_directory_admin(request)
     overlay = await _components.catalog_overlay.list_for_tenant(identity.tenant_id)
-    entries = [
-        {"alias": alias, "registered_at": fields.get("registered_at")}
-        for alias, fields in sorted(overlay.items())
-    ]
-    # `registered` (names) kept for backward-compat; `entries` carries the timestamps.
+    entries: list[dict[str, Optional[str]]] = []
+    for alias, fields in sorted(overlay.items()):
+        row: dict[str, Optional[str]] = {
+            "alias": alias,
+            "registered_at": fields.get("registered_at"),
+        }
+        # Permission-model display metadata (operator surface only): the human service
+        # label + read/write access mode, with the risk-derived fallback for
+        # unannotated rows. Advisory — never an enforcement input.
+        entry = _overlay_entry(alias, fields)
+        if entry is not None:
+            row["service"] = display_service(entry)
+            row["access"] = effective_access(entry)
+        entries.append(row)
+    # `registered` (names) kept for backward-compat; `entries` carries the metadata.
     return JSONResponse(
         status_code=200,
         content={"registered": sorted(overlay.keys()), "entries": entries},
@@ -4922,6 +5440,14 @@ def _overlay_entry(alias: str, fields: dict[str, str]) -> Optional[AliasEntry]:
     target = fields.get("target")
     if not isinstance(target, str) or fields.get("transport") != _OVERLAY_TRANSPORT:
         return None
+    # Advisory display metadata — an invalid stored value degrades to None (the
+    # risk-derived fallback), never a refused row: neither field is an enforcement input.
+    access = fields.get("access")
+    if access not in SKILL_ACCESS_MODES:
+        access = None
+    service = fields.get("service")
+    if not isinstance(service, str) or not service:
+        service = None
     try:
         return AliasEntry(
             alias=alias,
@@ -4929,6 +5455,8 @@ def _overlay_entry(alias: str, fields: dict[str, str]) -> Optional[AliasEntry]:
             transport="cloud_rest",
             risk_tier=RiskTier(fields.get("risk_tier", "auto")),
             classification=Classification(fields.get("classification", "unclassified")),
+            service=service,
+            access=access,
         )
     except ValueError:
         return None
@@ -5063,8 +5591,8 @@ async def _registry_pin_valid(
 # The demo AWS environments for mcpip-inc / team-engineering — seeded in SANDBOX only so
 # the cloud_iam skills vend out of the box. Role ARNs are placeholders (000000000000) and
 # NO cloud secret is stored (the gateway would assume the role with its own host identity).
-# One READ binding (skill_aws_s3_read) and one write-scoped WRITE binding
-# (skill_dynamodb_write). docs/INTEGRATIONS.md registers the real write binding
+# One READ binding (skill_aws_s3) and one write-scoped WRITE binding
+# (skill_aws_dynamodb). docs/INTEGRATIONS.md registers the real write binding
 # against a live account via /v1/admin/cloud/environments.
 _DEMO_CLOUD_ENV = CloudEnvironment(
     env_id="aws-eng-readonly",
@@ -5074,7 +5602,7 @@ _DEMO_CLOUD_ENV = CloudEnvironment(
     compartment="e0900000-0000-4000-8000-e0900000e090",  # mcpip-inc / team-engineering.
     session_ttl=900,
 )
-# The WRITE binding backing skill_dynamodb_write — same compartment, a separate role whose
+# The WRITE binding backing skill_aws_dynamodb — same compartment, a separate role whose
 # real-world least-privilege policy is exactly dynamodb:PutItem on one table (the vended
 # credential can do nothing else). Distinct env_id so a read binding can never satisfy a
 # write skill (and vice versa).
@@ -5116,6 +5644,10 @@ class _RegisterSkillBody(BaseModel):
     target: str = Field(min_length=1, max_length=_MAX_TARGET_LEN)
     risk_tier: str = "auto"
     classification: str = "unclassified"
+    # Advisory display metadata (permission-model console view) — optional, validated
+    # in register_skill, never consulted by the auth pipeline.
+    service: Optional[str] = Field(default=None, max_length=MAX_SERVICE_LABEL_LEN)
+    access: Optional[str] = None
 
 
 def _overlay_skill_invalid(alias: str, target: str, risk_tier: str, classification: str) -> bool:
@@ -5137,9 +5669,20 @@ def _overlay_skill_invalid(alias: str, target: str, risk_tier: str, classificati
     )
 
 
-def _overlay_fields(target: str, risk_tier: str, classification: str) -> dict[str, str]:
-    """The persisted overlay field map for one skill (transport forced to cloud_rest)."""
-    return {
+def _overlay_fields(
+    target: str,
+    risk_tier: str,
+    classification: str,
+    *,
+    service: Optional[str] = None,
+    access: Optional[str] = None,
+) -> dict[str, str]:
+    """The persisted overlay field map for one skill (transport forced to cloud_rest).
+
+    ``service``/``access`` are ADVISORY DISPLAY metadata (permission-model console
+    view) — stored only when set, never consulted by the auth pipeline.
+    """
+    fields = {
         "target": target,
         "transport": _OVERLAY_TRANSPORT,
         "risk_tier": risk_tier,
@@ -5148,6 +5691,11 @@ def _overlay_fields(target: str, risk_tier: str, classification: str) -> dict[st
         # Ignored by _overlay_entry (fields.get), never consulted by the auth pipeline.
         "registered_at": datetime.now(timezone.utc).isoformat(),
     }
+    if service is not None:
+        fields["service"] = service
+    if access is not None:
+        fields["access"] = access
+    return fields
 
 
 # Marks an overlay row as minted from the community (author-your-own) path rather than the
@@ -5215,13 +5763,30 @@ async def register_skill(request: Request, body: _RegisterSkillBody) -> Response
     alias = body.alias.strip()
     if _overlay_skill_invalid(alias, body.target, body.risk_tier, body.classification):
         raise MCPIPDenied(_corr(request))
+    # Advisory display metadata — validated on the way in (closed access enum; charset-
+    # safe, bounded service label), but NEVER an enforcement input.
+    if body.access is not None and body.access not in SKILL_ACCESS_MODES:
+        raise MCPIPDenied(_corr(request))
+    if body.service is not None:
+        if not (1 <= len(body.service) <= MAX_SERVICE_LABEL_LEN):
+            raise MCPIPDenied(_corr(request))
+        try:
+            reject_unsafe_string(body.service, "service")
+        except Exception:  # noqa: BLE001 — any ingress-guard failure is an opaque deny.
+            raise MCPIPDenied(_corr(request)) from None
     # ADDITIVE-ONLY invariant: never override/shadow an existing alias.
     if _components.registry.has_alias(identity.tenant_id, alias):
         raise MCPIPDenied(_corr(request))
     if await _components.catalog_overlay.count(identity.tenant_id) >= MAX_OVERLAY_ENTRIES:
         raise MCPIPDenied(_corr(request))
 
-    fields = _overlay_fields(body.target, body.risk_tier, body.classification)
+    fields = _overlay_fields(
+        body.target,
+        body.risk_tier,
+        body.classification,
+        service=body.service,
+        access=body.access,
+    )
     entry = _overlay_entry(alias, fields)
     if entry is None:
         raise MCPIPDenied(_corr(request))
@@ -6245,6 +6810,29 @@ def _plan_list(plan: dict[str, Any], key: str) -> list[Any]:
     return value if isinstance(value, list) else []
 
 
+def _plan_skill_display_meta(skill: dict[str, Any]) -> tuple[Optional[str], Optional[str]]:
+    """
+    Extract + validate one plan skill's ADVISORY ``service``/``access`` display fields —
+    the same ingress rules ``register_skill`` applies (closed access enum; charset-safe,
+    1..MAX_SERVICE_LABEL_LEN service label). Raises ``ValueError`` on an invalid value;
+    the apply path maps that to the opaque deny. Never an enforcement input.
+    """
+    service_raw = skill.get("service")
+    access_raw = skill.get("access")
+    service: Optional[str] = None
+    access: Optional[str] = None
+    if service_raw is not None:
+        if not isinstance(service_raw, str) or not (1 <= len(service_raw) <= MAX_SERVICE_LABEL_LEN):
+            raise ValueError("invalid service label")
+        reject_unsafe_string(service_raw, "service")
+        service = service_raw
+    if access_raw is not None:
+        if not isinstance(access_raw, str) or access_raw not in SKILL_ACCESS_MODES:
+            raise ValueError("invalid access mode")
+        access = access_raw
+    return service, access
+
+
 def _plan_summary(plan: dict[str, Any]) -> dict[str, int]:
     org_units = _plan_list(plan, "org_units")
     skills = _plan_list(plan, "skills")
@@ -6321,7 +6909,7 @@ async def workspace_plan_apply(request: Request, body: _WorkspacePlanBody) -> Re
     except DirectoryDocumentError:
         raise MCPIPDenied(_corr(request)) from None
     skills = _plan_list(plan, "skills")
-    normalized: list[tuple[str, str, str, str]] = []
+    normalized: list[tuple[str, str, str, str, Optional[str], Optional[str]]] = []
     for skill in skills:
         if not isinstance(skill, dict):
             raise MCPIPDenied(_corr(request))
@@ -6331,9 +6919,15 @@ async def workspace_plan_apply(request: Request, body: _WorkspacePlanBody) -> Re
         classification = str(skill.get("classification", "unclassified"))
         if _overlay_skill_invalid(alias, target, risk, classification):
             raise MCPIPDenied(_corr(request))
-        normalized.append((alias, target, risk, classification))
+        # Advisory display metadata — same ingress validation as register_skill
+        # (closed access enum; charset-safe, bounded service label), never enforcement.
+        try:
+            service, access = _plan_skill_display_meta(skill)
+        except ValueError:
+            raise MCPIPDenied(_corr(request)) from None
+        normalized.append((alias, target, risk, classification, service, access))
     # Capacity: the new (non-existing) skills must fit under the per-tenant overlay cap.
-    fresh = [(a, t, r, c) for (a, t, r, c) in normalized if not _components.registry.has_alias(tenant, a)]
+    fresh = [row for row in normalized if not _components.registry.has_alias(tenant, row[0])]
     existing_count = await _components.catalog_overlay.count(tenant)
     if existing_count + len(fresh) > MAX_OVERLAY_ENTRIES:
         raise MCPIPDenied(_corr(request))
@@ -6343,11 +6937,11 @@ async def workspace_plan_apply(request: Request, body: _WorkspacePlanBody) -> Re
     skipped: list[str] = []
     # Persist the org chart first (metadata), then register the fresh skills.
     await _components.directory.put(tenant, directory_doc)
-    for alias, target, risk, classification in normalized:
+    for alias, target, risk, classification, service, access in normalized:
         if _components.registry.has_alias(tenant, alias):
             skipped.append(alias)
             continue
-        fields = _overlay_fields(target, risk, classification)
+        fields = _overlay_fields(target, risk, classification, service=service, access=access)
         entry = _overlay_entry(alias, fields)
         if entry is None:  # defensive — validation already passed.
             raise MCPIPDenied(_corr(request))
@@ -6725,6 +7319,10 @@ async def compliance_evidence(request: Request) -> Response:
 
     try:
         att = await _components.worm.attestation()
+        # The MEASURED per-event proof window. Fetched in the same fail-closed try as the
+        # attestation: a bundle that silently omitted its scope would read as unlimited
+        # coverage, which is exactly the overclaim the scope block exists to prevent.
+        scope = await _components.worm.proof_scope()
     except Exception:  # noqa: BLE001 — any engine/transport failure is an opaque deny.
         raise MCPIPDenied(_corr(request)) from None
 
@@ -6733,6 +7331,7 @@ async def compliance_evidence(request: Request) -> Response:
         gateway_version=get_version(),
         release_provenance=_read_signed_release(),
         generated_at=datetime.now(timezone.utc).isoformat(),
+        proof_scope=scope,
     )
     return JSONResponse(status_code=200, content=bundle)
 
@@ -6766,3 +7365,262 @@ async def authenticator(challenge_id: str, request: Request) -> Response:
     return JSONResponse(
         status_code=200, content={"challenge_id": challenge_id, "otp": otp}
     )
+
+
+# ---------------------------------------------------------------------------
+# Per-user authenticator (USER-BASED 2FA) — enrollment + TOTP-gated OTP reveal.
+#
+# Identity still comes exclusively from the verified JWT; enrollment binds extra
+# proof-of-possession (an RFC 6238 authenticator app) to that principal and confers
+# no capability. The payload-bound PIN and its lock are untouched: TOTP only gates
+# WHO may read a staged code out of the encrypted stash. Feature-absent (no master
+# key) => every surface below is an opaque 404/deny. All mutations are WORM-logged
+# BEFORE the store changes; the reveal is WORM-logged BEFORE disclosure (mirrors
+# forensic_read). The TOTP secret is returned exactly ONCE at enroll time and never
+# enters WORM, metrics, or any other response.
+# ---------------------------------------------------------------------------
+
+
+class _AuthnCodeBody(BaseModel):
+    """A single authenticator code (enroll-confirm / self-disable ceremonies)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    code: str
+
+
+class _AuthnRevealBody(BaseModel):
+    """TOTP-gated release of one staged step-up code."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    challenge_id: str
+    code: str
+
+
+def _valid_challenge_ref(challenge_id: str) -> bool:
+    """Shape-check a challenge id (uuid-hex family) before it reaches Redis."""
+    return (
+        isinstance(challenge_id, str)
+        and 8 <= len(challenge_id) <= 64
+        and all(c in "0123456789abcdef-" for c in challenge_id)
+    )
+
+
+@app.get("/v1/authenticator")
+async def authenticator_status(request: Request) -> Response:
+    """
+    The caller's OWN enrollment state (enrolled / pending / enrolled_at). Metadata
+    only — never the secret. 404 when user-based 2FA is absent (no master key).
+    """
+    identity = await _require_authenticated(request)
+    store = _components.authn_enrollment
+    if store is None:
+        return JSONResponse(status_code=404, content={"error": "not found"})
+    status = await store.status(identity.tenant_id, identity.agent_id)
+    return JSONResponse(status_code=200, content=status.public_view())
+
+
+@app.post("/v1/authenticator/enroll")
+async def authenticator_enroll(request: Request) -> Response:
+    """
+    Begin enrollment: mint a fresh TOTP secret and return the provisioning material
+    (otpauth:// URI + manual-entry key) EXACTLY ONCE. Refused while an ACTIVE
+    enrollment exists — replacing a live authenticator requires the disable ceremony
+    (a valid current code), so a stolen bearer token alone can never swap the
+    human's second factor. WORM-logged before the store changes; the secret is NOT
+    in the WORM record.
+    """
+    identity = await _require_authenticated(request)
+    store = _components.authn_enrollment
+    if store is None:
+        return JSONResponse(status_code=404, content={"error": "not found"})
+    corr = _corr(request)
+    current = await store.status(identity.tenant_id, identity.agent_id)
+    if current.enrolled:
+        raise MCPIPDenied(corr)
+    await _components.worm.emit(
+        {
+            "decision": "admin_action",
+            "admin_action": "authenticator_enroll",
+            "deny_reason": None,
+            "tenant_id": identity.tenant_id,
+            "actor_agent_id": identity.agent_id,
+            "correlation_id": corr,
+            "ts": time.time(),
+        }
+    )
+    begin = await store.begin(identity.tenant_id, identity.agent_id)
+    if begin is None:
+        raise MCPIPDenied(corr)
+    AUTHENTICATOR.labels("enroll_begin").inc()
+    return JSONResponse(
+        status_code=200,
+        content={
+            "secret": begin.secret_base32,
+            "provisioning_uri": begin.provisioning_uri,
+            "digits": begin.digits,
+            "period_s": begin.period_s,
+        },
+    )
+
+
+@app.post("/v1/authenticator/enroll/confirm")
+async def authenticator_enroll_confirm(request: Request, body: _AuthnCodeBody) -> Response:
+    """
+    Prove possession: verify a live code from the just-provisioned app and ACTIVATE
+    the enrollment. Wrong/replayed code or lockout => opaque deny (the attempt is
+    burned in the shared limiter). WORM-logged before the activation flip.
+    """
+    identity = await _require_authenticated(request)
+    store = _components.authn_enrollment
+    if store is None:
+        return JSONResponse(status_code=404, content={"error": "not found"})
+    corr = _corr(request)
+    await _components.worm.emit(
+        {
+            "decision": "admin_action",
+            "admin_action": "authenticator_confirm",
+            "deny_reason": None,
+            "tenant_id": identity.tenant_id,
+            "actor_agent_id": identity.agent_id,
+            "correlation_id": corr,
+            "ts": time.time(),
+        }
+    )
+    if not await store.confirm(identity.tenant_id, identity.agent_id, body.code):
+        AUTHENTICATOR.labels("verify_fail").inc()
+        raise MCPIPDenied(corr)
+    AUTHENTICATOR.labels("enroll_confirm").inc()
+    return JSONResponse(status_code=200, content={"enrolled": True})
+
+
+@app.post("/v1/authenticator/disable")
+async def authenticator_disable(request: Request, body: _AuthnCodeBody) -> Response:
+    """
+    Self-service 2FA-off ceremony: requires a valid CURRENT code (a bearer token
+    alone cannot strip the human's factor — standard authenticator-removal rule).
+    Lost-device removal is the admin surface below. WORM-logged before removal.
+    """
+    identity = await _require_authenticated(request)
+    store = _components.authn_enrollment
+    if store is None:
+        return JSONResponse(status_code=404, content={"error": "not found"})
+    corr = _corr(request)
+    await _components.worm.emit(
+        {
+            "decision": "admin_action",
+            "admin_action": "authenticator_disable",
+            "deny_reason": None,
+            "tenant_id": identity.tenant_id,
+            "actor_agent_id": identity.agent_id,
+            "correlation_id": corr,
+            "ts": time.time(),
+        }
+    )
+    if not await store.disable(identity.tenant_id, identity.agent_id, body.code):
+        AUTHENTICATOR.labels("verify_fail").inc()
+        raise MCPIPDenied(corr)
+    AUTHENTICATOR.labels("disable").inc()
+    return JSONResponse(status_code=200, content={"enrolled": False})
+
+
+@app.post("/v1/authenticator/reveal")
+async def authenticator_reveal(request: Request, body: _AuthnRevealBody) -> Response:
+    """
+    USER-BASED 2FA release of a staged step-up code: verify a fresh, un-replayed
+    TOTP from the CALLER's enrolled authenticator, then release the sealed OTP for
+    ``challenge_id`` exactly once (GETDEL). The caller then completes the classic
+    two-step with the payload-bound PIN — the lock itself is untouched.
+
+    Fail-closed & opaque at every step: absent feature, unenrolled caller, bad/
+    replayed/locked-out code, unknown/expired/already-revealed challenge, and a
+    cross-tenant challenge (AAD-bound) are all indistinguishable denials. The
+    disclosure is WORM-logged BEFORE the code is returned (mirrors forensic_read;
+    the OTP itself is never in the record).
+    """
+    identity = await _require_authenticated(request)
+    store = _components.authn_enrollment
+    totp_channel = _components.authn_totp
+    if store is None or totp_channel is None:
+        return JSONResponse(status_code=404, content={"error": "not found"})
+    corr = _corr(request)
+    if not _valid_challenge_ref(body.challenge_id):
+        raise MCPIPDenied(corr)
+    if not await store.verify(identity.tenant_id, identity.agent_id, body.code):
+        AUTHENTICATOR.labels("verify_fail").inc()
+        raise MCPIPDenied(corr)
+    AUTHENTICATOR.labels("verify_ok").inc()
+
+    # Single-use spend of the sealed code (GETDEL), THEN the audit record, THEN the
+    # disclosure — an emit failure after the spend loses the code (fail-closed: the
+    # action can be re-staged), but a disclosure can never precede its audit record.
+    otp = await totp_channel.reveal(identity.tenant_id, body.challenge_id)
+    await _components.worm.emit(
+        {
+            "decision": "admin_action",
+            "admin_action": "otp_reveal",
+            "deny_reason": None,
+            "tenant_id": identity.tenant_id,
+            "actor_agent_id": identity.agent_id,
+            "challenge_id": body.challenge_id,
+            "found": otp is not None,
+            "correlation_id": corr,
+            "ts": time.time(),
+        }
+    )
+    if otp is None:
+        AUTHENTICATOR.labels("reveal_miss").inc()
+        return JSONResponse(
+            status_code=404, content={"error": "not found", "correlation_id": corr}
+        )
+    AUTHENTICATOR.labels("reveal_hit").inc()
+    return JSONResponse(
+        status_code=200, content={"challenge_id": body.challenge_id, "otp": otp}
+    )
+
+
+@app.get("/v1/admin/authenticator/enrollments")
+async def authenticator_enrollments(request: Request) -> Response:
+    """
+    Bounded admin roster of THIS tenant's enrollments (principal + state + time) —
+    metadata only, never a secret. CAP_DIRECTORY_ADMIN; read-only (no WORM emit,
+    mirrors the quarantine roster read).
+    """
+    identity = await _require_directory_admin(request)
+    store = _components.authn_enrollment
+    if store is None:
+        return JSONResponse(status_code=404, content={"error": "not found"})
+    rows = await store.list_enrolled(identity.tenant_id)
+    return JSONResponse(status_code=200, content={"enrollments": rows})
+
+
+@app.delete("/v1/admin/authenticator/{agent_id}")
+async def authenticator_admin_disable(agent_id: str, request: Request) -> Response:
+    """
+    Lost-device removal: a directory admin strips a principal's enrollment in the
+    admin's OWN tenant (cross-tenant is structurally impossible — the store key is
+    tenant-bound). The principal can then re-enroll. WORM-logged before removal.
+    """
+    identity = await _require_directory_admin(request)
+    store = _components.authn_enrollment
+    if store is None:
+        return JSONResponse(status_code=404, content={"error": "not found"})
+    if not _valid_agent_id(agent_id):
+        raise MCPIPDenied(_corr(request))
+    corr = _corr(request)
+    await _components.worm.emit(
+        {
+            "decision": "admin_action",
+            "admin_action": "authenticator_admin_disable",
+            "deny_reason": None,
+            "tenant_id": identity.tenant_id,
+            "actor_agent_id": identity.agent_id,
+            "subject_agent_id": agent_id,
+            "correlation_id": corr,
+            "ts": time.time(),
+        }
+    )
+    removed = await store.admin_disable(identity.tenant_id, agent_id)
+    AUTHENTICATOR.labels("disable").inc()
+    return JSONResponse(status_code=200, content={"removed": removed})

@@ -50,7 +50,10 @@ from interfaces import (
 from obfuscator import AliasEntry
 from auth import IdentityResolver, LockError, PinValidator
 from core.security import GatewayDeny
-from services.authn_channel import SandboxRedisAuthenticatorChannel
+from services.authn_channel import (
+    FanoutAuthenticatorChannel,
+    SandboxRedisAuthenticatorChannel,
+)
 
 # Per-identity step-up staging rate limit — a CHEAP fixed-window pre-check that runs
 # BEFORE the memory-hard scrypt in register_lock, so a single valid-JWT holder cannot
@@ -294,9 +297,23 @@ class AuthEngine:
         so the sandbox authenticator endpoint yields the same 404 it always did outside
         sandbox. Returns ``None`` if the challenge is unknown or its OTP has expired.
         """
-        if not isinstance(self._channel, SandboxRedisAuthenticatorChannel):
+        channel: object = self._channel
+        if isinstance(channel, FanoutAuthenticatorChannel):
+            # The sandbox composition fans out to (sandbox stash, TOTP stash); the
+            # peek oracle reads only the sandbox leg. Unwrapping preserves the exact
+            # pre-fanout behavior — production compositions have no sandbox leg, so
+            # peek still yields None (the endpoint's 404) there.
+            channel = next(
+                (
+                    leg
+                    for leg in channel.channels
+                    if isinstance(leg, SandboxRedisAuthenticatorChannel)
+                ),
+                None,
+            )
+        if not isinstance(channel, SandboxRedisAuthenticatorChannel):
             return None
-        return await self._channel.peek(identity.tenant_id, challenge_id)
+        return await channel.peek(identity.tenant_id, challenge_id)
 
 
 __all__ = ["AuthEngine"]

@@ -18,7 +18,6 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  ChevronRight,
   Download,
   FileJson,
   Filter,
@@ -31,6 +30,13 @@ import {
 } from 'lucide-react';
 import { Badge, EmptyState, Field, Input, Panel, PanelHeader, Select } from '../ui';
 import type { DecisionFacet, DecisionQuery, RecentDecision } from '../../lib/api';
+import {
+  DENY_FAMILY_META,
+  denyFamilyOf,
+  reasonsInFamily,
+  tallyFamilies,
+} from '../../lib/denyFamily';
+import type { DenyFamily } from '../../lib/denyFamily';
 import type { GatewayLive } from '../../lib/useGatewayLive';
 
 /** Page size for a single "Load more" fetch (server clamps to MAX_DECISIONS_PAGE=200). */
@@ -45,6 +51,8 @@ interface FilterState {
   decision: '' | 'allow' | 'deny';
   alias: string; // comma-separated → OR
   denyReason: string;
+  /** Triage family — expands to its member deny_reason facets on the wire. */
+  denyFamily: DenyFamily | '';
   riskTier: string;
   agentId: string;
 }
@@ -55,6 +63,7 @@ const EMPTY_FILTERS: FilterState = {
   decision: '',
   alias: '',
   denyReason: '',
+  denyFamily: '',
   riskTier: '',
   agentId: '',
 };
@@ -84,8 +93,12 @@ function buildQuery(f: FilterState, cursor?: string): DecisionQuery {
   if (f.decision) filters.decision = [f.decision];
   const alias = facetValues(f.alias);
   if (alias.length) filters.alias = alias;
+  // A family is sugar over the EXISTING deny_reason facet: it expands client-side to
+  // its member reasons, so the wire contract and the server whitelist are untouched.
+  // An explicit reason list always wins — the operator typed something more specific.
   const deny = facetValues(f.denyReason);
   if (deny.length) filters.deny_reason = deny;
+  else if (f.denyFamily) filters.deny_reason = reasonsInFamily(f.denyFamily);
   const risk = facetValues(f.riskTier);
   if (risk.length) filters.risk_tier = risk;
   const agent = facetValues(f.agentId);
@@ -112,6 +125,69 @@ function isoFromNs(ns: number): string {
   const ms = Math.floor(ns / 1e6);
   const d = new Date(ms);
   return Number.isFinite(ms) ? d.toISOString() : '';
+}
+
+/**
+ * Triage bar — the loaded denials bucketed by WHAT THE OPERATOR DOES NEXT.
+ *
+ * The precise 29-member reason stays on every row; this is only how they GROUP. It
+ * counts the rows currently loaded (an honest statement about what is on screen, not a
+ * server-side aggregate it would be dishonest to imply), and clicking a bucket applies
+ * it as a filter — which then pages the whole window through the server.
+ *
+ * Buckets appear in urgency order and empty ones are omitted: an operator should never
+ * scan past a zero.
+ */
+function TriageBar({
+  rows,
+  active,
+  onPick,
+}: {
+  rows: readonly RecentDecision[];
+  active: DenyFamily | '';
+  onPick: (family: DenyFamily | '') => void;
+}): JSX.Element | null {
+  const tallies = tallyFamilies(rows.map((r) => r.deny_reason));
+  if (!tallies.length) return null;
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 border-b border-hairline px-5 py-2.5">
+      <span className="eyebrow mr-1">Triage</span>
+      {tallies.map(({ family, count }) => {
+        const meta = DENY_FAMILY_META[family];
+        const on = active === family;
+        return (
+          <button
+            key={family}
+            type="button"
+            onClick={() => onPick(on ? '' : family)}
+            aria-pressed={on}
+            title={meta.action}
+            className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px] font-medium transition-colors focus:outline-none focus-visible:shadow-focus-ring ${
+              on
+                ? 'border-ink bg-ink text-surface'
+                : 'border-hairline bg-elevated text-slate-400 hover:text-ink'
+            }`}
+          >
+            <span
+              aria-hidden="true"
+              className={`h-1.5 w-1.5 shrink-0 rounded-full ${
+                meta.tone === 'denied'
+                  ? 'bg-denied'
+                  : meta.tone === 'staged'
+                    ? 'bg-staged'
+                    : 'bg-slate-600'
+              }`}
+            />
+            {meta.label}
+            <span className="tabular opacity-70">{count}</span>
+          </button>
+        );
+      })}
+      {active ? (
+        <span className="ml-1 text-[11px] text-slate-500">{DENY_FAMILY_META[active].action}</span>
+      ) : null}
+    </div>
+  );
 }
 
 const EXPORT_COLUMNS: ReadonlyArray<readonly [string, (r: RecentDecision) => string]> = [
@@ -248,8 +324,23 @@ export function ActivityHistory({ gateway }: { gateway: GatewayLive }): JSX.Elem
         <PanelHeader title="Activity History" icon={History} />
         <EmptyState
           icon={PlugZap}
-          title="Connect a gateway to browse decision history"
-          detail="The history query reads the tenant's own signed WORM decision tail (date range · multi-filter · export). It needs a live, admin-authorized gateway — offline shows nothing rather than a fabricated timeline."
+          title="No gateway connected"
+          detail="Connect a gateway to browse, filter and export its decision history."
+          action={
+            <button
+              type="button"
+              className="btn-primary"
+              onClick={() =>
+                window.dispatchEvent(
+                  new CustomEvent('mcpip:navigate', {
+                    detail: { view: 'gateway', subtab: 'connection' },
+                  }),
+                )
+              }
+            >
+              <PlugZap size={13} /> Connect a gateway
+            </button>
+          }
         />
       </Panel>
     );
@@ -257,11 +348,6 @@ export function ActivityHistory({ gateway }: { gateway: GatewayLive }): JSX.Elem
 
   const busy = state === 'loading';
   const exportBusy = exporting !== null;
-  // Count of the rare, disclosure-hidden facets that carry a value — surfaced as
-  // a chip on the "More filters" summary so a collapsed active facet stays visible.
-  const moreActive = [draft.denyReason, draft.riskTier, draft.agentId].filter(
-    (v) => v.trim() !== '',
-  ).length;
 
   return (
     <Panel className="h-full">
@@ -278,7 +364,7 @@ export function ActivityHistory({ gateway }: { gateway: GatewayLive }): JSX.Elem
 
       {/* Filter bar */}
       <div className="shrink-0 border-b border-hairline bg-surface/60 px-4 py-3">
-        {/* Common facets — always visible. */}
+        {/* All facets — one flat, always-visible grid. */}
         <div className="grid grid-cols-2 gap-2.5 md:grid-cols-4">
           <Field label="From">
             <Input
@@ -314,47 +400,31 @@ export function ActivityHistory({ gateway }: { gateway: GatewayLive }): JSX.Elem
               onChange={(e) => setDraft({ ...draft, alias: e.target.value })}
             />
           </Field>
+          <Field label="Deny reason">
+            <Input
+              mono
+              placeholder="canary_tripped, …"
+              value={draft.denyReason}
+              onChange={(e) => setDraft({ ...draft, denyReason: e.target.value })}
+            />
+          </Field>
+          <Field label="Risk tier">
+            <Input
+              mono
+              placeholder="high, critical"
+              value={draft.riskTier}
+              onChange={(e) => setDraft({ ...draft, riskTier: e.target.value })}
+            />
+          </Field>
+          <Field label="Agent id">
+            <Input
+              mono
+              placeholder="agent-…"
+              value={draft.agentId}
+              onChange={(e) => setDraft({ ...draft, agentId: e.target.value })}
+            />
+          </Field>
         </div>
-
-        {/* Rare facets — disclosed on demand; an active count keeps a collapsed
-            filter visible so it never silently narrows the result set. */}
-        <details className="group mt-2.5">
-          <summary className="flex cursor-pointer list-none items-center gap-1.5 text-[11px] font-medium text-slate-400 transition hover:text-ink">
-            <ChevronRight size={13} className="transition-transform group-open:rotate-90" />
-            More filters
-            {moreActive > 0 ? (
-              <span className="chip text-ink">
-                {moreActive} active
-              </span>
-            ) : null}
-          </summary>
-          <div className="mt-2.5 grid grid-cols-2 gap-2.5 md:grid-cols-3">
-            <Field label="Deny reason">
-              <Input
-                mono
-                placeholder="canary_tripped, …"
-                value={draft.denyReason}
-                onChange={(e) => setDraft({ ...draft, denyReason: e.target.value })}
-              />
-            </Field>
-            <Field label="Risk tier">
-              <Input
-                mono
-                placeholder="high, critical"
-                value={draft.riskTier}
-                onChange={(e) => setDraft({ ...draft, riskTier: e.target.value })}
-              />
-            </Field>
-            <Field label="Agent id">
-              <Input
-                mono
-                placeholder="agent-…"
-                value={draft.agentId}
-                onChange={(e) => setDraft({ ...draft, agentId: e.target.value })}
-              />
-            </Field>
-          </div>
-        </details>
         <div className="mt-2.5 flex flex-wrap items-center gap-2">
           <button
             type="button"
@@ -373,41 +443,28 @@ export function ActivityHistory({ gateway }: { gateway: GatewayLive }): JSX.Elem
             <RotateCcw size={13} />
             Reset
           </button>
-          {/* One Export control — a split button whose menu holds both formats;
-              each still walks the WHOLE window and streams the auditor CSV/JSON. */}
-          <details className="group relative ml-auto">
-            <summary className="inline-flex cursor-pointer list-none items-center gap-1.5 rounded-lg border border-hairline bg-canvas px-3 py-1.5 text-[12px] font-medium text-ink transition hover:border-ink/30">
+          {/* Export — two plain buttons; each walks the WHOLE window and streams
+              the auditor CSV/JSON. */}
+          <div className="ml-auto flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => void exportAll('csv')}
+              disabled={exportBusy}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-hairline bg-canvas px-3 py-1.5 text-[12px] font-medium text-ink transition hover:border-ink/30 disabled:opacity-50"
+            >
               {exportBusy ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
-              Export
-              <ChevronRight size={13} className="transition-transform group-open:rotate-90" />
-            </summary>
-            <div className="absolute right-0 z-20 mt-1.5 flex w-44 flex-col overflow-hidden rounded-lg border border-hairline bg-surface shadow-panel">
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.currentTarget.closest('details')?.removeAttribute('open');
-                  void exportAll('csv');
-                }}
-                disabled={exportBusy}
-                className="flex items-center gap-2 px-3 py-2 text-left text-[12px] text-ink transition hover:bg-canvas disabled:opacity-50"
-              >
-                <Download size={13} />
-                Export CSV
-              </button>
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.currentTarget.closest('details')?.removeAttribute('open');
-                  void exportAll('json');
-                }}
-                disabled={exportBusy}
-                className="flex items-center gap-2 border-t border-hairline px-3 py-2 text-left text-[12px] text-ink transition hover:bg-canvas disabled:opacity-50"
-              >
-                <FileJson size={13} />
-                Export JSON
-              </button>
-            </div>
-          </details>
+              Export CSV
+            </button>
+            <button
+              type="button"
+              onClick={() => void exportAll('json')}
+              disabled={exportBusy}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-hairline bg-canvas px-3 py-1.5 text-[12px] font-medium text-ink transition hover:border-ink/30 disabled:opacity-50"
+            >
+              <FileJson size={13} />
+              Export JSON
+            </button>
+          </div>
         </div>
         {exporting ? (
           <p className="mt-2 text-[11px] text-slate-500">
@@ -419,12 +476,25 @@ export function ActivityHistory({ gateway }: { gateway: GatewayLive }): JSX.Elem
       </div>
 
       {/* Results */}
+      {/* Triage — bucket the LOADED denials by the operator's next action. Clicking a
+          bucket applies it as a filter, which then pages the whole window server-side. */}
+      <TriageBar
+        rows={rows}
+        active={applied.denyFamily}
+        onPick={(family) => {
+          // Picking a bucket is a real query, so it clears any hand-typed reason list
+          // (which would otherwise win the expansion) and applies immediately.
+          const next = { ...applied, denyFamily: family, denyReason: '' };
+          setDraft(next);
+          setApplied(next);
+        }}
+      />
       <div className="min-h-0 flex-1 overflow-auto">
         {rows.length === 0 && state === 'unavailable' ? (
           <EmptyState
             icon={Filter}
             title="Decision history is unavailable"
-            detail="The admin read did not answer — the gateway may lack a CAP_DIRECTORY_ADMIN token in this mode, or the endpoint is not reachable. Nothing is shown rather than an invented row."
+            detail="The admin read did not answer — a CAP_DIRECTORY_ADMIN credential is required."
           />
         ) : rows.length === 0 && !busy ? (
           <EmptyState
@@ -459,8 +529,21 @@ export function ActivityHistory({ gateway }: { gateway: GatewayLive }): JSX.Elem
                     <Badge tone={r.decision === 'allow' ? 'verified' : 'denied'}>{r.decision}</Badge>
                   </td>
                   <td className="px-3 py-1.5 font-mono text-[11.5px] text-ink">{r.alias ?? '—'}</td>
-                  <td className="px-3 py-1.5 font-mono text-[11.5px] text-slate-400">
-                    {r.deny_reason ?? '—'}
+                  <td className="px-3 py-1.5">
+                    {r.deny_reason ? (
+                      <span className="flex flex-col leading-tight">
+                        <span className="font-mono text-[11.5px] text-slate-400">
+                          {r.deny_reason}
+                        </span>
+                        {denyFamilyOf(r.deny_reason) ? (
+                          <span className="text-[10px] uppercase tracking-[0.08em] text-slate-500">
+                            {DENY_FAMILY_META[denyFamilyOf(r.deny_reason) as DenyFamily].label}
+                          </span>
+                        ) : null}
+                      </span>
+                    ) : (
+                      <span className="text-slate-400">—</span>
+                    )}
                   </td>
                   <td className="px-3 py-1.5 text-slate-400">{r.risk_tier ?? '—'}</td>
                   <td className="px-3 py-1.5 text-slate-400">{r.transport ?? '—'}</td>

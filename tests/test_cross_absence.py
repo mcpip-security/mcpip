@@ -80,11 +80,11 @@ _ACME_PIN = "skill_payroll_run"          # tenant-acme, PIN_REQUIRED
 _ACME_ONLY = "skill_wire_transfer"       # tenant-acme, PIN_REQUIRED
 _SHARED_AUTO = "skill_status_probe"      # acme + globex + aegis, AUTO, un-compartmented
 _AEGIS = "aegis-dynamics"
-_FALCON_TELEMETRY = "skill_falcon_telemetry"   # aegis, FALCON, AUTO, sender-constraint
-_FALCON_FLIGHT = "skill_falcon_flight_cmd"     # aegis, FALCON, PIN, no sender-constraint
-_AEGIS_RADAR = "skill_aegis_radar_tune"        # aegis, AEGIS, PIN
-_AEGIS_INTERCEPT = "skill_aegis_intercept_plan"  # aegis, AEGIS, PIN
-_SENTINEL_FEED = "skill_sentinel_recon_feed"   # aegis, SENTINEL, AUTO, sender-constraint
+_FALCON_TELEMETRY = "skill_airframe_telemetry"   # aegis, FALCON, AUTO, sender-constraint
+_FALCON_FLIGHT = "skill_flight_command_issue"     # aegis, FALCON, PIN, no sender-constraint
+_AEGIS_RADAR = "skill_radar_calibration_set"        # aegis, AEGIS, PIN
+_AEGIS_INTERCEPT = "skill_intercept_plan_submit"  # aegis, AEGIS, PIN
+_SENTINEL_FEED = "skill_recon_feed_read"   # aegis, SENTINEL, AUTO, sender-constraint
 _GRANT_ALIAS = "skill_compartment_grant"       # aegis, grant_issue, cap-gated
 _MCPIP_FINANCE_WAGES = "skill_financial_wage_sheet"  # mcpip-inc, FINANCE compartment
 

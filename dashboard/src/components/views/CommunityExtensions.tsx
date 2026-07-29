@@ -112,7 +112,7 @@ export function CommunityExtensions({ gateway }: { gateway: GatewayLive }): JSX.
         <EmptyState
           icon={Blocks}
           title="No gateway connected"
-          detail="Community extensions is live-only: submit, review, approve and reject all act on the real /v1/extensions and /v1/admin/extensions endpoints — nothing is fabricated offline."
+          detail="Connect a gateway to submit and review community extensions."
           action={
             <button type="button" className="btn-primary" onClick={() => navigateTo('gateway', 'connection')}>
               <PlugZap size={13} /> Connect a gateway
@@ -276,7 +276,7 @@ function SubmitPanel({
       onSubmitted();
     } else {
       setError(
-        'Submission denied. The gateway validates the manifest fail-closed (strict schema, charset + identity-shape guards, the sha256 self-pin, and — for a skill — the additive-only overlay rules); the concrete reason lives only in the WORM log. In production there is no sandbox contributor identity to submit as.',
+        'Submission denied — the gateway validates fail-closed, and the concrete reason lives only in the audit log.',
       );
     }
     setBusy(false);
@@ -302,8 +302,8 @@ function SubmitPanel({
         {kind === 'skill' ? (
           <>
             <p className="text-[11.5px] leading-relaxed text-slate-500">
-              A community skill is a NEW opaque alias onto a <span className="font-mono text-[11px]">cloud_rest</span>{' '}
-              target — additive only, never a repoint. Describe it; the console names it and pins it.
+              Describe the tool — the console names and pins a new alias (additive only, never a
+              repoint).
             </p>
             <Field label="What should this tool do?">
               <Input
@@ -332,30 +332,34 @@ function SubmitPanel({
         ) : null}
 
         {/* Gate authoring is experimental: enforcement is deferred until a CEL engine
-            is registered, so it lives behind a disclosure rather than on the primary path.
+            is registered, so it sits behind a toggle rather than on the primary path.
             Opening it switches the submit to gate-manifest mode; closing returns to skill. */}
-        <details
-          className="group rounded-lg border border-hairline bg-canvas"
-          open={kind === 'gate'}
-          onToggle={(e) => {
-            setKind(e.currentTarget.open ? 'gate' : 'skill');
-            setError(null);
-            setNote(null);
-          }}
-        >
-          <summary className="flex cursor-pointer list-none items-center gap-1.5 px-3 py-2 text-[11px] font-medium text-slate-500 transition-colors hover:text-ink">
-            <ChevronRight size={12} className="shrink-0 transition-transform group-open:rotate-90" />
+        <div className="rounded-lg border border-hairline bg-canvas">
+          <button
+            type="button"
+            aria-expanded={kind === 'gate'}
+            onClick={() => {
+              setKind(kind === 'gate' ? 'skill' : 'gate');
+              setError(null);
+              setNote(null);
+            }}
+            className="flex w-full items-center gap-1.5 px-3 py-2 text-[11px] font-medium text-slate-500 transition-colors hover:text-ink"
+          >
+            <ChevronRight
+              size={12}
+              className={`shrink-0 transition-transform ${kind === 'gate' ? 'rotate-90' : ''}`}
+            />
             <FileCode size={12} className="shrink-0" />
             Author a policy gate
             <Badge tone="staged">experimental</Badge>
-          </summary>
+          </button>
+          {kind === 'gate' ? (
           <div className="space-y-3.5 border-t border-hairline px-3 py-3">
             <div className="flex items-start gap-2 rounded-lg border border-staged/30 bg-staged/5 px-3 py-2 text-[11px] leading-relaxed text-staged">
               <ShieldAlert size={13} className="mt-0.5 shrink-0" />
               <span>
-                Gate enforcement is <span className="font-semibold">deferred</span>. A gate is validated as pure data,
-                stored PENDING, and appears for review — but can never be approved or enforced until a CEL engine is
-                registered. It can only ever ADD a <span className="font-mono text-[10px]">POLICY_GATE_DENIED</span>.
+                Gates are stored pending and cannot be approved or enforced until a CEL engine is
+                registered.
               </span>
             </div>
             <Field label="Gate name">
@@ -429,7 +433,8 @@ function SubmitPanel({
               <p className="text-[10.5px] text-denied">Cost must be a whole number in 1..{MAX_GATE_COST.toLocaleString()}.</p>
             ) : null}
           </div>
-        </details>
+          ) : null}
+        </div>
 
         {/* Advanced — author label + raw skill alias/target override. */}
         <button

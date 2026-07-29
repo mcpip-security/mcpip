@@ -43,6 +43,41 @@ jobs:
       - name: SDK strict typecheck
         run: PYTHONPATH=sdk/python/src python -m mypy --strict sdk/python/src/mcpip_sdk
 
+  supply-chain:
+    name: Supply-chain (CVE scan + manifest drift)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      # Change-integrity: the committed signed integrity manifest must track the
+      # source tree. WARN-only today (the 3.0.0 owner re-sign is pending); flip to
+      # `--strict` once the manifest is re-signed at the current VERSION so any
+      # future drift is a hard PR failure. See docs/SOC2_READINESS.md #23.
+      - name: Integrity-manifest drift check (warn)
+        run: python scripts/check_integrity_manifest_drift.py
+      # Dependency CVE scan. Advisory for now (a new upstream CVE should surface
+      # here, not silently block the merge gate before triage). Make it blocking
+      # by removing `continue-on-error` once the dependency set is on a hashed
+      # lock. See docs/SOC2_READINESS.md #24.
+      - name: pip-audit (advisory)
+        continue-on-error: true
+        run: |
+          python -m pip install --upgrade pip pip-audit
+          pip-audit -r requirements.txt --desc on || true
+      # Static application security testing. Runner-local (no GitHub Advanced
+      # Security / SARIF upload needed, so it works on a private repo). Advisory:
+      # findings surface in the log for triage without blocking the merge gate.
+      # See docs/SOC2_READINESS.md #28.
+      - name: bandit SAST (advisory)
+        continue-on-error: true
+        run: |
+          python -m pip install --upgrade bandit
+          bandit -q -ll -r app core auth audit bridge services obfuscator models \
+            interfaces.py main.py || true
+
   clients:
     name: Console + TS SDK builds
     runs-on: ubuntu-latest

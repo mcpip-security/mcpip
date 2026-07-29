@@ -28,13 +28,16 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 import redis.asyncio as redis
 from redis.exceptions import RedisError
 
 from auth import LockError
 from services.secret_vault import SecretVault
+
+if TYPE_CHECKING:
+    from audit.worm_logger import WormLogger
 
 _KEY_PREFIX = "mcpip:cloud_env:"
 # Bound the number of cloud environments per tenant (binding config, not bulk).
@@ -194,9 +197,16 @@ class CloudBroker:
     fails closed (TRANSPORT_ERROR), never silently returns nothing.
     """
 
-    def __init__(self, *, sandbox_mode: bool, vault: Optional[SecretVault] = None) -> None:
+    def __init__(
+        self,
+        *,
+        sandbox_mode: bool,
+        vault: Optional[SecretVault] = None,
+        worm: Optional["WormLogger"] = None,
+    ) -> None:
         self._sandbox = sandbox_mode
         self._vault = vault
+        self._worm = worm
 
     async def vend(
         self, env: CloudEnvironment, *, tenant_id: str, request_nonce: str
@@ -222,6 +232,24 @@ class CloudBroker:
         material = await self._vault.get_material(tenant_id, env.vault_secret_id)
         if material is None:
             raise LockError("vault broker credential unresolvable for this environment")
+        # Operator audit of the secret READ (SOC2_READINESS.md #4, CC6.7): record that this
+        # vault broker credential was spent — tenant + secret_id + a keyed-HMAC fingerprint,
+        # NEVER the material. WORM-only (never agent-facing, so the vend fingerprint's
+        # tier-opacity is untouched). Emit-before-use + fail-closed: a credential is never
+        # spent without recording the access.
+        if self._worm is not None:
+            try:
+                await self._worm.emit(
+                    {
+                        "decision": "admin_action",
+                        "admin_action": "secret_access",
+                        "tenant_id": tenant_id,
+                        "secret_id": env.vault_secret_id,
+                        "fingerprint": self._vault.fingerprint(material),
+                    }
+                )
+            except Exception as exc:  # noqa: BLE001 — no unaudited secret access.
+                raise LockError("secret access could not be audited") from exc
         return material
 
     def _simulate(self, env: CloudEnvironment, ttl: int, nonce: str) -> VendedCredential:

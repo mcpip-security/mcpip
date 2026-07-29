@@ -62,7 +62,7 @@ A finding is most valuable when it breaks one of the load-bearing invariants:
 
 - The agent receiving only an opaque denial — that is the design, not a leak.
 - A **dark feature being off** (forensic capture, external-PDP, telemetry, MRT step-up default to
-  off/opt-in and say so honestly — see [`ROADMAP.md §4`](docs/ROADMAP.md)).
+  off/opt-in and say so honestly).
 - The in-tree signed `release/manifest.json` legitimately lagging `VERSION` before the owner's
   offline re-sign ([`RELEASE.md §0`](RELEASE.md)) — this is the documented honest boundary.
 - Out-of-scope-by-design gaps that are disclosed plainly (e.g. in-agent memory poisoning / ASI06 —

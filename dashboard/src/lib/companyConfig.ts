@@ -9,7 +9,7 @@
    real principals are still minted by the IdP ceremony (scripts/mint_principal.py).
 --------------------------------------------------------------------------- */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useSyncExternalStore } from 'react';
 import type { StarterSkill } from './starterKit';
 
 const KEY = 'mcpip.company.v1';
@@ -99,6 +99,51 @@ export function loadCompanyConfig(): CompanyConfig | null {
   }
 }
 
+/* ---------------------------------------------------------------------------
+   Same-tab reactive store. localStorage only dispatches a `storage` event to
+   OTHER tabs — never to the tab that made the write — so a plain useState +
+   `storage` listener leaves every useCompanyConfig() instance an island: edit
+   the company/teams in one panel (AdminInfra) and App plus every sibling view
+   keep their stale snapshot until a full reload. That is the "components don't
+   synchronize" bug. A module-level subscriber set fixes it: every write updates
+   one shared cached snapshot and notifies all live instances, so the whole
+   console re-renders together (and cross-tab edits still refresh via `storage`).
+--------------------------------------------------------------------------- */
+let cache: CompanyConfig | null = loadCompanyConfig();
+const listeners = new Set<() => void>();
+
+function emitChange(): void {
+  for (const notify of listeners) notify();
+}
+
+if (typeof window !== 'undefined') {
+  // Cross-tab edits: refresh the shared cache from storage, then notify this
+  // tab's instances so they converge on the value the other tab just wrote.
+  window.addEventListener('storage', (e) => {
+    if (e.key === KEY) {
+      cache = loadCompanyConfig();
+      emitChange();
+    }
+  });
+}
+
+// Exported for testability: this subscribe/getSnapshot pair IS the same-tab sync
+// mechanism useCompanyConfig() drives through useSyncExternalStore. A test can
+// register two subscribers and assert a single write notifies BOTH — the exact
+// island bug (two instances not sharing state within a tab) that shipped unnoticed.
+export function subscribeCompanyConfig(onChange: () => void): () => void {
+  listeners.add(onChange);
+  return () => {
+    listeners.delete(onChange);
+  };
+}
+
+// Stable snapshot: useSyncExternalStore requires an unchanged reference between
+// writes, so it returns the cached object, replaced only on an actual write.
+export function companyConfigSnapshot(): CompanyConfig | null {
+  return cache;
+}
+
 export function saveCompanyConfig(config: CompanyConfig): CompanyConfig {
   // Stamp creation once (first save) and bump the updated time on every save, so the
   // console can show honest "created / last updated" times for the deployment profile.
@@ -108,6 +153,10 @@ export function saveCompanyConfig(config: CompanyConfig): CompanyConfig {
   } catch {
     /* private mode / storage disabled — session-only config still works in memory */
   }
+  // Update the shared snapshot and notify every live instance in THIS tab even
+  // when storage is unavailable, so same-tab propagation never depends on it.
+  cache = stamped;
+  emitChange();
   return stamped;
 }
 
@@ -117,6 +166,8 @@ export function clearCompanyConfig(): void {
   } catch {
     /* ignore */
   }
+  cache = null;
+  emitChange();
 }
 
 /** A fresh compartment UUID for a new team (browser crypto; deterministic-free fallback). */
@@ -151,24 +202,21 @@ export function useCompanyConfig(): {
   save: (config: CompanyConfig) => void;
   reset: () => void;
 } {
-  const [config, setConfig] = useState<CompanyConfig | null>(() => loadCompanyConfig());
-
-  // Reflect edits made in another tab.
-  useEffect(() => {
-    const onStorage = (e: StorageEvent): void => {
-      if (e.key === KEY) setConfig(loadCompanyConfig());
-    };
-    window.addEventListener('storage', onStorage);
-    return () => window.removeEventListener('storage', onStorage);
-  }, []);
+  // One shared external store — every instance across the console (App, AdminInfra,
+  // and every view) reads the same snapshot and re-renders together on any write,
+  // in the same tab and across tabs.
+  const config = useSyncExternalStore(
+    subscribeCompanyConfig,
+    companyConfigSnapshot,
+    companyConfigSnapshot,
+  );
 
   const save = useCallback((next: CompanyConfig): void => {
-    setConfig(saveCompanyConfig(next));
+    saveCompanyConfig(next);
   }, []);
 
   const reset = useCallback((): void => {
     clearCompanyConfig();
-    setConfig(null);
   }, []);
 
   return { config, setupComplete: config?.setupComplete === true, save, reset };

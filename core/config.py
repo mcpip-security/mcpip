@@ -78,6 +78,41 @@ class Settings(BaseSettings):
     # verify_chain uses it as a monotonic low-watermark so a tail-truncation / rollback
     # that also rewrites the in-Redis linkage counters is still detected.
     worm_anchor_path: str | None = Field(default=None)
+    # Opt-in synchronous-replication quorum for the WORM event emit (HA without losing
+    # the durability contract). 0 (default) = no WAIT, byte-identical single-node
+    # behavior. N>0 = every emitted audit event must ALSO be acknowledged by N Redis
+    # replicas (``WAIT N timeout``) before the authorize proceeds — write-before-execute
+    # extended across a replica, so promoting a synced replica after a master loss never
+    # drops an acked record. FAIL-CLOSED: quorum miss/timeout = the emit fails = the
+    # request denies. This is the supported HA posture (run Redis with >=N synced
+    # replicas + a promotion runbook, docs/OPERATIONS.md §"Availability"); plain async
+    # replication WITHOUT this quorum can silently lose acked writes on failover and is
+    # NOT a supported durability posture. Scope is the event emit only — every other
+    # Redis datum fails closed when lost.
+    worm_wait_replicas: int = Field(default=0, ge=0)
+    # WAIT quorum timeout per emit, in milliseconds.
+    worm_wait_timeout_ms: int = Field(default=2000, gt=0)
+    # Opt-in at-rest CONFIDENTIALITY for the WORM event body (OFF by default). The chain
+    # is always INTEGRITY-protected (Merkle/Ed25519), but the event body — the resolved
+    # real target, alias, and identifiers — is otherwise cleartext in Redis + AOF. With
+    # this enabled the sensitive payload is AES-256-GCM-wrapped before it is stored; the
+    # signed leaf hashes the stored (encrypted) record, so ``verify_chain`` is UNAFFECTED
+    # and the chain stays verifiable WITHOUT the key — only READING a body needs it, and
+    # destroying the key crypto-shreds the bodies while the integrity proof survives.
+    # Default OFF ⇒ plaintext bodies, byte-identical to today. When ON a dedicated key is
+    # required — ``MCPIP_WORM_CONTENT_KEY_PATH`` (32 raw bytes) in production; auto-
+    # provisioned under ``.keys/`` in sandbox. Flag-on/key-off in production is a
+    # fail-closed BOOT error.
+    encrypt_worm_at_rest: bool = Field(default=False)
+    worm_content_key_path: str | None = Field(default=None)
+    # RETIRED content keys retained across a rotation, so bodies sealed under a superseded
+    # key stay readable after the active key rotates (the active ``worm_content_key_path``
+    # always seals new events; every key here plus the active one is tried on READ). An
+    # ``os.pathsep``-separated list of 32-byte key files. Empty ⇒ no rotation history, the
+    # single-key behavior. Rotating without listing the prior key here leaves its bodies
+    # unreadable — retain retired keys for the audit-retention window (destroying one
+    # crypto-shreds every body it sealed).
+    worm_content_key_fallback_paths: str | None = Field(default=None)
 
     # --- Environment secret vault (OPTIONAL operator broker-credential store). ----
     # Raw 32-byte AES-256 master key file encrypting vault entries at rest (Redis holds
@@ -104,6 +139,21 @@ class Settings(BaseSettings):
     # is dropped, retrieval 404s); it is never silently downgraded to plaintext.
     forensic_key_path: str | None = Field(default=None)
 
+    # --- Opt-in principal pseudonymization (OFF by default). --------------------
+    # When enabled, the delegation-actor identifiers recorded to the permanent WORM
+    # ledger — ``act_sub`` and each ``delegation_chain`` entry (RFC 8693 actors that can
+    # name a natural person) — are replaced with a keyed-HMAC pseudonym, so the
+    # natural-person link becomes CRYPTO-SHREDDABLE (destroy the key ⇒ sever linkage)
+    # while the signed audit record stays intact and ``verify_chain``-able. This is the
+    # reconciliation of the immutable ledger with GDPR/CCPA erasure (docs/COMPLIANCE.md
+    # §2.1). Default OFF ⇒ byte-identical to today: the raw identifiers are recorded
+    # (better forensic readability), so enable it only when an erasure posture is needed.
+    # When ON a dedicated key is required — ``MCPIP_PSEUDONYM_KEY_PATH`` (≥32 raw bytes)
+    # in production; auto-provisioned under ``.keys/`` in sandbox. Flag-on/key-off in
+    # production is a fail-closed BOOT error (never a silent disable of the control).
+    pseudonymize_principals: bool = Field(default=False)
+    pseudonym_key_path: str | None = Field(default=None)
+
     # --- Out-of-band authenticator delivery (step-up OTP push). -------------------
     # In production the payload-bound step-up code is NOT stashed in Redis; it is PUSHED
     # to a tenant-configured authenticator/approver sink over an SSRF-guarded,
@@ -124,6 +174,13 @@ class Settings(BaseSettings):
     # Bounded connect+read wall-clock ceiling for one webhook push (clamped to
     # [MIN_AUTHN_WEBHOOK_TIMEOUT_S, MAX_AUTHN_WEBHOOK_TIMEOUT_S] at construction).
     authn_webhook_timeout_s: float = Field(default=5.0, gt=0.0)
+    # Path to the 32-byte AES-256 master key for USER-BASED 2FA (per-principal TOTP
+    # enrollment secrets + the TOTP-gated encrypted OTP stash). Presence activates the
+    # feature: principals can enroll an authenticator app, and step-up codes become
+    # revealable only against a verified, fresh, un-replayed TOTP. None in production
+    # -> the enrollment surface is ABSENT (fail-closed; the webhook channel, if
+    # configured, still works). Sandbox auto-provisions a persistent dev key.
+    authn_totp_key_path: str | None = Field(default=None)
 
     # --- Payload-lock policy. ---------------------------------------------------
     # Exposed for operators; the engine's own PIN_TTL_SECONDS remains authoritative

@@ -37,6 +37,10 @@ from typing import Any
 # asserts equality); the apply endpoint re-checks against the authoritative copy.
 VALID_RISK: frozenset[str] = frozenset({"auto", "pin_required"})
 VALID_CLASSIFICATION: frozenset[str] = frozenset({"unclassified", "restricted"})
+# Advisory display metadata mirrors (interfaces.SKILL_ACCESS_MODES / MAX_SERVICE_LABEL_LEN
+# — the same drift-guard discipline as the two sets above).
+VALID_ACCESS: frozenset[str] = frozenset({"read", "write"})
+_MAX_SERVICE_LEN = 64
 
 # Per-plan bounds — a single brief scaffolds a starter workspace, not a bulk import.
 MAX_PLAN_SKILLS = 64
@@ -51,9 +55,13 @@ _ALIAS_RE = re.compile(r"^[a-z0-9_]+$")
 # --- Deterministic draft: brief → domains → teams + a starter skill set. -----------
 #
 # Each domain contributes a team and a small set of tenant-wide cloud_rest skills.
-# Reads are AUTO + unclassified; mutations are PIN_REQUIRED; sensitive domains
-# (finance/hr) mark their mutations RESTRICTED (which, being PIN_REQUIRED, satisfies
-# the sender-constraint lint). Everything is byte-safe and within bounds.
+# Naming convention: ``skill_{platform-or-domain}_{tool}`` — NO ``_read``/``_write``
+# suffixes; the access level is the STRUCTURED ``access`` field ("read" for reads,
+# "write" for mutations), paired with a human ``service`` label — both advisory display
+# metadata carried through plan → apply into the overlay fields. Reads are AUTO +
+# unclassified; mutations are PIN_REQUIRED; sensitive domains (finance/hr) mark their
+# mutations RESTRICTED (which, being PIN_REQUIRED, satisfies the sender-constraint
+# lint). Everything is byte-safe and within bounds.
 
 _DOMAINS: tuple[tuple[str, tuple[str, ...], bool], ...] = (
     # (domain, keyword triggers, sensitive?)
@@ -70,25 +78,29 @@ _DOMAINS: tuple[tuple[str, tuple[str, ...], bool], ...] = (
     ("product", ("product", "roadmap", "design", "ux", "pm"), False),
 )
 
-# Skill templates per domain: (suffix, action, mutating?). Reads first, then a mutation.
+# Skill templates per domain: (tool suffix, mutating?). Reads first, then a mutation.
+# Tool names carry NO _read/_write suffix — access is the structured field below.
 _DOMAIN_SKILLS: dict[str, tuple[tuple[str, bool], ...]] = {
-    "engineering": (("service_status_read", False), ("deploy_trigger", True)),
-    "finance": (("report_read", False), ("invoice_post", True)),
-    "sales": (("pipeline_read", False), ("quote_create", True)),
-    "support": (("ticket_read", False), ("ticket_reply", True)),
-    "security": (("posture_read", False), ("incident_open", True)),
+    "engineering": (("service_status", False), ("deploy_trigger", True)),
+    "finance": (("report", False), ("invoice_post", True)),
+    "sales": (("pipeline", False), ("quote_create", True)),
+    "support": (("ticket_lookup", False), ("ticket_reply", True)),
+    "security": (("posture", False), ("incident_open", True)),
     "data": (("dataset_query", False), ("pipeline_run", True)),
-    "legal": (("contract_read", False), ("contract_approve", True)),
-    "hr": (("directory_read", False), ("record_update", True)),
-    "operations": (("inventory_read", False), ("order_place", True)),
-    "marketing": (("campaign_read", False), ("campaign_launch", True)),
-    "product": (("roadmap_read", False), ("release_note_post", True)),
+    "legal": (("contract_lookup", False), ("contract_approve", True)),
+    "hr": (("directory_lookup", False), ("record_update", True)),
+    "operations": (("inventory", False), ("order_place", True)),
+    "marketing": (("campaign_summary", False), ("campaign_launch", True)),
+    "product": (("roadmap", False), ("release_note_post", True)),
 }
 
 # Two company-wide skills every generated workspace gets — a read and the shared lake.
-_COMPANY_SKILLS: tuple[tuple[str, str, str, str], ...] = (
-    ("skill_company_overview", "rest.company.overview.read", "auto", "unclassified"),
-    ("skill_company_directory_read", "rest.company.directory.read", "auto", "unclassified"),
+# (alias, target, risk, classification, service, access)
+_COMPANY_SKILLS: tuple[tuple[str, str, str, str, str, str], ...] = (
+    ("skill_company_overview", "rest.company.overview.read", "auto", "unclassified",
+     "Company overview", "read"),
+    ("skill_company_directory", "rest.company.directory.read", "auto", "unclassified",
+     "Company directory", "read"),
 )
 
 
@@ -128,7 +140,8 @@ def draft_plan_from_brief(brief: str, company: str, tenant: str) -> dict[str, An
     }]
 
     skills: list[dict[str, str]] = [
-        {"alias": a, "target": t, "risk_tier": r, "classification": c} for (a, t, r, c) in _COMPANY_SKILLS
+        {"alias": a, "target": t, "risk_tier": r, "classification": c, "service": svc, "access": acc}
+        for (a, t, r, c, svc, acc) in _COMPANY_SKILLS
     ]
     for d in domains:
         sensitive = next((s for (dom, _k, s) in _DOMAINS if dom == d), False)
@@ -140,6 +153,10 @@ def draft_plan_from_brief(brief: str, company: str, tenant: str) -> dict[str, An
                 "target": f"rest.{d}.{suffix.replace('_', '.')}",
                 "risk_tier": risk,
                 "classification": classification,
+                # Advisory display metadata: one human service label per domain (the
+                # permission table shows the domain once, Read/Write as controls).
+                "service": d.capitalize(),
+                "access": "write" if mutating else "read",
             })
     # De-dupe by alias (stable order) and clamp to the plan cap.
     seen: set[str] = set()
@@ -178,6 +195,15 @@ def _skill_error(skill: Any) -> str | None:
         return f"invalid classification {classification!r} for {alias!r}"
     if classification == "restricted" and risk != "pin_required":
         return f"restricted skill {alias!r} must be pin_required (sender-constraint policy)"
+    # Advisory display metadata (optional): closed access enum + bounded service label.
+    access = skill.get("access")
+    if access is not None and access not in VALID_ACCESS:
+        return f"invalid access {access!r} for {alias!r} (read or write)"
+    service = skill.get("service")
+    if service is not None and (
+        not isinstance(service, str) or not (1 <= len(service) <= _MAX_SERVICE_LEN)
+    ):
+        return f"invalid service label for {alias!r}"
     return None
 
 
@@ -236,6 +262,7 @@ def plan_to_directory_document(plan: dict[str, Any]) -> dict[str, Any]:
 __all__ = [
     "VALID_RISK",
     "VALID_CLASSIFICATION",
+    "VALID_ACCESS",
     "MAX_PLAN_SKILLS",
     "MAX_PLAN_ORG_UNITS",
     "MAX_PLAN_TEAMS",

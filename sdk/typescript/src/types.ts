@@ -63,7 +63,8 @@ export type SourceFormat =
   | 'raw_mcp'
   | 'gemini_function_call'
   | 'bedrock_tool_use'
-  | 'mcp_jsonrpc';
+  | 'mcp_jsonrpc'
+  | 'a2a_task';
 
 /**
  * Every vendor id the hash-pinned connector registry binds. The wire field is
@@ -71,21 +72,99 @@ export type SourceFormat =
  * this union is the reference list, not a structural constraint.
  */
 export type Vendor =
+  // Frontier labs + their OpenAI-compatible surfaces.
   | 'openai'
   | 'azure_openai'
   | 'copilot'
   | 'deepseek'
   | 'qwen'
   | 'ernie'
+  | 'kimi'
+  | 'moonshot'
+  // Third-party inference clouds (OpenAI tool-call shape).
+  | 'mistral'
+  | 'groq'
+  | 'together'
+  | 'fireworks'
+  | 'openrouter'
+  | 'xai'
+  | 'zhipu'
+  | 'glm'
+  | 'minimax'
+  | 'perplexity'
+  | 'cerebras'
+  | 'sambanova'
+  | 'nvidia_nim'
+  | 'deepinfra'
+  | 'nebius'
+  // Self-hosted OpenAI-compatible runtimes (the air-gapped path).
+  | 'ollama'
+  | 'vllm'
+  | 'sglang'
+  | 'llama_cpp'
+  | 'lmstudio'
+  | 'tgi'
+  | 'localai'
+  // Enterprise data-platform model endpoints.
+  | 'databricks'
+  | 'watsonx'
+  | 'snowflake_cortex'
+  // LLM gateways / routers.
+  | 'litellm'
+  | 'portkey'
+  | 'cloudflare_workers_ai'
+  | 'vercel_ai_gateway'
+  | 'github_models'
+  // Anthropic tool_use — incl. the Bedrock- and Vertex-hosted forms.
   | 'claude'
   | 'claude_bedrock'
+  | 'claude_vertex'
+  // Native cloud dialects.
   | 'bedrock'
   | 'gemini'
   | 'vertex'
+  // MCP hosts: editors, IDEs, terminals, coding agents.
   | 'mcp'
   | 'claude_code'
   | 'cursor'
-  | 'windsurf';
+  | 'windsurf'
+  | 'cline'
+  | 'opencode'
+  | 'goose'
+  | 'openhands'
+  | 'openclaw'
+  | 'zed'
+  | 'vscode'
+  | 'jetbrains'
+  | 'continue'
+  | 'roo'
+  | 'kilocode'
+  | 'codex'
+  | 'gemini_cli'
+  | 'amp'
+  | 'crush'
+  | 'warp'
+  // Assistant surfaces + automation platforms speaking MCP.
+  | 'chatgpt'
+  | 'copilot_studio'
+  | 'librechat'
+  | 'openwebui'
+  | 'n8n'
+  | 'dify'
+  | 'langflow'
+  | 'flowise'
+  // Agent frameworks acting as MCP clients.
+  | 'langgraph'
+  | 'crewai'
+  | 'autogen'
+  | 'openai_agents'
+  | 'pydantic_ai'
+  | 'llamaindex'
+  | 'semantic_kernel'
+  | 'mastra'
+  | 'strands'
+  // A2A task envelope.
+  | 'a2a';
 
 export type RiskTier = 'auto' | 'pin_required';
 

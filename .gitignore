@@ -76,3 +76,4 @@ release/*.provenance.intoto.json
 # --- otherwise snapshot its database state here — never committed) ------------
 dump.rdb
 appendonlydir/
+mcpip-workspace-plan.json

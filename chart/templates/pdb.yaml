@@ -1,0 +1,29 @@
+{{- if .Values.pdb.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "mcpip.fullname" . }}
+  labels:
+    {{- include "mcpip.labels" . | nindent 4 }}
+    app.kubernetes.io/component: gateway
+spec:
+  maxUnavailable: {{ .Values.pdb.maxUnavailable }}
+  selector:
+    matchLabels:
+      {{- include "mcpip.selectorLabels" . | nindent 6 }}
+{{- end }}
+{{- if and .Values.redis.enabled .Values.redis.pdb.enabled }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "mcpip.redis.fullname" . }}
+  labels:
+    {{- include "mcpip.labels" . | nindent 4 }}
+    app.kubernetes.io/component: redis
+spec:
+  maxUnavailable: {{ .Values.redis.pdb.maxUnavailable }}
+  selector:
+    matchLabels:
+      {{- include "mcpip.redis.selectorLabels" . | nindent 6 }}
+{{- end }}

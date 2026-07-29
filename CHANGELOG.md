@@ -7,6 +7,73 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`mcpip export-audit --verify` now verifies the whole signed chain, not just the
+  Merkle roots (audit-integrity defect).** The offline exporter — which
+  `docs/OPERATIONS.md` / `docs/SOC2_READINESS.md` name as THE continuous tamper check for
+  production, because `/v1/audit/verify` is sandbox-gated — recomputed per-epoch Merkle
+  roots ONLY: it checked no Ed25519 epoch signature, no `prev_epoch_hash` linkage, no
+  `epoch_hash`, and no rollback watermark, so a rolled-back ledger and a ledger with a
+  flipped signature byte both printed `audit chain: intact` and exited `0` while the
+  gateway's own `/v1/audit/verify` returned `{"intact": false}`. It now runs the same five
+  checks `WormLogger.verify_chain` runs — chain linkage (+ monotonic epoch numbers and
+  contiguous `seq` coverage), Merkle roots (leaves cross-checked against the stored
+  `leaf_hash`), `epoch_hash` recomputation over every persisted header field, the Ed25519
+  epoch signature, and the out-of-tamper-domain anchor low-watermark — plus the signed
+  super-checkpoint on a compacted chain. It fails closed on a missing key, an unparseable
+  header, an absent signature or a partially-deleted epoch, and the verdict lines NAME
+  every check performed (and any that was not). `mcpip_verify/audit_export.py` reads only
+  `XRANGE`/`HGETALL`/`GET` and still takes no lock. New gate:
+  `tests/test_audit_export_verify.py`.
+
+### Added
+
+- **Connector coverage wave — 27 → 82 vendor ids (`REGISTRY_VERSION` 3 → 4, deliberate
+  hash re-pin).** MCPIP now names the callers an operator actually runs. Added Kimi /
+  Moonshot (`bridge/connectors/kimi.py`); the remaining popular OpenAI-compatible
+  inference clouds (Zhipu/GLM, MiniMax, Perplexity, Cerebras, SambaNova, NVIDIA NIM,
+  DeepInfra, Nebius); **self-hosted runtimes** — Ollama, vLLM, SGLang, llama.cpp,
+  LM Studio, TGI, LocalAI (`local_runtime.py`), so an air-gapped operator's local model
+  gets the identical boundary, not a degraded one; enterprise data platforms — Databricks,
+  watsonx, Snowflake Cortex (`enterprise_ai.py`); LLM gateways/routers — LiteLLM, Portkey,
+  Cloudflare Workers AI, Vercel AI Gateway, GitHub Models (`llm_gateway.py`);
+  `claude_vertex` (Vertex-hosted Claude emits the identical `tool_use` block, exactly like
+  `claude_bedrock`); eleven more MCP hosts — Zed, VS Code, JetBrains, Continue, Roo Code,
+  Kilo Code, Codex CLI, Gemini CLI, Amp, Crush, Warp; assistant/automation platforms
+  speaking MCP — ChatGPT, Copilot Studio, LibreChat, Open WebUI, n8n, Dify, Langflow,
+  Flowise (`mcp_platform.py`); and agent frameworks acting as MCP clients — LangGraph,
+  CrewAI, AutoGen, OpenAI Agents SDK, Pydantic AI, LlamaIndex, Semantic Kernel, Mastra,
+  Strands (`mcp_framework.py`).
+
+  **Every addition is a pure alias onto an EXISTING parser** — no new wire shape, no new
+  parsing code, and **no change to any pre-existing vendor→format binding**; the modules
+  stay pure parser bindings (no SDK, no network, no env, enforced by the AST purity
+  guard). The registry hash was recomputed and re-pinned deliberately with the version
+  bump, so a gateway whose connector table drifts still refuses to boot. `grok` remains
+  deliberately unbound (xAI's id is `xai`) — an unrecognized vendor is still a fail-closed
+  `UNKNOWN_VENDOR` deny, never a guess.
+
+- **Mechanical connector-coverage guards.** `tests/test_connector_conformance.py` now
+  asserts that every registered vendor has a pinned fixture vector (and no fixture pins a
+  vendor the registry dropped), that every vendor id is an exact lowercase token (a
+  mixed-case binding would be unreachable under exact-match lookup), that the TypeScript
+  SDK's `Vendor` / `SourceFormat` unions match the registry and the engine, and that every
+  SDK envelope builder's output survives the real strict ingress with byte-identical
+  canonical arguments. Coverage is now enforced, not remembered.
+
+- **`a2a_task` envelope builders in both SDKs** (`envelopes.a2a_task` /
+  `a2aTask`) — the 7th dialect shipped in the gateway but neither SDK could construct it,
+  and the TypeScript `SourceFormat` union omitted it entirely.
+
+- **`mcpip export-audit --pubkey / --anchor-path / --require-anchor`.** `--pubkey` (the
+  `worm_signing_ed25519.pub.pem` half of the key ceremony) was already advertised by
+  `docs/GETTING_STARTED.md` and `scripts/provision_gateway_keys.py` but rejected by the
+  parser; it is now real and REQUIRED by `--verify` (no key ⇒ no verdict, rather than a
+  green verdict no signature backed). `--anchor-path` defaults to
+  `MCPIP_WORM_ANCHOR_PATH`, else `<MCPIP_WORM_PATH>.anchor`, exactly like the gateway;
+  `--require-anchor` makes a missing rollback witness a failure for scheduled checks.
+
 ## [3.0.0] - 2026-07-17
 
 **MCPIP GA milestone.** This is the General-Availability cut of the fail-closed,

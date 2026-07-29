@@ -12,7 +12,7 @@ The story (the compartment == the team):
     mcpip-inc
     ├── team-engineering   → skill_engineering_roadmap
     ├── team-finance       → skill_financial_wage_sheet, skill_financial_ledger_post
-    └── (company-wide)     → skill_company_overview, skill_data_lake_read
+    └── (company-wide)     → skill_company_overview, skill_data_lake
 
   * An Engineering agent reads the company overview and the engineering roadmap,
     but is DENIED the finance wage sheet (cross-team COMPARTMENT_DENIED, opaque).
@@ -194,7 +194,7 @@ def main() -> int:
         "Scenario 3 — Company agent, no team",
         "agent-visitor-1",
         None,
-        {"skill_company_overview": True, "skill_data_lake_read": True, "skill_financial_wage_sheet": False, "skill_engineering_roadmap": False},
+        {"skill_company_overview": True, "skill_data_lake": True, "skill_financial_wage_sheet": False, "skill_engineering_roadmap": False},
     )
 
     print()

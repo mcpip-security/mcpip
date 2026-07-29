@@ -207,7 +207,7 @@ export function CanaryPanel({ gateway }: { gateway: GatewayLive }): JSX.Element 
         <EmptyState
           icon={Bug}
           title="No gateway connected"
-          detail="The tripwire instrument is live-only: decoy roster, trips and quarantine state all come from the real gateway — nothing is seeded client-side."
+          detail="Connect a gateway to see its decoy roster, trips and quarantine state."
           action={
             <button type="button" className="btn-primary" onClick={() => navigateTo('gateway', 'connection')}>
               <PlugZap size={13} /> Connect a gateway
@@ -245,8 +245,8 @@ export function CanaryPanel({ gateway }: { gateway: GatewayLive }): JSX.Element 
         <Panel>
           <PanelHeader
             icon={Bug}
-            title="Decoy roster"
-            right={<span className="font-mono text-[10.5px]">/v1/admin/canaries</span>}
+            title="Tripwires"
+            right={<span className="font-mono text-[10.5px]">canary aliases · /v1/admin/canaries</span>}
           />
           {decoys === undefined ? (
             <div className="px-4 py-3 text-[11px] text-slate-500">Reading the decoy roster…</div>
@@ -256,7 +256,7 @@ export function CanaryPanel({ gateway }: { gateway: GatewayLive }): JSX.Element 
             <EmptyState
               icon={Bug}
               title="No decoys armed for this tenant"
-              detail="Canaries are an operator opt-in control — the sandbox seeds them on the industry showcase tenants, never into a company's own catalog uninvited."
+              detail="Canaries are opt-in — none are ever seeded into your catalog uninvited."
             />
           ) : (
             <div className="min-h-0 flex-1 overflow-auto">
@@ -299,9 +299,8 @@ export function CanaryPanel({ gateway }: { gateway: GatewayLive }): JSX.Element 
             </div>
           )}
           <div className="mt-auto shrink-0 border-t border-hairline px-4 py-2.5 text-[10.5px] leading-relaxed text-slate-500">
-            Decoys sit in the agent-visible catalog as plausible bait — selecting one is denied{' '}
-            <span className="font-mono text-[10px]">CANARY_TRIPPED</span> (opaque on the wire), the caller is
-            frozen for the quarantine TTL, and the concrete reason lands only in the WORM ledger.
+            Selecting a decoy is denied <span className="font-mono text-[10px]">CANARY_TRIPPED</span>{' '}
+            and the caller is frozen for the quarantine TTL.
           </div>
         </Panel>
 
@@ -316,7 +315,7 @@ export function CanaryPanel({ gateway }: { gateway: GatewayLive }): JSX.Element 
                 onClick={() => navigateTo('ledger', 'events')}
                 className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-500 transition-colors hover:text-ink"
               >
-                <ScrollText size={11} /> Open Audit Ledger
+                <ScrollText size={11} /> Open audit log
               </button>
             }
           />
@@ -326,7 +325,7 @@ export function CanaryPanel({ gateway }: { gateway: GatewayLive }): JSX.Element 
               <EmptyState
                 icon={Inbox}
                 title="No trips observed"
-                detail="No canary_tripped or agent_quarantined denial has appeared in the session feed, and no agent is currently frozen. Quiet is the honest answer."
+                detail="No canary trips or quarantined agents in this session."
               />
             )
           ) : (

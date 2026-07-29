@@ -23,7 +23,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Check,
-  ChevronRight,
   Copy,
   EyeOff,
   Inbox,
@@ -296,8 +295,8 @@ export function SeparationCheck({ gateway }: { gateway: GatewayLive }): JSX.Elem
       <Panel className="h-full">
         <EmptyState
           icon={Users}
-          title="Two compartments required"
-          detail="Separation is checked between two of your teams — each team from setup maps to a gateway compartment. Create at least two in Company Settings, then run the check."
+          title="Two teams required"
+          detail="Create at least two teams in Company Settings, then run the check."
           action={
             <button type="button" className="btn-ghost" onClick={() => navigateTo('gateway', 'company')}>
               Open Company Settings
@@ -365,7 +364,7 @@ export function SeparationCheck({ gateway }: { gateway: GatewayLive }): JSX.Elem
             <EmptyState
               icon={ShieldCheck}
               title="No verdict yet"
-              detail="Run the check to mint two per-team probe identities and watch the gateway decide both sides of the boundary for real: own-compartment allow, cross-compartment deny."
+              detail="Run the check to watch the gateway decide both sides of the team boundary for real."
               action={
                 <button type="button" onClick={() => void doRun()} disabled={!canRun} className="btn-primary">
                   <Play size={13} /> Run check
@@ -394,12 +393,8 @@ export function SeparationCheck({ gateway }: { gateway: GatewayLive }): JSX.Elem
                 </span>
               </div>
               <p className="pl-6 text-[11px] leading-relaxed text-slate-500">
-                That is identity sovereignty, not a fault: in production the console cannot mint probe
-                identities. Mint two team-scoped principals from your IdP (
-                <span className="font-mono text-[10.5px]">scripts/mint_principal.py</span>) and fire the same
-                two calls through the SDK — the gateway enforces the identical compartment gate and every
-                decision lands in the WORM ledger. (On a sandbox gateway this can also be a transient mint
-                failure — re-run the check.)
+                In production, mint two team-scoped principals from your IdP and fire the same two
+                calls through the SDK.
               </p>
             </div>
           ) : null}
@@ -419,16 +414,15 @@ export function SeparationCheck({ gateway }: { gateway: GatewayLive }): JSX.Elem
             <EmptyState
               icon={SearchX}
               title="No compartment-scoped skills to test"
-              detail={`Both catalogs were read live under their own team identities (${run.a.enumerable} and ${run.b.enumerable} rows) — every enumerable alias is tenant-wide, so there is no boundary for the gateway to enforce between these teams. Compartment-scoped rows come from the gateway's config registry; operator-registered skills are tenant-wide by design.`}
+              detail={`Both catalogs were read live (${run.a.enumerable} and ${run.b.enumerable} rows) — every enumerable alias is tenant-wide, so there is no boundary to test.`}
             />
           ) : null}
 
           {run.phase === 'done' && run.cells.length > 0 ? <DoneMatrix run={run} feedReason={feedReason} /> : null}
 
           <div className="mt-auto shrink-0 border-t border-hairline px-4 py-2.5 text-[10.5px] leading-relaxed text-slate-500">
-            Cross-compartment denies happen before any PIN, and the wire carries only the opaque{' '}
-            <span className="font-mono text-[10px]">MCPIPDenied</span> + correlation id — concrete reasons live
-            in the WORM ledger, where each cell&apos;s correlation id can be found.
+            The wire carries only an opaque deny + correlation id — look up the id in the audit log
+            for the concrete reason.
           </div>
         </Panel>
 
@@ -443,14 +437,14 @@ export function SeparationCheck({ gateway }: { gateway: GatewayLive }): JSX.Elem
                 onClick={() => navigateTo('ledger', 'events')}
                 className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-500 transition-colors hover:text-ink"
               >
-                Open Audit Ledger
+                Open audit log
               </button>
             }
           />
           <EvidenceList stream={stream} />
           <div className="mt-auto shrink-0 border-t border-hairline px-4 py-2.5 text-[10.5px] leading-relaxed text-slate-500">
-            <span className="font-mono text-[10px]">deny_reason = compartment_denied</span> rows from the live
-            feed (newest 50 decisions) — probe denials appear here within a poll (~2s).
+            <span className="font-mono text-[10px]">compartment_denied</span> rows from the live
+            feed — probe denials appear within ~2 s.
           </div>
         </Panel>
       </div>
@@ -576,18 +570,13 @@ function DoneMatrix({
         </table>
       </div>
 
-      {/* Evidence — the per-cell correlation ids + WORM deny reasons and the catalog
-          half of separation, folded behind a disclosure to keep the matrix scannable.
-          The WORM deny reason and correlation id (the fail-closed / opaque audit trail
-          that proves the posture) stay one click away — collapsed, never removed. */}
-      <details className="group rounded-lg border border-hairline">
-        <summary className="flex cursor-pointer list-none items-center gap-1.5 px-3 py-2 text-[10.5px] font-medium uppercase tracking-[0.08em] text-slate-500 transition-colors hover:text-ink">
-          <ChevronRight size={12} className="shrink-0 transition-transform group-open:rotate-90" />
-          Evidence · correlation ids, WORM reasons &amp; catalog visibility
-        </summary>
-        <div className="space-y-3 border-t border-hairline px-3 py-3">
-          {/* Per-probe verdict + the WORM deny reason (once the feed catches up) and the
-              copyable correlation id that locates the concrete reason in the ledger. */}
+      {/* Evidence — per-cell correlation ids + WORM deny reasons and the catalog
+          half of separation. Data, rendered plainly. */}
+      <div className="rounded-lg border border-hairline">
+        <p className="border-b border-hairline px-3 py-2 text-[10.5px] font-medium uppercase tracking-[0.08em] text-slate-500">
+          Evidence
+        </p>
+        <div className="space-y-3 px-3 py-3">
           <div className="space-y-1.5">
             {cells.map((cell) => {
               const caller = callers.find((s) => s.source.uuid === cell.callerUuid);
@@ -608,7 +597,7 @@ function DoneMatrix({
                         WORM: <span className="font-mono text-denied">{feedHit}</span>
                       </span>
                     ) : (
-                      <span>reason is WORM-only (opaque on the wire)</span>
+                      <span>reason is WORM-only</span>
                     )
                   ) : null}
                   {cell.correlationId !== null ? <CopyCorr id={cell.correlationId} /> : null}
@@ -623,11 +612,11 @@ function DoneMatrix({
               <div key={t.alias} className="flex items-start gap-2 text-[11px] leading-relaxed text-slate-500">
                 <EyeOff size={12} className={`mt-0.5 shrink-0 ${t.enumerableFromOther ? 'text-staged' : 'text-verified'}`} />
                 <span>
-                  <span className="font-mono text-[10.5px] text-ink">{t.alias}</span> (scoped to {t.owner.label}) is{' '}
+                  <span className="font-mono text-[10.5px] text-ink">{t.alias}</span> (scoped to {t.owner.label}):{' '}
                   {t.enumerableFromOther ? (
-                    <span className="text-staged">enumerable from the other team&apos;s catalog — expected hidden; check for a live grant</span>
+                    <span className="text-staged">visible in the other team&apos;s catalog — check for a live grant</span>
                   ) : (
-                    <>not even enumerable from the other team&apos;s catalog — the gateway hides it, it does not just deny it</>
+                    <>hidden from the other team&apos;s catalog</>
                   )}
                   .
                 </span>
@@ -635,7 +624,7 @@ function DoneMatrix({
             ))}
           </div>
         </div>
-      </details>
+      </div>
     </div>
   );
 }
@@ -648,8 +637,8 @@ function EvidenceList({ stream }: { stream: GatewayLive['stream'] }): JSX.Elemen
     return (
       <EmptyState
         icon={Inbox}
-        title="No compartment_denied in the recent feed"
-        detail="The live feed is quiet on this reason. Run the check (or let real agents cross a boundary) and the denials appear here — nothing is staged for effect."
+        title="No cross-team denials in the recent feed"
+        detail="Run the check to generate real cross-team probes."
       />
     );
   }

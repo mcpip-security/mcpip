@@ -70,6 +70,7 @@ from auth.pop import jwk_thumbprint
 from core.security import AGENT_FACING_DENY_MESSAGE
 from core.version import get_version
 from interfaces import (
+    JWT_CLOCK_SKEW_LEEWAY_SECONDS,
     CAP_COMPARTMENT_GRANT,
     CAP_DIRECTORY_ADMIN,
     RiskTier,
@@ -85,7 +86,7 @@ from main import _DemoIdP, _forge_none_token, _tamper_signature
 _AUTO_ALIAS = "skill_spend_summary"
 _PIN_ALIAS = "skill_payroll_run"
 _GRANT_ALIAS = "skill_compartment_grant"
-_FALCON_ALIAS = "skill_falcon_telemetry"
+_FALCON_ALIAS = "skill_airframe_telemetry"
 _CANARY_ALIAS = "skill_export_all_credentials"  # a seeded deception tripwire row.
 _AEGIS = "aegis-dynamics"
 _EVENTS_STREAM = "mcpip:worm:events"
@@ -349,17 +350,25 @@ def test_07_alg_none(client: TestClient, idp: _DemoIdP) -> None:
 
 
 def test_08_expired_jwt(client: TestClient, idp: _DemoIdP) -> None:
-    """A validly-signed but expired JWT → opaque 403; WORM records jwt_invalid."""
+    """A validly-signed but expired JWT → opaque 403; WORM records jwt_invalid.
+
+    Expired by more than JWT_CLOCK_SKEW_LEEWAY_SECONDS. The gateway deliberately
+    tolerates that much drift on exp/iat/nbf (without it, a one-second disagreement with
+    the IdP's clock is a total auth outage), so this stays a real expiry rejection only
+    if it sits OUTSIDE the window — derived from the constant so widening the leeway can
+    never silently defang the test.
+    """
     now = int(time.time())
+    expired_by = JWT_CLOCK_SKEW_LEEWAY_SECONDS + 10
     claims: dict[str, Any] = {
         "iss": _DemoIdP.ISSUER,
         "aud": _DemoIdP.AUDIENCE,
         "tenant_id": "tenant-acme",
         "agent_id": "agent-orchestrator-1",
         "role": "ops",
-        "exp": now - 10,
-        "iat": now - 120,
-        "nbf": now - 120,
+        "exp": now - expired_by,
+        "iat": now - expired_by - 120,
+        "nbf": now - expired_by - 120,
         "jti": uuid.uuid4().hex,
     }
     resp = _post(
@@ -517,7 +526,7 @@ def test_16b_cross_compartment_grant_denied(
 
     # The mole never gained AEGIS access — a classified AEGIS alias stays denied.
     mole = idp.mint(tenant_id=_AEGIS, agent_id=mole_id)
-    denied = _post(client, alias="skill_aegis_radar_tune", arguments={}, token=mole)
+    denied = _post(client, alias="skill_radar_calibration_set", arguments={}, token=mole)
     _assert_opaque_denial(denied)
     assert _last_deny_reason() == "compartment_denied"
 
@@ -916,8 +925,8 @@ def test_catalog_team_separation(client: TestClient, idp: _DemoIdP) -> None:
     names = {str(item["alias"]) for item in items}
     assert _FALCON_ALIAS in names
     assert "skill_status_probe" in names  # tenant-wide, un-compartmented.
-    assert "skill_aegis_radar_tune" not in names
-    assert "skill_sentinel_recon_feed" not in names
+    assert "skill_radar_calibration_set" not in names
+    assert "skill_recon_feed_read" not in names
     for item in items:
         assert "target" not in item  # topology never surfaces (invariant #4).
 
@@ -1337,6 +1346,100 @@ def test_register_skill_requires_admin_cap(client: TestClient, idp: _DemoIdP) ->
     assert resp.status_code == 403
 
 
+def test_register_skill_with_service_and_access_persists(client: TestClient, idp: _DemoIdP) -> None:
+    """The structured service/access display metadata persists with the skill: the
+    operator projection returns both; /v1/catalog carries the access mode but NEVER
+    the service label (a target hint stays off the agent wire)."""
+    admin = _admin(idp)
+    hdr = {"Authorization": f"Bearer {admin}"}
+    alias = "skill_test_billing"
+    reg = client.post(
+        "/v1/admin/skills/register",
+        json={
+            "alias": alias,
+            "target": "rest.billing.invoices.get",
+            "risk_tier": "auto",
+            "service": "Billing invoices",
+            "access": "read",
+        },
+        headers=hdr,
+    )
+    assert reg.status_code == 200, reg.text
+    listed = _json(client.get("/v1/admin/skills/registered", headers=hdr))
+    row = next(e for e in listed["entries"] if e["alias"] == alias)
+    assert row["service"] == "Billing invoices" and row["access"] == "read"
+    # The agent-facing catalog carries the benign access mode only.
+    cat = _json(client.get("/v1/catalog", headers={"Authorization": f"Bearer {idp.mint()}"}))
+    item = next(i for i in cat["catalog"] if i["alias"] == alias)
+    assert item["access"] == "read"
+    assert "service" not in item
+    # An unannotated operator row falls back to the risk-derived access in the listing.
+    plain = "skill_test_plain_write"
+    assert client.post(
+        "/v1/admin/skills/register",
+        json={"alias": plain, "target": "rest.plain.post", "risk_tier": "pin_required"},
+        headers=hdr,
+    ).status_code == 200
+    listed = _json(client.get("/v1/admin/skills/registered", headers=hdr))
+    plain_row = next(e for e in listed["entries"] if e["alias"] == plain)
+    assert plain_row["access"] == "write" and plain_row["service"] == "test plain write"
+    for a in (alias, plain):
+        assert client.post(f"/v1/admin/skills/{a}/deregister", headers=hdr).status_code == 200
+
+
+def test_register_skill_bad_access_enum_is_denied(client: TestClient, idp: _DemoIdP) -> None:
+    """`access` is a closed enum — anything outside read/write is an opaque deny and
+    nothing is registered."""
+    admin = _admin(idp)
+    hdr = {"Authorization": f"Bearer {admin}"}
+    resp = client.post(
+        "/v1/admin/skills/register",
+        json={"alias": "skill_bad_access", "target": "rest.x", "access": "admin"},
+        headers=hdr,
+    )
+    assert resp.status_code == 403
+    assert set(_json(resp).keys()) == {"error", "correlation_id"}
+    assert "skill_bad_access" not in _json(client.get("/v1/admin/skills/registered", headers=hdr))["registered"]
+
+
+def test_overlay_fields_roundtrip_keeps_service_and_access(client: TestClient) -> None:
+    """The persisted overlay field map carries service/access through to the hydrated
+    AliasEntry; an invalid stored access value degrades to None (advisory metadata —
+    the row itself is never refused for it)."""
+    from app.main import _overlay_entry, _overlay_fields
+
+    fields = _overlay_fields("rest.rt.example", "auto", "unclassified", service="AWS S3", access="read")
+    entry = _overlay_entry("skill_rt_roundtrip", fields)
+    assert entry is not None
+    assert entry.service == "AWS S3" and entry.access == "read"
+    # Unset fields are simply absent — hydration yields None (fallback applies).
+    bare = _overlay_fields("rest.rt.example", "auto", "unclassified")
+    assert "service" not in bare and "access" not in bare
+    bare_entry = _overlay_entry("skill_rt_bare", bare)
+    assert bare_entry is not None and bare_entry.service is None and bare_entry.access is None
+    # A corrupt stored access value degrades to None, never a refused row.
+    fields["access"] = "admin"
+    degraded = _overlay_entry("skill_rt_roundtrip", fields)
+    assert degraded is not None and degraded.access is None and degraded.service == "AWS S3"
+
+
+def test_effective_access_fallback_and_display_service() -> None:
+    """Unannotated entries display the risk-derived access (AUTO→read, PIN→write); an
+    explicit annotation wins; display_service humanizes the alias when unset."""
+    from interfaces import RiskTier
+    from obfuscator import AliasEntry, display_service, effective_access
+
+    auto = AliasEntry("skill_thing_status", "rest.t", "cloud_rest", RiskTier.AUTO)
+    pin = AliasEntry("skill_thing_update", "rest.t2", "cloud_rest", RiskTier.PIN_REQUIRED)
+    assert effective_access(auto) == "read"
+    assert effective_access(pin) == "write"
+    annotated = AliasEntry("skill_pii_export", "rest.p", "cloud_rest", RiskTier.PIN_REQUIRED, access="read")
+    assert effective_access(annotated) == "read"
+    assert display_service(auto) == "thing status"
+    labeled = AliasEntry("skill_x", "rest.x", "cloud_rest", RiskTier.AUTO, service="Thing service")
+    assert display_service(labeled) == "Thing service"
+
+
 # ---------------------------------------------------------------------------
 # Operator decision feed (/v1/admin/decisions/recent) — the live stream the console
 # renders so REAL agent traffic shows up. Opaque, tenant-scoped, capability-gated.
@@ -1395,12 +1498,12 @@ def test_recent_decisions_feed_requires_admin_cap(client: TestClient, idp: _Demo
 # Cloud IAM broker (cloud_iam transport). Executing an authorized cloud_iam skill
 # VENDS a short-lived scoped credential — per-call, compartment-scoped, and NEVER
 # written to the WORM log. Demo tenant mcpip-inc / team-engineering is seeded in
-# sandbox with the 'aws-eng-readonly' environment + skill_aws_s3_read.
+# sandbox with the 'aws-eng-readonly' environment + skill_aws_s3.
 # ---------------------------------------------------------------------------
 
 _MCPIP_ENG = "e0900000-0000-4000-8000-e0900000e090"
 _MCPIP_FIN = "f1a00000-0000-4000-8000-f1a00000f1a0"
-_AWS_ALIAS = "skill_aws_s3_read"
+_AWS_ALIAS = "skill_aws_s3"
 
 
 def test_cloud_iam_vends_scoped_credential(client: TestClient, idp: _DemoIdP) -> None:
@@ -1442,11 +1545,11 @@ def test_cloud_iam_credential_never_reaches_worm(client: TestClient, idp: _DemoI
     assert "session_token" not in raw and "secret_access_key" not in raw
 
 
-_DDB_ALIAS = "skill_dynamodb_write"
+_DDB_ALIAS = "skill_aws_dynamodb"
 
 
 def test_cloud_iam_write_requires_step_up_then_vends(client: TestClient, idp: _DemoIdP) -> None:
-    """skill_dynamodb_write is a WRITE (PIN_REQUIRED): the first call stages a payload-bound
+    """skill_aws_dynamodb is a WRITE (PIN_REQUIRED): the first call stages a payload-bound
     challenge (no credential yet); completing the step-up vends the write-scoped credential."""
     eng = idp.mint(tenant_id="mcpip-inc", agent_id="agent-eng-ddb", compartment=_MCPIP_ENG)
     args = {"table": "mcpip-live-fire", "item": {"pk": "agent-eng-ddb", "note": "hello"}}
@@ -2742,6 +2845,69 @@ def test_require_sc_denies_non_attested_cnf(client: TestClient, idp: _DemoIdP) -
         assert _last_deny_reason() == "sender_constraint_required"
     finally:
         engine._resolver = original
+
+
+# --- Cross-edge metrics consistency (regression) ---------------------------------
+#
+# The console's "decisions since start" tile reads the Prometheus
+# ``mcpip_authorize_decisions_total`` counter; Analytics/the WORM stream read the
+# audit feed. They diverged (8 vs 13) because the ALLOW/STAGED increments lived in
+# the POST /v1/authorize handler only — the MCP-native POST /v1/mcp edge ran the same
+# pipeline (and wrote WORM) but never incremented the counter, so MCP decisions were
+# invisible to /metrics. The counts now live in the SHARED pipeline. These assert the
+# invariant per edge so the undercount can't silently return.
+
+
+def _decisions_count(decision: str) -> float:
+    from prometheus_client import REGISTRY
+
+    return (
+        REGISTRY.get_sample_value(
+            "mcpip_authorize_decisions_total", {"decision": decision}
+        )
+        or 0.0
+    )
+
+
+def test_mcp_edge_increments_allow_decisions_counter(
+    client: TestClient, idp: _DemoIdP
+) -> None:
+    """An ALLOW over the MCP-native edge increments the SAME counter as /v1/authorize."""
+    before = _decisions_count("allow")
+    resp = client.post(
+        "/v1/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "id": uuid.uuid4().hex,
+            "method": "tools/call",
+            "params": {"name": _AUTO_ALIAS, "arguments": {"period": "2026-Q2"}},
+        },
+        headers={"Authorization": f"Bearer {idp.mint()}"},
+    )
+    assert resp.status_code == 200, resp.text
+    assert _decisions_count("allow") == before + 1.0
+
+
+def test_rest_and_mcp_count_an_allow_identically(
+    client: TestClient, idp: _DemoIdP
+) -> None:
+    """Parity: one REST allow and one MCP allow each move the counter by exactly one."""
+    start = _decisions_count("allow")
+    rest = _post(client, alias=_AUTO_ALIAS, arguments={"period": "Q1"}, token=idp.mint())
+    assert rest.status_code == 200, rest.text
+    assert _decisions_count("allow") == start + 1.0
+    mcp = client.post(
+        "/v1/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "id": uuid.uuid4().hex,
+            "method": "tools/call",
+            "params": {"name": _AUTO_ALIAS, "arguments": {"period": "Q1"}},
+        },
+        headers={"Authorization": f"Bearer {idp.mint()}"},
+    )
+    assert mcp.status_code == 200, mcp.text
+    assert _decisions_count("allow") == start + 2.0
 
 
 if __name__ == "__main__":

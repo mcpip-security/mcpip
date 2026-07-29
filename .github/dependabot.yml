@@ -1,0 +1,42 @@
+# Dependency vulnerability monitoring & update automation.
+#
+# Closes SOC2_READINESS.md #24 (no automated dependency/CVE scanning): Dependabot
+# opens PRs for known-vulnerable and out-of-date dependencies across every
+# ecosystem the repo ships, so a new CVE in a pinned dependency is surfaced as a
+# reviewable PR instead of waiting on a manual offline `grype`/`trivy` run.
+#
+# Grouped, weekly, low-noise. Security updates are ungrouped so a CVE fix lands
+# on its own reviewable PR immediately.
+version: 2
+updates:
+  # --- Python runtime + dev deps (root requirements*.txt). --------------------
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      python-deps:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+    labels: ["dependencies", "supply-chain"]
+
+  # --- Operator console (Vite/React). ----------------------------------------
+  - package-ecosystem: "npm"
+    directory: "/dashboard"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      console-deps:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+    labels: ["dependencies", "supply-chain", "console"]
+
+  # --- CI workflow actions (pin bumps + security). ---------------------------
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    labels: ["dependencies", "supply-chain", "ci"]

@@ -137,6 +137,9 @@ export interface Compartment {
   classification: Classification;
 }
 
+/** Structured skill access level — advisory display metadata, never enforcement. */
+export type SkillAccess = 'read' | 'write';
+
 /** GET /v1/catalog item — metadata only, never the target (SPEC §1.9). */
 export interface CatalogItem {
   alias: string;
@@ -144,6 +147,9 @@ export interface CatalogItem {
   transport_class: TransportClass;
   classification: Classification;
   compartment?: string | null;
+  /** Advisory display access mode ('read'/'write'), risk-derived when unannotated.
+      Absent on older gateways — callers fall back to the risk tier. */
+  access?: SkillAccess | null;
 }
 
 /** A delegated compartment grant (SPEC §1.5 GrantRecord). */

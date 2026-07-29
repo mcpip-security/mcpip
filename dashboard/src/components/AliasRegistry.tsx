@@ -10,6 +10,7 @@ import {
   ShieldAlert,
   Boxes,
   Bug,
+  Info,
   X,
   Search,
   Package,
@@ -35,6 +36,7 @@ import type {
   Classification,
   CatalogItem,
   Compartment,
+  SkillAccess,
 } from '../lib/types';
 import type { GatewayLive } from '../lib/useGatewayLive';
 
@@ -45,24 +47,33 @@ function slugify(text: string, sep: '_' | '.'): string {
 }
 
 /**
- * Skills & Tools — the operator's Docker-Desktop-style control surface for the
- * obfuscator catalog. Every row is a skill the gateway can authorize; the operator
- * can:
- *   • ▶ Play / ■ Stop it (the hot-path kill-switch — a DENY-only control that never
- *     edits the alias→target mapping; a stopped skill is denied SKILL_DISABLED),
- *   • ⓘ inspect it (metadata only — the real target never leaves the gateway),
- *   • + Register a NEW skill (additive-only alias→target, cloud_rest, WORM-logged),
- *   • 🗑 Deregister one the operator added (config skills are immutable),
- *   • "View as" a team compartment — the console mints a per-(tenant, compartment)
- *     identity and re-reads GET /v1/catalog under it, so the rows shown are EXACTLY
- *     what that team's agents can enumerate (the gateway itself applies the filter;
- *     nothing is filtered client-side).
+ * Client mirror of obfuscator.alias_registry.display_service — the fallback service
+ * label for an alias with no stored label: strip the leading "skill_", underscores
+ * become spaces.
+ */
+export function displayService(alias: string): string {
+  const stripped = alias.startsWith('skill_') ? alias.slice('skill_'.length) : alias;
+  return stripped.replace(/_/g, ' ');
+}
+
+/**
+ * Skills — the operator's permission table for the obfuscator catalog, in the shape of
+ * an API-token permission list: each SERVICE is listed once with a Read and a Write
+ * control. A checked box means agents may call the alias behind it; unchecking denies
+ * it (SKILL_DISABLED) until re-checked — the same hot-path kill-switch as before, it
+ * never edits the alias→target mapping. A box is present only when an alias with that
+ * access level exists for the service.
  *
- * Canary decoys are badged from the operator-only GET /v1/admin/canaries roster
- * (the agent-facing catalog keeps hiding the flag), and stopping one asks for
- * confirmation — a stopped decoy is a disarmed tripwire.
+ * Expanding a service lists its underlying aliases; the inspector shows the per-alias
+ * detail (transport, risk tier, compartment) and holds the per-alias controls,
+ * including deregister for operator-added skills. Canary decoys are badged from the
+ * operator-only GET /v1/admin/canaries roster (the agent-facing catalog keeps hiding
+ * the flag), and unchecking one asks for confirmation — a stopped decoy is a disarmed
+ * tripwire.
  *
- * Agents only ever see the alias. Offline is honestly empty — no fabricated catalog.
+ * "View as" re-reads GET /v1/catalog under a per-team identity, so the rows shown are
+ * exactly what that team's agents can enumerate. Agents only ever see the alias.
+ * Offline is honestly empty — no fabricated catalog.
  */
 
 /* ---------------------------------------------------------------------------
@@ -138,7 +149,7 @@ export function compartmentSources(
 /* ---------------------------------------------------------------------------
    Per-compartment live catalog — the "view as" data. Mints a (tenant,
    compartment) identity and reads GET /v1/catalog under it on the standard 5s
-   cadence, so play/stop/register reconcile in a team view exactly like the
+   cadence, so enable/disable/register reconcile in a team view exactly like the
    company-wide one. Fails honest: `failed` (never a silent fallback to the
    tenant-wide rows) when the mint or read cannot complete.
 --------------------------------------------------------------------------- */
@@ -221,6 +232,10 @@ interface SkillRow {
   risk: RiskTier;
   classification: Classification;
   compartment?: string | null;
+  /** Permission-table group — the human service label. */
+  service: string;
+  /** Structured access level (display metadata; risk-derived when unannotated). */
+  access: SkillAccess;
   /** operator-registered (deregisterable) vs config (immutable). */
   operator: boolean;
   /** running = agents may invoke it; stopped = disabled (denied SKILL_DISABLED). */
@@ -229,6 +244,14 @@ interface SkillRow {
   canary: boolean;
   /** When the operator registered this skill (ISO-8601); null for config skills. */
   registeredAt?: string | null;
+}
+
+/** One permission-table row: a service with its read and write aliases. */
+interface ServiceGroup {
+  service: string;
+  rows: SkillRow[];
+  reads: SkillRow[];
+  writes: SkillRow[];
 }
 
 /** A stop request awaiting confirmation because it would disarm canary decoys. */
@@ -254,12 +277,14 @@ export function AliasRegistry({ gateway }: AliasRegistryProps): JSX.Element {
   const [registered, setRegistered] = useState<Set<string>>(new Set());
   // alias → registration timestamp (ISO-8601), for operator-registered skills.
   const [registeredAt, setRegisteredAt] = useState<Map<string, string>>(new Map());
+  // alias → stored service label (operator surface; config rows use the client fallback).
+  const [serviceByAlias, setServiceByAlias] = useState<Map<string, string>>(new Map());
   const [busy, setBusy] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [showRegister, setShowRegister] = useState(false);
-  // Multi-select for bulk play / stop / deregister across many skills at once.
-  const [checked, setChecked] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
+  // Expanded permission-table groups (service labels).
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   // Optimistic overlays so register / deregister feel instant before the 5s catalog refresh.
   const [pendingAdds, setPendingAdds] = useState<SkillRow[]>([]);
   const [pendingRemoves, setPendingRemoves] = useState<Set<string>>(new Set());
@@ -319,6 +344,11 @@ export function AliasRegistry({ gateway }: AliasRegistryProps): JSX.Element {
           for (const r of reg) if (r.registered_at) next.set(r.alias, r.registered_at);
           return next;
         });
+        setServiceByAlias((prev) => {
+          const next = new Map(prev);
+          for (const r of reg) if (r.service) next.set(r.alias, r.service);
+          return next;
+        });
       }
     })();
     return () => {
@@ -367,6 +397,16 @@ export function AliasRegistry({ gateway }: AliasRegistryProps): JSX.Element {
         risk: c.risk_tier,
         classification: (c.classification ?? 'unclassified') as Classification,
         compartment: c.compartment,
+        // Service label: the stored operator label when one exists, else the alias
+        // humanized (the same fallback the gateway's display helper uses).
+        service: serviceByAlias.get(c.alias) ?? displayService(c.alias),
+        // Access: the gateway's advisory projection; older gateways fall back to risk.
+        access:
+          c.access === 'read' || c.access === 'write'
+            ? c.access
+            : c.risk_tier === 'pin_required'
+              ? 'write'
+              : 'read',
         operator: registered.has(c.alias),
         running: !disabled.has(c.alias),
         canary: canaries.has(c.alias),
@@ -381,13 +421,33 @@ export function AliasRegistry({ gateway }: AliasRegistryProps): JSX.Element {
     }
     const q = query.trim().toLowerCase();
     return [...byAlias.values()]
-      .filter((r) => (q ? r.alias.toLowerCase().includes(q) : true))
+      .filter((r) =>
+        q ? r.alias.toLowerCase().includes(q) || r.service.toLowerCase().includes(q) : true,
+      )
       .sort((a, b) => a.alias.localeCompare(b.alias));
-  }, [live, viewAs, catalog, scopedView.items, disabled, registered, registeredAt, canaries, pendingAdds, pendingRemoves, query]);
+  }, [live, viewAs, catalog, scopedView.items, disabled, registered, registeredAt, serviceByAlias, canaries, pendingAdds, pendingRemoves, query]);
+
+  // The permission table: one row per service, Read/Write as controls.
+  const groups: ServiceGroup[] = useMemo(() => {
+    const byService = new Map<string, SkillRow[]>();
+    for (const r of rows) {
+      const list = byService.get(r.service);
+      if (list) list.push(r);
+      else byService.set(r.service, [r]);
+    }
+    return [...byService.entries()]
+      .map(([service, list]) => ({
+        service,
+        rows: list,
+        reads: list.filter((r) => r.access === 'read'),
+        writes: list.filter((r) => r.access === 'write'),
+      }))
+      .sort((a, b) => a.service.localeCompare(b.service));
+  }, [rows]);
 
   const selectedRow = useMemo(() => rows.find((r) => r.alias === selected) ?? null, [rows, selected]);
 
-  /** The actual kill-switch calls — shared by single toggles, bulk, and the confirm. */
+  /** The actual kill-switch calls — shared by checkbox toggles and the canary confirm. */
   const doSetRunning = useCallback(
     async (aliases: string[], run: boolean): Promise<void> => {
       if (!skillTenant || aliases.length === 0) return;
@@ -407,7 +467,7 @@ export function AliasRegistry({ gateway }: AliasRegistryProps): JSX.Element {
       });
       setActionError(
         failed.length > 0
-          ? `${run ? 'Play' : 'Stop'} failed for ${failed.join(', ')} — the gateway refused the change or is unreachable.`
+          ? `${run ? 'Enable' : 'Disable'} failed for ${failed.join(', ')} — the gateway refused the change or is unreachable.`
           : null,
       );
       setBusy(null);
@@ -416,7 +476,7 @@ export function AliasRegistry({ gateway }: AliasRegistryProps): JSX.Element {
     [apiBase, skillTenant],
   );
 
-  /** Route a play/stop through the canary confirmation when it would disarm decoys. */
+  /** Route an enable/disable through the canary confirmation when it would disarm decoys. */
   const requestSetRunning = useCallback(
     (aliases: string[], run: boolean): void => {
       if (!run) {
@@ -473,83 +533,31 @@ export function AliasRegistry({ gateway }: AliasRegistryProps): JSX.Element {
       newRows.forEach((r) => { if (r.registeredAt) next.set(r.alias, r.registeredAt); });
       return next;
     });
+    setServiceByAlias((prev) => {
+      const next = new Map(prev);
+      newRows.forEach((r) => next.set(r.alias, r.service));
+      return next;
+    });
     setShowRegister(false);
-    setSelected(newRows[newRows.length - 1]!.alias);
-  }, []);
-
-  const toggleChecked = useCallback((alias: string): void => {
-    setChecked((prev) => {
-      const next = new Set(prev);
-      if (next.has(alias)) next.delete(alias);
-      else next.add(alias);
-      return next;
-    });
-  }, []);
-
-  // Bulk play/stop across every checked, visible skill (skips ones already in that state).
-  const bulkSetRunning = useCallback(
-    (run: boolean): void => {
-      const targets = rows.filter((r) => checked.has(r.alias) && r.running !== run).map((r) => r.alias);
-      if (targets.length === 0) return;
-      requestSetRunning(targets, run);
-    },
-    [rows, checked, requestSetRunning],
-  );
-
-  // Bulk deregister — operator-added skills only (config skills are immutable).
-  const bulkDeregister = useCallback(async (): Promise<void> => {
-    if (!skillTenant) return;
-    const targets = rows.filter((r) => checked.has(r.alias) && r.operator).map((r) => r.alias);
-    if (targets.length === 0) return;
-    setBulkBusy(true);
-    const removed: string[] = [];
-    const failed: string[] = [];
-    for (const alias of targets) {
-      const res = await deregisterSkill(apiBase, skillTenant, alias);
-      if (res.ok) removed.push(alias);
-      else failed.push(alias);
+    const last = newRows[newRows.length - 1];
+    if (last) {
+      setSelected(last.alias);
+      setExpanded((prev) => new Set(prev).add(last.service));
     }
-    setPendingRemoves((prev) => {
+  }, []);
+
+  const toggleExpanded = useCallback((service: string): void => {
+    setExpanded((prev) => {
       const next = new Set(prev);
-      removed.forEach((a) => next.add(a));
+      if (next.has(service)) next.delete(service);
+      else next.add(service);
       return next;
     });
-    setPendingAdds((prev) => prev.filter((p) => !removed.includes(p.alias)));
-    setRegistered((prev) => {
-      const next = new Set(prev);
-      removed.forEach((a) => next.delete(a));
-      return next;
-    });
-    setChecked((prev) => {
-      const next = new Set(prev);
-      removed.forEach((a) => next.delete(a));
-      return next;
-    });
-    setActionError(
-      failed.length > 0
-        ? `Deregister failed for ${failed.join(', ')} — the gateway refused the change or is unreachable.`
-        : null,
-    );
-    if (selected && removed.includes(selected)) setSelected(null);
-    setBulkBusy(false);
-  }, [rows, checked, apiBase, skillTenant, selected]);
+  }, []);
 
   const running = rows.filter((r) => r.running).length;
   const operatorCount = rows.filter((r) => r.operator).length;
-
-  // Selection is over the currently VISIBLE rows (filter-aware).
-  const checkedVisible = rows.filter((r) => checked.has(r.alias));
-  const checkedCount = checkedVisible.length;
-  const checkedOperator = checkedVisible.filter((r) => r.operator).length;
-  const allChecked = rows.length > 0 && rows.every((r) => checked.has(r.alias));
-  const toggleAll = (): void =>
-    setChecked((prev) => {
-      const next = new Set(prev);
-      if (rows.every((r) => next.has(r.alias))) rows.forEach((r) => next.delete(r.alias));
-      else rows.forEach((r) => next.add(r.alias));
-      return next;
-    });
-  const clearChecked = (): void => setChecked(new Set());
+  const anyBusy = busy !== null || bulkBusy;
 
   const teamViewPending = viewAs !== null && scopedView.loading;
   const teamViewFailed = viewAs !== null && scopedView.failed;
@@ -557,7 +565,6 @@ export function AliasRegistry({ gateway }: AliasRegistryProps): JSX.Element {
   const inspector = selectedRow ? (
     <Inspector
       row={selectedRow}
-      tenant={skillTenant ?? '—'}
       compartmentLabel={labelOf}
       busy={busy === selectedRow.alias}
       onToggle={() => requestSetRunning([selectedRow.alias], !selectedRow.running)}
@@ -568,7 +575,8 @@ export function AliasRegistry({ gateway }: AliasRegistryProps): JSX.Element {
       <MousePointerClick size={22} className="text-slate-600" />
       <p className="text-[12.5px] font-medium text-slate-400">Select a skill</p>
       <p className="max-w-[220px] text-[11.5px] leading-relaxed text-slate-500">
-        Inspect its transport, risk tier, and status — and play, stop, or deregister it.
+        Expand a service and pick an alias to inspect its transport, risk tier, and
+        status — or to deregister one you added.
       </p>
     </div>
   );
@@ -608,7 +616,7 @@ export function AliasRegistry({ gateway }: AliasRegistryProps): JSX.Element {
                 <input
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Filter skills"
+                  placeholder="Filter services"
                   className="w-[160px] rounded-lg border border-hairline bg-canvas py-1.5 pl-8 pr-3 text-[12.5px] text-ink placeholder:text-slate-500 focus:border-ink/30 focus:outline-none focus:shadow-focus-ring"
                 />
               </div>
@@ -630,50 +638,12 @@ export function AliasRegistry({ gateway }: AliasRegistryProps): JSX.Element {
       <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 xl:grid-cols-[1fr_380px]">
         <Panel>
           <div className="flex shrink-0 items-center justify-between gap-2 border-b border-hairline px-4 py-2 min-h-[45px]">
-            {checkedCount > 0 ? (
-              <>
-                <div className="flex items-center gap-2.5">
-                  <button type="button" onClick={clearChecked} title="Clear selection" className="text-slate-500 transition-colors hover:text-ink">
-                    <X size={15} />
-                  </button>
-                  <span className="text-[12.5px] font-semibold text-ink">{checkedCount} selected</span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  {bulkBusy ? <Loader2 size={13} className="animate-spin text-slate-500" /> : null}
-                  <button type="button" disabled={bulkBusy} onClick={() => bulkSetRunning(true)} className="btn-ghost h-[30px] hover:border-verified/40 hover:text-verified">
-                    <Play size={12} /> Play all
-                  </button>
-                  <button type="button" disabled={bulkBusy} onClick={() => bulkSetRunning(false)} className="btn-ghost h-[30px] hover:border-denied/40 hover:text-denied">
-                    <Square size={12} /> Stop all
-                  </button>
-                  {checkedOperator > 0 ? (
-                    <button type="button" disabled={bulkBusy} onClick={() => void bulkDeregister()} className="btn-ghost h-[30px] hover:border-denied/40 hover:text-denied">
-                      <Trash2 size={12} /> Deregister {checkedOperator}
-                    </button>
-                  ) : null}
-                </div>
-              </>
-            ) : (
-              <>
-                <div className="flex items-center gap-2.5">
-                  {live && rows.length > 0 ? (
-                    <input
-                      type="checkbox"
-                      checked={allChecked}
-                      onChange={toggleAll}
-                      title="Select all"
-                      className="h-3.5 w-3.5 accent-ink"
-                    />
-                  ) : null}
-                  <span className="text-[13px] font-semibold text-ink">Skill catalog</span>
-                </div>
-                <span className="tabular text-[11px] text-slate-500">
-                  {teamViewPending || teamViewFailed
-                    ? '—'
-                    : `${rows.length} skills · ${running} running${operatorCount > 0 ? ` · ${operatorCount} operator` : ''}${activeSource ? ` · as ${activeSource.label}` : ''}`}
-                </span>
-              </>
-            )}
+            <span className="text-[13px] font-semibold text-ink">Permissions</span>
+            <span className="tabular text-[11px] text-slate-500">
+              {teamViewPending || teamViewFailed
+                ? '—'
+                : `${groups.length} services · ${rows.length} skills · ${running} enabled${operatorCount > 0 ? ` · ${operatorCount} operator` : ''}${activeSource ? ` · as ${activeSource.label}` : ''}`}
+            </span>
           </div>
 
           {actionError !== null ? (
@@ -690,7 +660,7 @@ export function AliasRegistry({ gateway }: AliasRegistryProps): JSX.Element {
             <EmptyState
               icon={Package}
               title="No gateway connected"
-              detail="The skill manager is live-only: ▶ play / ■ stop, register and inspect act on the real catalog the gateway serves — nothing is fabricated offline."
+              detail="The permission table is live-only: every checkbox, registration, and inspection acts on the real catalog the gateway serves — nothing is fabricated offline."
               action={
                 <button
                   type="button"
@@ -719,19 +689,19 @@ export function AliasRegistry({ gateway }: AliasRegistryProps): JSX.Element {
             <EmptyState
               icon={ShieldAlert}
               title="Team view unavailable"
-              detail="The per-team identity could not be minted or its catalog read failed. Per-team views need the sandbox token minter (/v1/dev/token); on a production gateway, enumerate with a real team-scoped credential instead."
+              detail="The per-team identity could not be minted — switch back to the company-wide view."
               action={
                 <button type="button" onClick={() => setViewAs(null)} className="btn-ghost">
                   Back to company-wide
                 </button>
               }
             />
-          ) : rows.length === 0 ? (
+          ) : groups.length === 0 ? (
             <EmptyState
               icon={Package}
               title={
                 query
-                  ? 'No skills match your filter'
+                  ? 'No services match your filter'
                   : activeSource
                     ? `No skills visible to ${activeSource.label} agents`
                     : 'No skills visible for this identity'
@@ -746,16 +716,24 @@ export function AliasRegistry({ gateway }: AliasRegistryProps): JSX.Element {
             />
           ) : (
             <div className="min-h-0 flex-1 overflow-y-auto">
-              {rows.map((r) => (
-                <SkillRowItem
-                  key={r.alias}
-                  row={r}
-                  selected={selected === r.alias}
-                  checked={checked.has(r.alias)}
-                  busy={busy === r.alias}
-                  onCheck={() => toggleChecked(r.alias)}
-                  onSelect={() => setSelected(r.alias)}
-                  onToggle={() => requestSetRunning([r.alias], !r.running)}
+              {/* Column headers — the token-permission shape: service once, two controls. */}
+              <div className="flex items-center gap-3 border-b border-hairline bg-canvas px-4 py-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">
+                <span className="w-[15px]" />
+                <span className="min-w-0 flex-1">Service</span>
+                <span className="w-14 text-center">Read</span>
+                <span className="w-14 text-center">Write</span>
+              </div>
+              {groups.map((g) => (
+                <ServiceGroupRow
+                  key={g.service}
+                  group={g}
+                  expanded={expanded.has(g.service)}
+                  selected={selected}
+                  disabledAll={anyBusy}
+                  compartmentLabel={labelOf}
+                  onToggleExpand={() => toggleExpanded(g.service)}
+                  onSelect={(alias) => setSelected(alias)}
+                  onSetRunning={requestSetRunning}
                 />
               ))}
             </div>
@@ -806,77 +784,153 @@ function StatusDot({ running, size = 8 }: { running: boolean; size?: number }): 
   );
 }
 
-/* --- one skill row (Docker-container style) -------------------------------- */
+/* --- one permission checkbox ------------------------------------------------
+   Present only when the service has an alias with that access level. Checked =
+   every such alias is enabled; a mixed set renders indeterminate. Toggling calls
+   the same enable/disable endpoints as ever — a deny-only availability control.
+--------------------------------------------------------------------------- */
 
-function SkillRowItem({
-  row,
-  selected,
-  checked,
-  busy,
-  onCheck,
-  onSelect,
-  onToggle,
+function AccessCheckbox({
+  aliases,
+  disabled,
+  label,
+  service,
+  onSetRunning,
 }: {
-  row: SkillRow;
-  selected: boolean;
-  checked: boolean;
-  busy: boolean;
-  onCheck: () => void;
-  onSelect: () => void;
-  onToggle: () => void;
+  aliases: SkillRow[];
+  disabled: boolean;
+  label: 'Read' | 'Write';
+  service: string;
+  onSetRunning: (aliases: string[], run: boolean) => void;
 }): JSX.Element {
+  const allOn = aliases.length > 0 && aliases.every((r) => r.running);
+  const someOn = aliases.some((r) => r.running);
+  const ref = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (ref.current) ref.current.indeterminate = someOn && !allOn;
+  }, [someOn, allOn]);
+  if (aliases.length === 0) {
+    return <span className="w-14 text-center text-[11px] text-slate-500">—</span>;
+  }
+  const hasCanary = aliases.some((r) => r.canary);
   return (
-    <div
-      onClick={onSelect}
-      className={`group flex cursor-pointer items-center gap-3 border-b border-hairline/50 px-4 py-2.5 transition-colors last:border-0 ${
-        selected ? 'bg-canvas' : 'hover:bg-canvas'
-      } ${row.running ? '' : 'opacity-70'}`}
-    >
+    <span className="flex w-14 justify-center" onClick={(e) => e.stopPropagation()}>
       <input
+        ref={ref}
         type="checkbox"
-        checked={checked}
-        onClick={(e) => e.stopPropagation()}
-        onChange={onCheck}
-        title="Select for bulk actions"
-        className={`h-3.5 w-3.5 shrink-0 accent-ink transition-opacity ${checked ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
+        checked={allOn}
+        disabled={disabled}
+        onChange={() => onSetRunning(aliases.map((r) => r.alias), !allOn)}
+        title={
+          allOn
+            ? `${label} enabled for ${service} — uncheck to deny${hasCanary ? ' (disarms a decoy — asks first)' : ''}`
+            : `${label} disabled for ${service} — check to allow`
+        }
+        className="h-4 w-4 cursor-pointer accent-ink disabled:cursor-not-allowed"
       />
-      <StatusDot running={row.running} />
-      <div className="min-w-0 flex-1">
-        {/* Essentials only — transport / risk / classification / compartment / added-date
-            live in the Inspector, revealed per-selection rather than on every row. */}
-        <div className="flex items-center gap-2">
-          <span className="truncate font-mono text-[12.5px] text-ink">{row.alias}</span>
-          <Badge tone={row.running ? 'verified' : 'denied'}>{row.running ? 'running' : 'stopped'}</Badge>
-          {row.operator ? <Badge tone="muted">operator</Badge> : null}
-          {row.canary ? (
-            <Badge tone="muted">
-              <Bug size={10} /> decoy
-            </Badge>
-          ) : null}
+    </span>
+  );
+}
+
+/* --- one service group row (Cloudflare-token style) ------------------------- */
+
+function ServiceGroupRow({
+  group,
+  expanded,
+  selected,
+  disabledAll,
+  compartmentLabel,
+  onToggleExpand,
+  onSelect,
+  onSetRunning,
+}: {
+  group: ServiceGroup;
+  expanded: boolean;
+  selected: string | null;
+  disabledAll: boolean;
+  compartmentLabel: (uuid: string | null | undefined) => string;
+  onToggleExpand: () => void;
+  onSelect: (alias: string) => void;
+  onSetRunning: (aliases: string[], run: boolean) => void;
+}): JSX.Element {
+  const anyCanary = group.rows.some((r) => r.canary);
+  const anyOperator = group.rows.some((r) => r.operator);
+  const stopped = group.rows.filter((r) => !r.running).length;
+  return (
+    <div className="border-b border-hairline/50 last:border-0">
+      <div
+        onClick={onToggleExpand}
+        className="group flex cursor-pointer items-center gap-3 px-4 py-2.5 transition-colors hover:bg-canvas"
+      >
+        <ChevronRight
+          size={13}
+          className={`shrink-0 text-slate-500 transition-transform ${expanded ? 'rotate-90' : ''}`}
+        />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <span className="truncate text-[12.5px] font-medium text-ink">{group.service}</span>
+            {anyCanary ? (
+              <Badge tone="muted">
+                <Bug size={10} /> decoy
+              </Badge>
+            ) : null}
+            {anyOperator ? <Badge tone="muted">operator</Badge> : null}
+            {stopped > 0 ? <Badge tone="denied">{stopped} disabled</Badge> : null}
+          </div>
         </div>
+        <AccessCheckbox
+          aliases={group.reads}
+          disabled={disabledAll}
+          label="Read"
+          service={group.service}
+          onSetRunning={onSetRunning}
+        />
+        <AccessCheckbox
+          aliases={group.writes}
+          disabled={disabledAll}
+          label="Write"
+          service={group.service}
+          onSetRunning={onSetRunning}
+        />
       </div>
 
-      <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
-        <button
-          type="button"
-          onClick={onToggle}
-          disabled={busy}
-          title={
-            row.running
-              ? row.canary
-                ? 'Stop — disarms this canary tripwire (asks first)'
-                : 'Stop — deny this skill for the tenant'
-              : 'Play — allow this skill'
-          }
-          className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border transition-colors disabled:opacity-50 ${
-            row.running
-              ? 'border-hairline bg-surface text-slate-500 hover:border-denied/40 hover:text-denied'
-              : 'border-verified/30 bg-verified/5 text-verified hover:border-verified/50'
-          }`}
-        >
-          {busy ? <Loader2 size={13} className="animate-spin" /> : row.running ? <Square size={13} /> : <Play size={13} />}
-        </button>
-      </div>
+      {expanded ? (
+        <div className="border-t border-hairline/40 bg-canvas/60">
+          {group.rows.map((r) => (
+            <div
+              key={r.alias}
+              onClick={() => onSelect(r.alias)}
+              className={`flex cursor-pointer items-center gap-2.5 py-2 pl-[42px] pr-4 transition-colors ${
+                selected === r.alias ? 'bg-canvas' : 'hover:bg-canvas'
+              } ${r.running ? '' : 'opacity-70'}`}
+            >
+              <StatusDot running={r.running} size={6} />
+              <span className="truncate font-mono text-[11.5px] text-ink">{r.alias}</span>
+              <Badge tone="muted">{r.access}</Badge>
+              {r.risk === 'pin_required' ? <Badge tone="staged">PIN</Badge> : null}
+              {r.canary ? (
+                <Badge tone="muted">
+                  <Bug size={10} /> decoy
+                </Badge>
+              ) : null}
+              <span className="ml-auto hidden truncate text-[10.5px] text-slate-500 sm:block">
+                {compartmentLabel(r.compartment)}
+              </span>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onSelect(r.alias);
+                }}
+                title="Inspect this alias"
+                className="shrink-0 text-slate-500 transition-colors hover:text-ink"
+              >
+                <Info size={13} />
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -885,14 +939,12 @@ function SkillRowItem({
 
 function Inspector({
   row,
-  tenant,
   compartmentLabel,
   busy,
   onToggle,
   onRemove,
 }: {
   row: SkillRow;
-  tenant: string;
   compartmentLabel: (uuid: string | null | undefined) => string;
   busy: boolean;
   onToggle: () => void;
@@ -908,13 +960,17 @@ function Inspector({
             <Bug size={10} /> decoy
           </Badge>
         ) : null}
-        <Badge tone={row.running ? 'verified' : 'denied'}>{row.running ? 'running' : 'stopped'}</Badge>
+        <Badge tone={row.running ? 'verified' : 'denied'}>{row.running ? 'enabled' : 'disabled'}</Badge>
       </div>
 
       <div className="flex-1 space-y-4 overflow-y-auto px-4 py-4">
         <dl className="grid grid-cols-2 gap-x-4 gap-y-3">
           <Detail label="Alias · agent-visible" mono span>
             {row.alias}
+          </Detail>
+          <Detail label="Service">{row.service}</Detail>
+          <Detail label="Access" tone={row.access === 'write' ? 'staged' : 'verified'}>
+            {row.access}
           </Detail>
           <Detail label="Transport">{row.transport}</Detail>
           <Detail label="Risk tier" tone={row.risk === 'pin_required' ? 'staged' : 'verified'}>
@@ -926,8 +982,12 @@ function Inspector({
           </Detail>
           {row.canary ? (
             <Detail label="Tripwire" span>
-              Canary decoy — selecting it denies CANARY_TRIPPED and quarantines the caller. It is never
-              backed by a real system.
+              Decoy — calling it denies CANARY_TRIPPED and quarantines the caller.
+            </Detail>
+          ) : null}
+          {row.compartment ? (
+            <Detail label="Compartment" mono span>
+              {compartmentLabel(row.compartment)} · {truncateId(row.compartment, 10, 6)}
             </Detail>
           ) : null}
           {row.operator ? (
@@ -941,26 +1001,10 @@ function Inspector({
           ) : null}
         </dl>
 
-        {/* Operator-only metadata — revealed per-selection here, not on every row. */}
-        {row.compartment ? (
-          <details className="group rounded-lg border border-hairline bg-canvas">
-            <summary className="flex cursor-pointer items-center gap-1.5 px-3 py-2 text-[10.5px] font-semibold uppercase tracking-[0.1em] text-slate-500 transition-colors hover:text-ink">
-              <ChevronRight size={11} className="shrink-0 transition-transform group-open:rotate-90" />
-              Operator-only metadata
-            </summary>
-            <div className="border-t border-hairline px-3 py-2.5">
-              <Detail label="Compartment" mono span>
-                {compartmentLabel(row.compartment)} · {truncateId(row.compartment, 10, 6)}
-              </Detail>
-            </div>
-          </details>
-        ) : null}
-
         <div className="rounded-lg border border-hairline bg-canvas px-3 py-2.5 text-[11px] leading-relaxed text-slate-500">
-          The real target is gateway-internal (topology hygiene) — only the coarse transport class is
-          operator-visible. Stopping a skill is a <span className="text-ink">DENY-only</span> control: every
-          invocation is denied <span className="font-mono">SKILL_DISABLED</span> for the whole{' '}
-          <span className="font-mono">{tenant}</span> tenant until played again. It never edits the alias→target map.
+          Disabling a skill denies every call (<span className="font-mono">SKILL_DISABLED</span>)
+          until enabled again — the real target stays gateway-internal, and the access
+          level is a display label, never the enforcement.
         </div>
       </div>
 
@@ -976,7 +1020,7 @@ function Inspector({
           }`}
         >
           {busy ? <Loader2 size={14} className="animate-spin" /> : row.running ? <Square size={14} /> : <Play size={14} />}
-          {row.running ? (row.canary ? 'Stop decoy…' : 'Stop skill') : row.canary ? 'Play decoy' : 'Play skill'}
+          {row.running ? (row.canary ? 'Disable decoy…' : 'Disable skill') : row.canary ? 'Enable decoy' : 'Enable skill'}
         </button>
         {row.operator ? (
           <button
@@ -995,9 +1039,9 @@ function Inspector({
 
 /* --- stop-canary confirmation ----------------------------------------------
    Decoys look like ordinary rows to agents ON PURPOSE — but the operator must
-   never disarm a tripwire by accident. Stopping one swaps CANARY_TRIPPED (+
+   never disarm a tripwire by accident. Disabling one swaps CANARY_TRIPPED (+
    quarantine) for a plain SKILL_DISABLED deny: the tenant loses the
-   early-warning signal until the decoy is played again.
+   early-warning signal until the decoy is enabled again.
 --------------------------------------------------------------------------- */
 
 function StopCanaryDialog({
@@ -1028,7 +1072,7 @@ function StopCanaryDialog({
         <div className="flex items-center gap-2 border-b border-hairline px-4 py-3">
           <Bug size={15} className="text-staged" />
           <h3 className="text-[13.5px] font-semibold text-ink">
-            {pending.canaryAliases.length === 1 ? 'Stop a canary decoy?' : `Stop ${pending.canaryAliases.length} canary decoys?`}
+            {pending.canaryAliases.length === 1 ? 'Disable a canary decoy?' : `Disable ${pending.canaryAliases.length} canary decoys?`}
           </h3>
           <button type="button" onClick={onCancel} className="ml-auto text-slate-500 hover:text-ink">
             <X size={16} />
@@ -1038,10 +1082,10 @@ function StopCanaryDialog({
         <div className="space-y-3 px-4 py-4">
           <p className="text-[11.5px] leading-relaxed text-slate-500">
             {pending.canaryAliases.length === 1 ? 'This row is a tripwire, not a real skill.' : 'These rows are tripwires, not real skills.'}{' '}
-            While stopped, a hijacked agent that selects one is denied a plain{' '}
+            While disabled, a hijacked agent that selects one is denied a plain{' '}
             <span className="font-mono text-[10.5px]">SKILL_DISABLED</span> instead of tripping{' '}
             <span className="font-mono text-[10.5px]">CANARY_TRIPPED</span> — the tenant loses that
-            early-warning quarantine until you play it again.
+            early-warning quarantine until you enable it again.
           </p>
           <div className="overflow-hidden rounded-lg border border-hairline">
             {pending.canaryAliases.map((a) => (
@@ -1053,7 +1097,7 @@ function StopCanaryDialog({
           </div>
           {others > 0 ? (
             <p className="text-[10.5px] leading-relaxed text-slate-500">
-              {others} non-decoy {others === 1 ? 'skill in the selection stops' : 'skills in the selection stop'} as usual.
+              {others} non-decoy {others === 1 ? 'skill in the selection is disabled' : 'skills in the selection are disabled'} as usual.
             </p>
           ) : null}
         </div>
@@ -1067,7 +1111,7 @@ function StopCanaryDialog({
             onClick={onConfirm}
             className="btn border border-denied/30 bg-denied/5 text-denied hover:bg-denied/10"
           >
-            <Square size={13} /> Stop anyway
+            <Square size={13} /> Disable anyway
           </button>
         </div>
       </motion.div>
@@ -1075,7 +1119,11 @@ function StopCanaryDialog({
   );
 }
 
-/* --- register modal -------------------------------------------------------- */
+/* --- register modal ---------------------------------------------------------
+   Permission-model registration: name the SERVICE, choose the access level, and
+   the console suggests the alias as skill_{service-slug} — editable, never a
+   _read/_write suffix. The access level is sent as the structured `access` field.
+--------------------------------------------------------------------------- */
 
 function RegisterDialog({
   apiBase,
@@ -1090,35 +1138,50 @@ function RegisterDialog({
   onClose: () => void;
   onRegistered: (rows: SkillRow[]) => void;
 }): JSX.Element {
-  // Description-first: a non-technical operator describes the skill in plain words and
-  // the console derives the alias (what the agent calls) and the internal target. The
-  // raw fields stay available under "Advanced" for anyone who wants to override them.
-  // "Several" mode registers a whole list at once — one tool per line.
+  // Service-first: the operator names the service ("AWS DynamoDB", "General ledger")
+  // and picks Read or Write; the console derives the alias and the internal target.
+  // Raw alias/target stay editable under "Advanced". "Several" registers a list —
+  // one service per line, all with the chosen access level.
   const [mode, setMode] = useState<'one' | 'many'>('one');
-  const [description, setDescription] = useState('');
+  const [service, setService] = useState('');
+  const [access, setAccess] = useState<SkillAccess>('read');
   const [bulk, setBulk] = useState('');
   const [alias, setAlias] = useState('');
   const [target, setTarget] = useState('');
   const [aliasTouched, setAliasTouched] = useState(false);
   const [targetTouched, setTargetTouched] = useState(false);
   const [sensitive, setSensitive] = useState(false);
+  const [sensitiveTouched, setSensitiveTouched] = useState(false);
   const [advanced, setAdvanced] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const derivedAlias = description.trim() ? `skill_${slugify(description, '_')}` : '';
-  const derivedTarget = description.trim() ? `rest.${slugify(description, '.')}` : '';
+  const trimmedService = service.trim();
+  const derivedAlias = trimmedService ? `skill_${slugify(trimmedService, '_')}` : '';
+  const derivedTarget = trimmedService ? `rest.${slugify(trimmedService, '.')}` : '';
   const effectiveAlias = aliasTouched ? alias : derivedAlias;
   const effectiveTarget = targetTouched ? target : derivedTarget;
   const risk: RiskTier = sensitive ? 'pin_required' : 'auto';
   const classification: Classification = sensitive ? 'restricted' : 'unclassified';
 
+  const pickAccess = (m: SkillAccess): void => {
+    setAccess(m);
+    setError(null);
+    // A write defaults to the PIN step-up until the operator says otherwise.
+    if (!sensitiveTouched) setSensitive(m === 'write');
+  };
+
   const trimmedAlias = effectiveAlias.trim();
   const trimmedTarget = effectiveTarget.trim();
   const collides = existing.has(trimmedAlias);
-  const valid = trimmedAlias.length > 1 && trimmedTarget.length > 0 && !collides;
+  const valid =
+    trimmedService.length > 0 &&
+    trimmedService.length <= 64 &&
+    trimmedAlias.length > 1 &&
+    trimmedTarget.length > 0 &&
+    !collides;
 
-  // Batch: each non-empty line becomes one skill; derive + flag collisions and in-list dupes.
+  // Batch: each non-empty line is one service; derive + flag collisions and dupes.
   const bulkItems = useMemo(() => {
     const seen = new Set<string>();
     return bulk
@@ -1130,17 +1193,24 @@ function RegisterDialog({
         const aliasName = `skill_${slug}`;
         const dup = seen.has(aliasName);
         seen.add(aliasName);
-        return { line, alias: aliasName, target: `rest.${slugify(line, '.')}`, bad: !slug || existing.has(aliasName) || dup };
+        return {
+          service: line.slice(0, 64),
+          alias: aliasName,
+          target: `rest.${slugify(line, '.')}`,
+          bad: !slug || existing.has(aliasName) || dup,
+        };
       });
   }, [bulk, existing]);
   const bulkValid = bulkItems.filter((it) => !it.bad);
 
-  const rowOf = (aliasName: string): SkillRow => ({
+  const rowOf = (aliasName: string, serviceLabel: string): SkillRow => ({
     alias: aliasName,
     transport: 'cloud_rest',
     risk,
     classification,
     compartment: null,
+    service: serviceLabel || displayService(aliasName),
+    access,
     operator: true,
     running: true,
     canary: false,
@@ -1156,9 +1226,11 @@ function RegisterDialog({
       target: trimmedTarget,
       risk_tier: risk,
       classification: classification === 'unclassified' ? 'unclassified' : 'restricted',
+      service: trimmedService,
+      access,
     });
     if (ok) {
-      onRegistered([rowOf(trimmedAlias)]);
+      onRegistered([rowOf(trimmedAlias, trimmedService)]);
       return;
     }
     setError('Registration denied. The alias may already resolve (config skills can never be shadowed), or the gateway rejected the request.');
@@ -1176,8 +1248,10 @@ function RegisterDialog({
         target: it.target,
         risk_tier: risk,
         classification: classification === 'unclassified' ? 'unclassified' : 'restricted',
+        service: it.service,
+        access,
       });
-      if (ok) succeeded.push(rowOf(it.alias));
+      if (ok) succeeded.push(rowOf(it.alias, it.service));
     }
     if (succeeded.length > 0) {
       onRegistered(succeeded);
@@ -1211,7 +1285,7 @@ function RegisterDialog({
         </div>
 
         <div className="space-y-3.5 px-4 py-4">
-          {/* One vs Several — register a single tool or a whole list at once. */}
+          {/* One vs Several — register a single service or a whole list at once. */}
           <div className="inline-flex items-center gap-0.5 rounded-lg border border-hairline bg-elevated p-0.5">
             {(['one', 'many'] as const).map((m) => (
               <button
@@ -1230,84 +1304,112 @@ function RegisterDialog({
           {mode === 'one' ? (
             <>
               <p className="text-[11.5px] leading-relaxed text-slate-500">
-                Describe what the tool does — the console names it and wires it up for{' '}
+                Name the service and choose what agents may do with it — the console
+                names the skill and wires it up for{' '}
                 <span className="font-mono text-ink">{tenant}</span>. Every registration is WORM-logged.
               </p>
 
-              <Field label="What should this tool do?">
+              <Field label="Service">
                 <Input
-                  value={description}
-                  onChange={(e) => { setDescription(e.target.value); setError(null); }}
-                  placeholder="e.g. Read the payroll ledger"
+                  value={service}
+                  onChange={(e) => { setService(e.target.value); setError(null); }}
+                  placeholder="e.g. AWS DynamoDB"
+                  maxLength={64}
                   autoFocus
                 />
               </Field>
-
-              {/* Live preview of the derived names — reassuring, not editable here. */}
-              {trimmedAlias ? (
-                <div className="rounded-lg border border-hairline bg-canvas px-3 py-2.5 text-[11px]">
-                  <p className="text-slate-500">The agent will call</p>
-                  <p className="mt-0.5 break-all font-mono text-[12px] text-ink">{trimmedAlias}</p>
-                  {collides ? (
-                    <p className="mt-1 text-[10.5px] text-denied">That name already exists — tweak the description.</p>
-                  ) : null}
-                </div>
-              ) : null}
             </>
           ) : (
             <>
               <p className="text-[11.5px] leading-relaxed text-slate-500">
-                List your tools — <span className="text-ink">one per line</span>. The console names and wires up each one
+                List your services — <span className="text-ink">one per line</span>. The console names and wires up each one
                 for <span className="font-mono text-ink">{tenant}</span>. Every registration is WORM-logged.
               </p>
 
-              <Field label="What should these tools do?">
+              <Field label="Services">
                 <textarea
                   value={bulk}
                   onChange={(e) => { setBulk(e.target.value); setError(null); }}
                   rows={5}
                   autoFocus
                   spellCheck={false}
-                  placeholder={'Read the payroll ledger\nLook up a customer record\nRead the sales pipeline'}
+                  placeholder={'Payroll ledger\nCustomer records\nSales pipeline'}
                   className="w-full resize-y rounded-lg border border-hairline bg-canvas px-3 py-2 text-[12.5px] leading-relaxed text-ink placeholder:text-slate-500 focus:border-ink/30 focus:outline-none focus:shadow-focus-ring"
                 />
               </Field>
-
-              {bulkItems.length > 0 ? (
-                <div className="rounded-lg border border-hairline bg-canvas px-3 py-2.5">
-                  <div className="mb-1.5 flex items-center justify-between text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">
-                    <span>The agent will call</span>
-                    <span>{bulkValid.length}/{bulkItems.length} ready</span>
-                  </div>
-                  <div className="max-h-40 space-y-1 overflow-y-auto">
-                    {bulkItems.map((it, i) => (
-                      <div key={i} className="flex items-center gap-2 text-[11.5px]">
-                        {it.bad ? (
-                          <ShieldAlert size={11} className="shrink-0 text-slate-500" />
-                        ) : (
-                          <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-verified" />
-                        )}
-                        <span className={`break-all font-mono ${it.bad ? 'text-slate-500 line-through' : 'text-ink'}`}>{it.alias}</span>
-                      </div>
-                    ))}
-                  </div>
-                  {bulkItems.some((it) => it.bad) ? (
-                    <p className="mt-1.5 text-[10px] leading-relaxed text-slate-500">Greyed names already exist or repeat — they&apos;ll be skipped.</p>
-                  ) : null}
-                </div>
-              ) : null}
             </>
           )}
 
+          {/* Access — the structured read/write level (display metadata; the PIN
+              checkbox below is the enforcement choice). */}
+          <Field label="Access">
+            <div className="inline-flex items-center gap-0.5 rounded-lg border border-hairline bg-elevated p-0.5">
+              {(['read', 'write'] as const).map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => pickAccess(m)}
+                  className={`rounded-[7px] px-4 py-1 text-[12px] font-medium capitalize transition-all ${
+                    access === m ? 'bg-surface text-ink shadow-card' : 'text-slate-500 hover:text-ink'
+                  }`}
+                >
+                  {m}
+                </button>
+              ))}
+            </div>
+          </Field>
+
+          {mode === 'one' ? (
+            <Field label="Alias · what the agent calls">
+              <Input
+                mono
+                value={effectiveAlias}
+                onChange={(e) => { setAliasTouched(true); setAlias(e.target.value); setError(null); }}
+                placeholder="skill_aws_dynamodb"
+                spellCheck={false}
+              />
+              {collides ? (
+                <p className="mt-1 text-[10.5px] text-denied">That alias already exists — pick another name.</p>
+              ) : null}
+            </Field>
+          ) : bulkItems.length > 0 ? (
+            <div className="rounded-lg border border-hairline bg-canvas px-3 py-2.5">
+              <div className="mb-1.5 flex items-center justify-between text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">
+                <span>The agent will call</span>
+                <span>{bulkValid.length}/{bulkItems.length} ready</span>
+              </div>
+              <div className="max-h-40 space-y-1 overflow-y-auto">
+                {bulkItems.map((it, i) => (
+                  <div key={i} className="flex items-center gap-2 text-[11.5px]">
+                    {it.bad ? (
+                      <ShieldAlert size={11} className="shrink-0 text-slate-500" />
+                    ) : (
+                      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-verified" />
+                    )}
+                    <span className={`break-all font-mono ${it.bad ? 'text-slate-500 line-through' : 'text-ink'}`}>{it.alias}</span>
+                  </div>
+                ))}
+              </div>
+              {bulkItems.some((it) => it.bad) ? (
+                <p className="mt-1.5 text-[10px] leading-relaxed text-slate-500">Greyed names already exist or repeat — they&apos;ll be skipped.</p>
+              ) : null}
+            </div>
+          ) : null}
+
           <label className="flex items-start gap-2.5 rounded-lg border border-hairline bg-canvas px-3 py-2.5">
-            <input type="checkbox" checked={sensitive} onChange={(e) => setSensitive(e.target.checked)} className="mt-0.5 accent-ink" />
+            <input
+              type="checkbox"
+              checked={sensitive}
+              onChange={(e) => { setSensitive(e.target.checked); setSensitiveTouched(true); }}
+              className="mt-0.5 accent-ink"
+            />
             <span className="text-[11.5px] leading-relaxed text-slate-500">
               <span className="font-medium text-ink">Sensitive action</span> — require a human one-time PIN before it runs
-              (for writes, payments, anything you&apos;d want a second check on){mode === 'many' ? ', applied to every tool in the list' : ''}.
+              (for writes, payments, anything you&apos;d want a second check on){mode === 'many' ? ', applied to every service in the list' : ''}.
             </span>
           </label>
 
-          {/* Advanced — the raw alias/target for power users; single-skill only. */}
+          {/* Advanced — the raw target for power users; single-skill only. */}
           {mode === 'one' ? (
             <>
               <button
@@ -1319,11 +1421,8 @@ function RegisterDialog({
               </button>
               {advanced ? (
                 <div className="space-y-3 rounded-lg border border-hairline bg-canvas p-3">
-                  <Field label="Alias · what the agent calls">
-                    <Input mono value={effectiveAlias} onChange={(e) => { setAliasTouched(true); setAlias(e.target.value); setError(null); }} placeholder="skill_payroll_read" spellCheck={false} />
-                  </Field>
                   <Field label="Target · the internal system it reaches">
-                    <Input mono value={effectiveTarget} onChange={(e) => { setTargetTouched(true); setTarget(e.target.value); setError(null); }} placeholder="rest.payroll.read" spellCheck={false} />
+                    <Input mono value={effectiveTarget} onChange={(e) => { setTargetTouched(true); setTarget(e.target.value); setError(null); }} placeholder="rest.aws.dynamodb" spellCheck={false} />
                   </Field>
                   <p className="text-[10.5px] leading-relaxed text-slate-500">
                     Transport is <span className="font-mono">cloud_rest</span>; additive only — you can introduce a new name,

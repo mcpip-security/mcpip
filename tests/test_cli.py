@@ -623,3 +623,56 @@ def test_up_outside_checkout_fails_with_clone_hint(tmp_path: Any, capsys: Any) -
     code, _, err = _run(["up", "--print-only", "--repo", str(tmp_path)], capsys)
     assert code == ExitCode.CONFIG
     assert "git clone" in err
+
+
+def test_up_print_only_mentions_proof_and_auto(capsys: Any) -> None:
+    """The plan names the proof beat, and --auto adds the consent-gated flow."""
+    code, out, _ = _run(["up", "--print-only", "--repo", str(_REPO_ROOT)], capsys)
+    assert code == ExitCode.OK
+    assert "attestation" in out
+    code, out, _ = _run(
+        ["up", "--print-only", "--auto", "--repo", str(_REPO_ROOT)], capsys
+    )
+    assert code == ExitCode.OK
+    assert "deny-by-default" in out
+    assert "explicit consent" in out
+
+
+def test_up_clone_hint_points_at_public_repo(tmp_path: Any, capsys: Any) -> None:
+    """The outside-a-checkout hint clones the PUBLIC repo, not a private remote."""
+    code, _, err = _run(["up", "--print-only", "--repo", str(tmp_path)], capsys)
+    assert code == ExitCode.CONFIG
+    assert "github.com/mcpip-security/mcpip" in err
+
+
+def test_up_render_proposal_is_pure_and_tolerant() -> None:
+    """_render_proposal renders org units, teams, and skills from a plan dict —
+    and tolerates missing/odd fields without raising (it never trusts shape)."""
+    from mcpip_sdk.cli.commands.up import _render_proposal
+
+    # The real draft shape: org units/teams carry `label` + `id`; skills carry
+    # `alias` / `target` / `risk_tier` (see services/workspace_plan).
+    plan = {
+        "org_units": [
+            {
+                "id": "tenant-acme",
+                "label": "Engineering",
+                "teams": [{"id": "t-p", "label": "Platform"}, {"id": "t-s", "label": "SRE"}],
+            },
+            {"id": "ou-fin", "label": "Finance", "teams": []},
+            "not-a-dict",
+        ],
+        "skills": [
+            {"alias": "skill_spend_summary", "target": "rest.spend.read", "risk_tier": "auto"},
+            {"alias": "skill_wire_payment"},
+            42,
+        ],
+    }
+    lines = _render_proposal(plan, "org_units=2 teams=2 skills=2")
+    text = "\n".join(lines)
+    assert "Engineering" in text and "Platform" in text and "SRE" in text
+    assert "skill_spend_summary" in text and "→ rest.spend.read" in text
+    assert "skill_wire_payment" in text
+    assert "deny-by-default" in text
+    # Degenerate plan: still renders the header + footer, no exception.
+    assert _render_proposal({}, "org_units=0 teams=0 skills=0")

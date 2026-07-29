@@ -87,7 +87,7 @@ def _sample_event(i: int) -> dict[str, Any]:
         "correlation_id": f"bench-{i:08d}-4a1c-8e2f-000000000000",
         "tenant_id": "aegis-dynamics",
         "agent_id": "agent-benchmark-01",
-        "alias": "skill_falcon_telemetry",
+        "alias": "skill_airframe_telemetry",
         "decision": "allow",
         "deny_reason": None,
         "transport": "cloud_rest",

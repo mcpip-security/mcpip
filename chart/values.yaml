@@ -108,12 +108,46 @@ redis:
   persistence:
     size: 5Gi
     storageClassName: ""
+  # Redis PodDisruptionBudget. OFF by default because the bundled StatefulSet is a
+  # single replica (a blocking PDB on one pod would wedge every node drain). Turn it ON
+  # only when you run Redis with replicas (durability.waitReplicas > 0), so a voluntary
+  # drain can never take the master and its synced replicas at the same time.
+  pdb:
+    enabled: false
+    maxUnavailable: 1
 
 hpa:
   enabled: true
   minReplicas: 2
   maxReplicas: 10
   targetCPUUtilizationPercentage: 70
+
+# Gateway PodDisruptionBudget (SOC2_READINESS.md #32). Keeps >=1 gateway serving
+# through a voluntary disruption (node drain / upgrade) — important because MCPIP
+# fails closed, so losing every gateway denies all agent actions. maxUnavailable: 1
+# pairs with the hpa.minReplicas: 2 floor.
+pdb:
+  enabled: true
+  maxUnavailable: 1
+
+# WORM durability posture (SOC2_READINESS.md #31, A1.2). waitReplicas > 0 turns on the
+# synchronous-replication quorum: every audit event must be acked by that many Redis
+# replicas before the authorize proceeds, so promoting a synced replica after a master
+# loss never drops an acked record. 0 (default) = single-node, no WAIT. To use it, run
+# Redis with >= waitReplicas synced replicas (bundled redis.replicas or an external HA
+# Redis) AND set redis.pdb.enabled so a drain can't take the master + its replicas at
+# once. See docs/OPERATIONS.md "Availability & the fail-closed tradeoff".
+durability:
+  waitReplicas: 0
+  waitTimeoutMs: 2000
+
+# Reference Prometheus alerting rules (SOC2_READINESS.md #9). OFF by default — it
+# requires the Prometheus Operator CRD (monitoring.coreos.com/v1). Enable it (and
+# set additionalLabels to match your Prometheus ruleSelector, e.g. release:
+# prometheus) to ship the starter availability + audit-integrity alerts.
+prometheusRule:
+  enabled: false
+  additionalLabels: {}
 
 metrics:
   # Adds prometheus.io/scrape annotations to the gateway pods.

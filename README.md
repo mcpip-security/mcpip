@@ -13,10 +13,10 @@
 [![Redis](https://img.shields.io/badge/Redis-7%20async-DC382D?logo=redis&logoColor=white)](https://redis.io/)
 [![JWT](https://img.shields.io/badge/JWT-EdDSA%20%2F%20RS256-000000?logo=jsonwebtokens&logoColor=white)](https://pyjwt.readthedocs.io/)
 [![Audit](https://img.shields.io/badge/WORM-Merkle--epoch%20Ed25519-4B32C3)](docs/WHITEPAPER.md)
-[![Posture](https://img.shields.io/badge/posture-fail--closed-0E8A16)](#-security-invariants)
-[![Gates](https://img.shields.io/badge/demo-10%2F10%20gates-0E8A16)](#-the-10-gate-demo)
-[![CI](https://github.com/katzyuval/mcpip/actions/workflows/ci.yml/badge.svg)](https://github.com/katzyuval/mcpip/actions/workflows/ci.yml)
-[![License](https://img.shields.io/badge/core-BSL%201.1-blue)](#-license) [![SDKs](https://img.shields.io/badge/SDKs-Apache--2.0-blue)](#-license)
+[![Posture](https://img.shields.io/badge/posture-fail--closed-0E8A16)](#security-invariants)
+[![Gates](https://img.shields.io/badge/demo-10%2F10%20gates-0E8A16)](#the-10-gate-demo)
+[![CI](https://github.com/mcpip-security/mcpip/actions/workflows/ci.yml/badge.svg)](https://github.com/mcpip-security/mcpip/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/core-BSL%201.1-blue)](#license) [![SDKs](https://img.shields.io/badge/SDKs-Apache--2.0-blue)](#license)
 
 </div>
 
@@ -31,11 +31,82 @@ An agent proposes an action in whatever dialect its framework speaks. MCPIP **no
 | Product | One-liner |
 |---|---|
 | **MCPIP** | The Authorization Layer for Autonomous AI. |
-| **Bridge** | One ingress for every agent framework — OpenAI, Anthropic, Gemini, Bedrock, MCP JSON-RPC, raw MCP — selected by a **declared** `source_format`, never by sniffing. |
-| **Connectors** | Pure tool-call **parsers** plus a hash-pinned vendor→format registry. MCPIP never calls the LLM and holds no vendor keys — [the product model](#-connectors). |
+| **Bridge** | One ingress for every agent framework — 7 wire shapes (`openai_tool_call`, `anthropic_tool_use`, `gemini_function_call`, `bedrock_tool_use`, `mcp_jsonrpc`, `raw_mcp`, `a2a_task`) across **82 named vendor ids** — selected by a **declared** `source_format`, never by sniffing. |
+| **Connectors** | Pure tool-call **parsers** plus a hash-pinned vendor→format registry. MCPIP never calls the LLM and holds no vendor keys — [the product model](#connectors). |
 | **Obfuscator** | Agents call aliases. Real systems stay invisible. |
 | **Auth** | A payload-bound PIN that's spent exactly once, or the action never runs. |
 | **Audit** | Per-epoch Merkle root, root-chained and Ed25519-signed once per epoch — O(log n)-verifiable inclusion proofs (bounded generation, no full-epoch rescan), tamper-evident by construction. |
+
+---
+
+## What MCPIP enforces — and what it does not
+
+The most useful thing a security component can tell you is where it stops. MCPIP is a
+narrow layer on purpose; everything below is either something we enforce or something we
+deliberately leave to a system that owns it better.
+
+**MCPIP enforces**
+
+- **Per-call authorization** on the exact payload — not a session, not a scope granted an
+  hour ago. Every call is judged on its own arguments.
+- **Alias → target resolution.** The agent names an opaque alias; the real target, host and
+  credential never cross the boundary.
+- **Payload-bound step-up.** A high-risk action stages a one-time code bound to those exact
+  canonical bytes. Change one field and the approval no longer covers it.
+- **Write-before-execute audit.** The signed WORM record is committed *before* the side
+  effect, so the evidence cannot be lost by the thing it was recording.
+- **Compartment and capability separation**, and canary aliases that trip on enumeration.
+
+**Your identity provider owns**
+
+- **Who an agent is.** MCPIP only ever *verifies* JWTs — it never mints identity, and the
+  `role` claim authorizes nothing. Hosting the gateway does not put us in your trust path
+  for authentication.
+
+**Your runtime owns**
+
+- Which files and shells the agent can touch, model choice and billing, and the sandbox it
+  executes in. MCPIP governs what reaches *your systems*, not what happens inside the agent.
+
+**MCPIP does not provide**
+
+- An agent execution environment or sandbox
+- Model hosting, inference, or any LLM credential — the gateway never calls a model
+- A memory or vector store
+- An LLM proxy. Tool calls pass through the authorization boundary; **prompts and completions never do.**
+
+---
+
+## Status
+
+Version 3.0.0. Source-available core (BSL 1.1), SDKs Apache-2.0. We would rather tell you
+where the edges are than have you find them.
+
+**Works, and is tested**
+
+- The full pipeline — Bridge → Obfuscator → Auth → Audit — fail-closed and opaque end to end
+- 7 wire shapes across 82 vendor ids; the registry is hash-pinned and refuses to boot on drift
+- Payload-bound one-time step-up; a changed byte is a different request with no approval behind it
+- Ed25519 Merkle WORM written before dispatch, plus offline re-verification (`mcpip export-audit --verify`)
+- Compartment + capability separation, canary tripwires, ReBAC projection, the operator console
+- 1,400+ tests, `mypy --strict`, and a self-verifying 10-gate demo that exits non-zero if any gate fails
+
+**Being wired up**
+
+- Out-of-band approval delivery. The step-up ceremony is complete; the *transport* that reaches a
+  human is a documented integration point, and with none configured the gateway fails closed
+  (`OTP_DELIVERY_FAILED`) rather than staging a challenge nobody can answer.
+- Long-horizon decision retention. Signed epoch roots are durable; the per-decision rows are a
+  bounded hot buffer, and a query now reports its own horizon rather than answering an out-of-range
+  window with a confident "nothing happened".
+- SSO/SAML/SCIM — planned, not shipped. Named here because it appears on pricing pages.
+
+**Deliberately not built**
+
+- No execution sandbox, model hosting, or LLM credential. The gateway never calls a model.
+- No identity minting. We verify JWTs; your IdP stays sovereign, and the `role` claim authorizes nothing.
+- No inference in the authorization path. Decisions are deterministic — the same input always yields
+  the same verdict, which is what makes them replayable and auditable.
 
 ---
 
@@ -94,7 +165,7 @@ Every request walks the same four stages, in the same order, every time. A failu
 
 ---
 
-## 🔌 Connectors
+## Connectors
 
 ### The product model — an interceptor, never a proxy
 
@@ -106,7 +177,7 @@ That model makes every connector a **pure parser** of a tool-call wire shape:
 - **No connector opens any outbound network connection.** This is mechanically enforced: `tests/test_connector_conformance.py` AST-scans every module under `bridge/connectors/` and fails the build on any LLM-SDK, HTTP-client, `socket`, or env-var-credential import. A connector that imports an LLM SDK or dials out is a **defect**, not a feature.
 - Connectors do **extraction and shape-mapping only** — no relaxed validation of their own. Every parser feeds a candidate `{alias, arguments, source_format}` into the **single** normalizer, so `NormalizedIntent` stays the one strict internal boundary (`extra="forbid"` + strict, depth ≤ 8, canonical 16 KiB cap, node ceiling, unicode scrubbing, and the identity-injection hard-deny) in **every** format.
 
-### The five wire formats (plus one legacy)
+### The seven wire formats
 
 | `source_format` | Accepted wire unit | Parser (`bridge/connectors/formats.py`) |
 |---|---|---|
@@ -116,6 +187,7 @@ That model makes every connector a **pure parser** of a tool-call wire shape:
 | `bedrock_tool_use` | Bedrock Converse `{"toolUse":{"toolUseId","name","input"}}` block — **parse only, never calls AWS** | `parse_bedrock` |
 | `mcp_jsonrpc` | JSON-RPC 2.0 `tools/call` request (`{"jsonrpc":"2.0","id",…,"method":"tools/call","params":{…}}`) | `parse_mcp` |
 | `raw_mcp` *(legacy)* | canonical `{"tool","arguments"}` — kept for the frozen legacy ingress, **not** vendor-mapped | `parse_raw_mcp` |
+| `a2a_task` | A2A `Task` envelope carrying **exactly one** `DataPart` invocation (`data.skill` → alias, `data.arguments` → arguments) — a task with zero or several invocations is a hard schema violation, never a guess | `parse_a2a_task` |
 
 ### Format is declared, never guessed
 
@@ -139,7 +211,7 @@ or declares its **vendor** and lets the pinned registry resolve the format:
 }
 ```
 
-Copy-paste runnable (sandbox up as in [Quickstart](#-quickstart), API on `:8080`):
+Copy-paste runnable (sandbox up as in [Quickstart](#quickstart), API on `:8080`):
 
 ```bash
 API=http://localhost:8080
@@ -171,13 +243,30 @@ curl -s -o /dev/null -w '%{http_code}\n' -X POST $API/v1/authorize \
 
 `bridge/connectors/registry.py` binds each vendor id to exactly one format. The mapping is a Python constant, **hash-pinned at import** (`REGISTRY_VERSION` + a SHA-256 over the canonical JSON of the map): any edit without a deliberate re-pin + version bump refuses to boot — a gateway with an inconsistent connector table fails closed rather than serve. Lookups are exact-string, no casefolding, no aliasing.
 
+82 vendor ids across 6 wire shapes (`REGISTRY_VERSION=4`). Every id beyond the
+original providers is a **pure alias onto an existing parser** — new names, no new
+parsing code, and no change to any pre-existing binding.
+
 | Vendor id(s) | Resolves to `source_format` |
 |---|---|
-| `openai` · `azure_openai` · `copilot` · `deepseek` · `qwen` · `ernie` · `mistral` · `groq` · `together` · `fireworks` · `openrouter` · `xai` (OpenAI-compatible) | `openai_tool_call` |
-| `claude` · `claude_bedrock` (Bedrock-hosted Claude emits the identical `tool_use` block) | `anthropic_tool_use` |
+| **Frontier labs:** `openai` · `azure_openai` · `copilot` · `deepseek` · `qwen` · `ernie` · `kimi` · `moonshot` | `openai_tool_call` |
+| **Inference clouds:** `mistral` · `groq` · `together` · `fireworks` · `openrouter` · `xai` · `zhipu` · `glm` · `minimax` · `perplexity` · `cerebras` · `sambanova` · `nvidia_nim` · `deepinfra` · `nebius` | `openai_tool_call` |
+| **Self-hosted runtimes:** `ollama` · `vllm` · `sglang` · `llama_cpp` · `lmstudio` · `tgi` · `localai` | `openai_tool_call` |
+| **Enterprise platforms:** `databricks` · `watsonx` · `snowflake_cortex` | `openai_tool_call` |
+| **Gateways / routers:** `litellm` · `portkey` · `cloudflare_workers_ai` · `vercel_ai_gateway` · `github_models` | `openai_tool_call` |
+| `claude` · `claude_bedrock` · `claude_vertex` (Bedrock- and Vertex-hosted Claude emit the identical `tool_use` block) | `anthropic_tool_use` |
 | `gemini` · `vertex` | `gemini_function_call` |
 | `bedrock` | `bedrock_tool_use` |
-| `mcp` · `claude_code` · `cursor` · `windsurf` · `cline` · `opencode` · `goose` · `openhands` · `openclaw` (MCP hosts) | `mcp_jsonrpc` |
+| **MCP hosts** — editors/IDEs/terminals/coding agents: `mcp` · `claude_code` · `cursor` · `windsurf` · `zed` · `vscode` · `jetbrains` · `continue` · `cline` · `roo` · `kilocode` · `opencode` · `codex` · `gemini_cli` · `goose` · `openhands` · `amp` · `crush` · `warp` · `openclaw` | `mcp_jsonrpc` |
+| **MCP platforms:** `chatgpt` · `copilot_studio` · `librechat` · `openwebui` · `n8n` · `dify` · `langflow` · `flowise` | `mcp_jsonrpc` |
+| **MCP-client agent frameworks:** `langgraph` · `crewai` · `autogen` · `openai_agents` · `pydantic_ai` · `llamaindex` · `semantic_kernel` · `mastra` · `strands` | `mcp_jsonrpc` |
+| `a2a` (A2A `Task` envelope) | `a2a_task` |
+
+Note the deliberate near-collisions: `claude_bedrock`/`claude_vertex` bind to the
+**Anthropic** parser (the host changes, the wire shape does not) while raw
+`bedrock`/`vertex` keep their own native dialects. `grok` is *not* a vendor id —
+xAI's is `xai`, and an unrecognized string is a fail-closed `UNKNOWN_VENDOR` deny,
+never a guess.
 
 ### The MCP-native edge — `POST /v1/mcp`
 
@@ -205,7 +294,7 @@ A deny on this edge is an HTTP `200` JSON-RPC **error** carrying only the generi
 
 ---
 
-## 🔒 Security invariants
+## Security invariants
 
 These are non-negotiable. They hold on every request, or the request does not run.
 
@@ -222,7 +311,7 @@ These are non-negotiable. They hold on every request, or the request does not ru
 
 ---
 
-## 📦 Repository layout
+## Repository layout
 
 ```
 mcpip-genesis/
@@ -284,7 +373,6 @@ mcpip-genesis/
 │
 ├── docs/
 │   ├── WHITEPAPER.md            Threat model, invariants, and the formal argument
-│   ├── PITCH_DECK.md            Narrative deck — the "why now" for the category
 │   └── IMPLEMENTATION_WEB.md    Web / implementation companion
 ├── SECURITY_THREAT_MODEL.md ◐ Formal adversary model + attack→defense→code matrix
 │
@@ -295,7 +383,7 @@ mcpip-genesis/
 
 ---
 
-## 🚀 Quickstart
+## Quickstart
 
 **Free forever self-host (BSL source-available) · no demo call · sandbox in one command.**
 
@@ -313,7 +401,7 @@ git clone https://github.com/mcpip-security/mcpip.git && cd mcpip
 ```
 
 Prefer a CLI? Install it (`curl -fsSL https://raw.githubusercontent.com/mcpip-security/mcpip/main/install.sh | bash`, or
-`pipx install ./sdk/python` — see [Other install options](#-download--install)) and run
+`pipx install ./sdk/python` — see [Release, Packaging & Verification](#release-packaging--verification)) and run
 `mcpip up` for the exact same thing.
 
 Then **connect any MCP client** — one URL, the same pipeline (in sandbox, mint a JWT
@@ -369,7 +457,7 @@ curl -s http://localhost:8080/healthz   # {"status":"live","glyph":"◐"}
 curl -s http://localhost:8080/readyz    # {"status":"ready","redis":"up"}
 ```
 
-In sandbox mode (`MCPIP_SANDBOX_MODE=true`) the app boots an ephemeral in-process IdP and WORM signing key, so it is runnable end-to-end with no external secrets — see [HTTP API](#-http-api) for the full step-up walkthrough. **`sandbox_mode` defaults to `false` (secure-by-default) everywhere** — the bare `uvicorn` process, the shipped Docker image, and Compose: the sandbox helper endpoints stay unmounted and the gateway fails closed at boot unless real PEM paths are supplied. Opt into the demo explicitly with `MCPIP_SANDBOX_MODE=true` (e.g. `MCPIP_SANDBOX_MODE=true docker compose up gateway`); a loud banner is logged whenever the sandbox affordances are mounted. Run sandbox with a **single** uvicorn worker (the in-process demo IdP / WORM keys are per-process); multi-worker deployments must supply shared PEM key files (the production posture).
+In sandbox mode (`MCPIP_SANDBOX_MODE=true`) the app boots an ephemeral in-process IdP and WORM signing key, so it is runnable end-to-end with no external secrets — see [HTTP API](#http-api) for the full step-up walkthrough. **`sandbox_mode` defaults to `false` (secure-by-default) everywhere** — the bare `uvicorn` process, the shipped Docker image, and Compose: the sandbox helper endpoints stay unmounted and the gateway fails closed at boot unless real PEM paths are supplied. Opt into the demo explicitly with `MCPIP_SANDBOX_MODE=true` (e.g. `MCPIP_SANDBOX_MODE=true docker compose up gateway`); a loud banner is logged whenever the sandbox affordances are mounted. Run sandbox with a **single** uvicorn worker (the in-process demo IdP / WORM keys are per-process); multi-worker deployments must supply shared PEM key files (the production posture).
 
 ### Run the operator dashboard
 
@@ -405,7 +493,7 @@ mcpip --context sbx authorize skill_spend_summary --arg period=2026-Q2
 
 ---
 
-## 🎯 The 10-gate demo
+## The 10-gate demo
 
 `python main.py` runs an executable proof: three allow-paths and seven attacks, each printing `PASS` / `FAIL`. The process exits `0` **only if every gate holds**, then re-reads the WORM log and asserts `verify_chain()` is intact.
 
@@ -421,11 +509,11 @@ mcpip --context sbx authorize skill_spend_summary --arg period=2026-Q2
 | 8 | Identity injection | arguments include `"tenant_id":"evil"` | **DENY** — `IDENTITY_INJECTION` |
 | 9 | Unknown alias | `skill_does_not_exist` | **DENY** — `UNKNOWN_ALIAS` |
 | 10 | Cross-tenant | globex JWT requests `skill_payroll_run` | **DENY** — `CROSS_TENANT` |
-| C1 | Compartment own | falcon JWT (`compartment=FALCON`) → `skill_falcon_telemetry` | **ALLOW** |
-| C2 | Compartment cross | aegis JWT (`compartment=AEGIS`) → `skill_falcon_telemetry` | **DENY** — `COMPARTMENT_DENIED` |
+| C1 | Compartment own | falcon JWT (`compartment=FALCON`) → `skill_airframe_telemetry` | **ALLOW** |
+| C2 | Compartment cross | aegis JWT (`compartment=AEGIS`) → `skill_airframe_telemetry` | **DENY** — `COMPARTMENT_DENIED` |
 | C3 | Un-compartmented | aegis JWT (no compartment) → `skill_status_probe` | **ALLOW** (back-compat) |
 | C4 | Grant issue | holder of `CAP_COMPARTMENT_GRANT` **+** the FALCON-scoped `grant_capability_for(FALCON)` issues a step-up-gated FALCON grant | **ALLOW**, grant written |
-| C5 | Delegated grant | grantee reaches `skill_falcon_telemetry` via the active grant | **ALLOW** |
+| C5 | Delegated grant | grantee reaches `skill_airframe_telemetry` via the active grant | **ALLOW** |
 | C6 | Capability missing | principal without the capability issues a grant | **DENY** — `CAPABILITY_DENIED` |
 | C7 | Grant expiry/revoke | grant removed, grantee retries | **DENY** — `COMPARTMENT_DENIED` |
 | C10 | Cross-compartment grant | FALCON-scoped holder tries to grant a **different** compartment (AEGIS) | **DENY** — `CAPABILITY_DENIED` (issuance is compartment-scoped; no tenant-wide master key) |
@@ -468,7 +556,7 @@ exit 0 — all gates held. ◐
 
 ---
 
-## 🌐 HTTP API
+## HTTP API
 
 The gateway exposes the four-stage pipeline over one endpoint, `POST /v1/authorize`, plus liveness/readiness probes and two sandbox-only helpers. The agent boundary is opaque by construction: every denial returns the same generic message and a `correlation_id` (uuid4), echoed on every response in the `X-MCPIP-Correlation-Id` header. Concrete reasons live only in the WORM log.
 
@@ -532,7 +620,7 @@ High-risk aliases (`skill_payroll_run`, `skill_ledger_posting`, `skill_wire_tran
 How the one-time code reaches the operator is a **pluggable delivery seam**, not part of the lock. `register_lock` still mints the code with `secrets` and still registers the payload-bound scrypt lock **unchanged**; only the *delivery* of the code lives behind a `BaseAuthenticatorChannel` (`interfaces.py` §1.5b → `services/authn_channel.py`) — the channel is strictly downstream of registration and never touches how the OTP is derived or bound.
 
 - **Sandbox** wires `SandboxRedisAuthenticatorChannel` — the runnable-demo stand-in that stashes the code under a tenant-scoped Redis key and reads it back via the sandbox-only `GET /v1/authenticator/{challenge_id}` endpoint (unchanged behavior).
-- **Production** wires `WebhookAuthenticatorChannel` — the one real channel. It **pushes** the notice (including the raw code) to your tenant-configured authenticator/approver sink over an **SSRF-guarded, HMAC-SHA256-signed HTTPS** request and **persists no OTP anywhere** (the code exists only in flight). The guard is enforced per delivery: https-only; the host is resolved and refused if **any** resolved address is private/loopback/link-local (covers `169.254.169.254` cloud metadata)/reserved/multicast/unspecified; the connection is **pinned to the validated IP** (defeating DNS-rebinding) while the original hostname drives SNI/cert verification; redirects are not followed; the timeout is bounded; a non-2xx is a failure. Activate it by setting **both** `MCPIP_AUTHN_WEBHOOK_URL` and `MCPIP_AUTHN_WEBHOOK_SECRET_PATH` (see [Configuration](#-configuration)).
+- **Production** wires `WebhookAuthenticatorChannel` — the one real channel. It **pushes** the notice (including the raw code) to your tenant-configured authenticator/approver sink over an **SSRF-guarded, HMAC-SHA256-signed HTTPS** request and **persists no OTP anywhere** (the code exists only in flight). The guard is enforced per delivery: https-only; the host is resolved and refused if **any** resolved address is private/loopback/link-local (covers `169.254.169.254` cloud metadata)/reserved/multicast/unspecified; the connection is **pinned to the validated IP** (defeating DNS-rebinding) while the original hostname drives SNI/cert verification; redirects are not followed; the timeout is bounded; a non-2xx is a failure. Activate it by setting **both** `MCPIP_AUTHN_WEBHOOK_URL` and `MCPIP_AUTHN_WEBHOOK_SECRET_PATH` (see [Configuration](#configuration)).
 
 Delivery is **fail-closed**. With no channel configured (an unconfigured production deploy) or a channel whose delivery raises, `register_lock` denies `otp_delivery_failed` **before any `202`/`challenge_id` is produced** — a `pin_required` action can never silently allow or stage a challenge no authenticator can answer. The raw code never enters the `202`, the audit `ctx`, or the WORM log (and `otp` is in the WORM redaction set as defense-in-depth). Setting exactly one of the two webhook settings is a fail-closed **boot** error; an AUTO-only deployment leaves both unset.
 
@@ -588,7 +676,7 @@ The formal adversary model, the attack→defense→code matrix, and the residual
 
 The agent wire is opaque by design (a denial is only a generic message + `correlation_id`) and the operator decision feed omits arguments — which leaves an incident investigator without the **real** query an agent sent. The forensic side-channel closes that gap without softening the agent boundary. Each authorization's query (the opaque alias, the already-normalized arguments, and non-secret identity context) is captured into `services/forensic_store.py`, **AES-256-GCM encrypted at rest** under a dedicated master key held outside Redis (Redis holds ciphertext only), TTL-bounded, and bound to `(tenant, correlation_id)`. **Secrets are never captured** — the snapshot runs through the same WORM `_redact` discipline before encryption, and pin/JWT/proof/vended-credential/identity-shaped material never enters it. Capture is a **best-effort side-channel fired strictly after the authoritative WORM emit**, so it can never delay, reorder, or flip a decision; any capture error is swallowed.
 
-Reconstruction is deny-by-default and lives on one route, `GET /v1/admin/forensic/{correlation_id}`, gated on the **`CAP_FORENSIC_READ`** capability — a distinct UUID from `CAP_DIRECTORY_ADMIN`, so holding directory-admin does **not** confer raw-payload read (least privilege); the `role` claim still authorizes nothing. The read is constant-time, kill-switch-enforced (a revoked/quarantined credential is denied), and tenant-scoped, and every access emits a WORM `admin_action='forensic_read'` **before** anything is disclosed (audit-before-disclosure; the payload is never re-embedded into that record). An unknown/expired id, a cross-tenant id, or the feature being off all return the same opaque `404`. Capture is **off by default in production** and, when enabled there, additionally requires a 32-byte key file (see `MCPIP_FORENSIC_CAPTURE` / `MCPIP_FORENSIC_KEY_PATH` in [Configuration](#-configuration)); absent the key the feature is absent, never plaintext. The SDKs expose it as `MCPIPAdminClient.forensic_get()` / `forensicGet()`, and the console's Audit Ledger carries a "Reconstruct payload" inspector (admin-only, with an honest empty state when capture is off).
+Reconstruction is deny-by-default and lives on one route, `GET /v1/admin/forensic/{correlation_id}`, gated on the **`CAP_FORENSIC_READ`** capability — a distinct UUID from `CAP_DIRECTORY_ADMIN`, so holding directory-admin does **not** confer raw-payload read (least privilege); the `role` claim still authorizes nothing. The read is constant-time, kill-switch-enforced (a revoked/quarantined credential is denied), and tenant-scoped, and every access emits a WORM `admin_action='forensic_read'` **before** anything is disclosed (audit-before-disclosure; the payload is never re-embedded into that record). An unknown/expired id, a cross-tenant id, or the feature being off all return the same opaque `404`. Capture is **off by default in production** and, when enabled there, additionally requires a 32-byte key file (see `MCPIP_FORENSIC_CAPTURE` / `MCPIP_FORENSIC_KEY_PATH` in [Configuration](#configuration)); absent the key the feature is absent, never plaintext. The SDKs expose it as `MCPIPAdminClient.forensic_get()` / `forensicGet()`, and the console's Audit Ledger carries a "Reconstruct payload" inspector (admin-only, with an honest empty state when capture is off).
 
 ### Author-your-own skills (reviewer-approved)
 
@@ -620,7 +708,7 @@ For a deployment whose IdP / workload-identity STS **rotates** its signing keys,
 
 ---
 
-## 🖥️ Dashboard
+## Dashboard
 
 A dark-mode **operator** dashboard lives under `dashboard/` — a Vite + React + TypeScript + Tailwind app. It renders the four-stage pipeline, the tenant-scoped alias registry, the exactly-once payload-lock story, and the live `/v1/authorize` request/response shapes from an operator's vantage point. There is **no marketing landing page** and no root `index.html`; this dashboard is the only web surface.
 
@@ -636,7 +724,7 @@ Run it alongside the API (`uvicorn app.main:app` on `:8080`) to watch authorizat
 
 ---
 
-## 🐳 Docker & docker-compose
+## Docker & docker-compose
 
 **Build and run the whole stack** (gateway API + redis, redis on a private internal-only network) with a single command from the repo root:
 
@@ -671,7 +759,7 @@ The image itself is multi-stage: a `python:3.12-slim` **builder** resolves `requ
 
 ---
 
-## 📦 Release, Packaging & Verification
+## Release, Packaging & Verification
 
 **Version:** `3.0.0` — the `VERSION` file is the single source of truth (strict
 `MAJOR.MINOR.PATCH`), read at build time by `pyproject.toml` and at runtime by
@@ -755,9 +843,12 @@ Verification is pure local cryptography — no network, no TLS dependency.
   --pubkey release/keys/release_root_ed25519.pub.pem \
   --base-dir .
 
-# Read-only WORM audit export + independent Merkle re-verification:
+# Read-only WORM audit export + independent re-verification of the signed chain
+# (Merkle roots, epoch_hash, prev_epoch_hash linkage, Ed25519 epoch signatures, and the
+# out-of-tamper-domain anchor rollback watermark). --pubkey is required by --verify:
 ./.venv/bin/python -m mcpip_verify.cli export-audit \
-  --redis-url redis://localhost:63790/0 --out audit_export.jsonl --verify
+  --redis-url redis://localhost:63790/0 --out audit_export.jsonl --verify \
+  --pubkey <worm_signing_ed25519.pub.pem> --require-anchor
 ```
 
 ### The offline (air-gap) bundle
@@ -828,13 +919,13 @@ The full deploy/rotate/backup/incident procedures live in the
 
 ---
 
-## 🧭 Module reference
+## Module reference
 
 | Module | Stage | Responsibility |
 |---|---|---|
 | `interfaces.py` | shared | Limits (`MAX_ARG_DEPTH=8`, `MAX_CANONICAL_BYTES=16384`, `PIN_TTL_SECONDS=300`, …), enums (`Decision`, `DenyReason`, `RiskTier`, `SourceFormat`), `canonical_json` / `sha256_hex`, `reject_unsafe_string`, Pydantic models (`NormalizedIntent`, `Identity`, `AuthorizedIntent`, `SwarmTrace`), `BaseTransport` ABC, `MCPIPDenied`. |
 | `bridge/intent_parser.py` | Bridge | `parse(raw, declared_format, trace)` — selects the pure format parser through the pinned registry, feeds the candidate into `NormalizedIntent`; owns the `enforce_argument_safety` depth-walker and the identity-injection hard-deny. |
-| `bridge/connectors/formats.py` | Bridge | The strict ingress models + pure parsers for all six wire shapes (`parse_openai` / `parse_anthropic` / `parse_gemini` / `parse_bedrock` / `parse_mcp` / `parse_raw_mcp`). Parser-only: no SDK imports, no outbound network, no credentials (AST-enforced by `tests/test_connector_conformance.py`). |
+| `bridge/connectors/formats.py` | Bridge | The strict ingress models + pure parsers for all seven wire shapes (`parse_openai` / `parse_anthropic` / `parse_gemini` / `parse_bedrock` / `parse_mcp` / `parse_raw_mcp` / `parse_a2a_task`). Parser-only: no SDK imports, no outbound network, no credentials (AST-enforced by `tests/test_connector_conformance.py`). |
 | `bridge/connectors/registry.py` | Bridge | Hash-pinned vendor→format table (`REGISTRY_VERSION`, `REGISTRY_SHA256`); `resolve_vendor` / `parser_for`, both fail-closed (`unknown_vendor` / `unknown_format`); an unpinned mapping edit refuses to boot. |
 | `bridge/connectors/base.py` | Bridge | `Candidate` (NamedTuple, deliberately not a validation boundary) + the `FormatParser` protocol. |
 | `bridge/errors.py` | Bridge | Bridge deny taxonomy (`UnknownFormat`, `UnknownVendor`, `IdentityInjection`, `DepthExceeded`, `SizeExceeded`) shared by Python and the Rust walker. |
@@ -886,7 +977,7 @@ targets below never cross the boundary.
 | Finance | `meridian-retail-bank` | `skill_account_balance` (auto) · `skill_wire_transfer` (**pin**) · `skill_core_posting` (**pin**) |
 | Healthcare (PHI) | `st-caritas-health` | `skill_patient_lookup` (auto) · `skill_rx_order` (**pin**) · `skill_claim_submit` (**pin**) |
 | Government | `us-treasury-fiscal` | `skill_disbursement_status` (auto) · `skill_treasury_disbursement` (**pin**) |
-| **Defense (compartmented)** | `aegis-dynamics` | `skill_status_probe` (auto, tenant-wide) · `skill_falcon_telemetry` (FALCON) · `skill_aegis_radar_tune` (AEGIS, **pin**) · `skill_sentinel_recon_feed` (SENTINEL) · `skill_compartment_grant` (governance, **pin**) |
+| **Defense (compartmented)** | `aegis-dynamics` | `skill_status_probe` (auto, tenant-wide) · `skill_airframe_telemetry` (FALCON) · `skill_radar_calibration_set` (AEGIS, **pin**) · `skill_recon_feed_read` (SENTINEL) · `skill_compartment_grant` (governance, **pin**) |
 | Energy / SCADA | `voltgrid-utility` | `skill_grid_load` (auto) · `skill_breaker_trip` (**pin**) · `skill_der_dispatch` (**pin**) |
 | Retail | `novabuy-commerce` | `skill_order_status` (auto) · `skill_refund_issue` (**pin**) · `skill_price_override` (**pin**) |
 | Telecom | `orbital-telecom` | `skill_sim_status` (auto) · `skill_sim_swap` (**pin**) · `skill_number_port` (**pin**) |
@@ -931,7 +1022,7 @@ FALCON_JWT=$(jwt "{\"tenant_id\":\"aegis-dynamics\",\"agent_id\":\"agent-falcon-
 curl -s -X POST $API/v1/authorize -H "authorization: Bearer $FALCON_JWT" \
   -H 'content-type: application/json' -d '{
     "source_format":"openai_tool_call",
-    "tool_call":{"id":"c1","type":"function","function":{"name":"skill_falcon_telemetry","arguments":"{}"}}
+    "tool_call":{"id":"c1","type":"function","function":{"name":"skill_airframe_telemetry","arguments":"{}"}}
   }'   # -> 200 executed
 
 # Team Aegis agent (compartment=AEGIS) → the Falcon alias → COMPARTMENT_DENIED (opaque 403).
@@ -939,18 +1030,18 @@ AEGIS_JWT=$(jwt "{\"tenant_id\":\"aegis-dynamics\",\"agent_id\":\"agent-aegis-1\
 curl -s -X POST $API/v1/authorize -H "authorization: Bearer $AEGIS_JWT" \
   -H 'content-type: application/json' -d '{
     "source_format":"openai_tool_call",
-    "tool_call":{"id":"c2","type":"function","function":{"name":"skill_falcon_telemetry","arguments":"{}"}}
+    "tool_call":{"id":"c2","type":"function","function":{"name":"skill_airframe_telemetry","arguments":"{}"}}
   }'   # -> 403 {"error":"MCPIP: request denied by policy.","correlation_id":"…"}  (reason compartment_denied, in the WORM log only)
 
 # Catalog enumeration: the Aegis agent cannot even SEE Falcon's classified MCP.
-curl -s -H "authorization: Bearer $AEGIS_JWT" $API/v1/catalog   # no skill_falcon_telemetry in the list
+curl -s -H "authorization: Bearer $AEGIS_JWT" $API/v1/catalog   # no skill_airframe_telemetry in the list
 
 # Security officer holding CAP_COMPARTMENT_GRANT + grant_capability_for(FALCON) issues a
 # FALCON grant to agent-aegis-2 (a step-up-gated, payload-bound governance mandate).
 OFFICER_JWT=$(jwt "{\"tenant_id\":\"aegis-dynamics\",\"agent_id\":\"agent-security-officer-1\",\"role\":\"ops\",\"capabilities\":[\"$CAP_GRANT\",\"$GRANT_CAP_FALCON\"]}")
 # … stage skill_compartment_grant (pin_required) with {"grantee":"agent-aegis-2","compartment":"<FALCON>","ttl_seconds":3600},
 #    complete the step-up with the one-time code → grant written. agent-aegis-2 now reaches
-#    skill_falcon_telemetry via the active delegated grant (ALLOW) until the TTL expires or the
+#    skill_airframe_telemetry via the active delegated grant (ALLOW) until the TTL expires or the
 #    grant is revoked, after which the same reach denies compartment_denied again.
 ```
 
@@ -961,7 +1052,7 @@ is proved deterministically by gates **C4/C5/C7** in `python main.py`.
 
 ---
 
-## ⚙️ Configuration
+## Configuration
 
 All settings are read by `core/config.py` (`pydantic-settings`, env-prefix `MCPIP_`).
 
@@ -1043,7 +1134,7 @@ prometheus-client>=0.20,<1
 
 ---
 
-## ⚡ Performance
+## Performance
 
 The performance tier is opt-in speed on top of an unchanged security posture — no
 fast path is allowed to alter a single authorization decision.
@@ -1095,20 +1186,18 @@ concurrent, `always` vs. `everysec`) and the group-commit design that would rais
 
 ---
 
-## 📚 Documentation
+## Documentation
 
-**The enterprise doc set** — five hubs are the front door; everything else is a reference the hubs link to.
+**The enterprise doc set** — the hubs below are the front door;
 
 - [**Operator & deployment guide**](docs/OPERATIONS.md) — self-host / VPC / air-gapped install, the fail-closed production boot, the dark-feature flags stated honestly, region topology, non-bypassability, and desktop packaging. The deployment hub.
 - [**Client SDKs & CLI index**](docs/GETTING_STARTED.md) — the shared Python/TypeScript client contract + the `mcpip` CLI, the three-client model, the PIN ceremony, envelopes, and opaque-deny semantics. The client hub.
-- [**Roadmap**](docs/ROADMAP.md) — the single Now/Next/Future roadmap: the shipped-waves record, the GA story (blockers cleared), and the forward bets.
-- [**GA-readiness checklist**](docs/ROADMAP.md) — an honest statement of what is GA-ready *in code* vs the *external* gap (SOC 2 / FedRAMP are third-party processes the code cannot produce — no cert/customer invented), tied to the `3.0.0` cut.
 - [**Coordinated disclosure**](SECURITY.md) — how to report a vulnerability privately.
 
 **Reference docs** (authoritative product/security/legal/feature references):
 
 - [**Operations runbook**](docs/OPERATIONS.md) — the deep day-2 ops: key ceremony + rotation, `mcpip verify`, license install, audit verification/export, backup & restore, incident response, deploy preflight.
-- [**Compliance pack**](docs/COMPLIANCE.md) — the shipped controls mapped to SOC 2 / FedRAMP (NIST 800-53) families and the supply-chain statement (illustrative mapping, **not** a certification — see the [GA-readiness checklist](docs/ROADMAP.md) for the honest external gap).
+- [**Compliance pack**](docs/COMPLIANCE.md) — the shipped controls mapped to SOC 2 / FedRAMP (NIST 800-53) families and the supply-chain statement (illustrative mapping, **not** a certification).
 - [**Security threat model**](SECURITY_THREAT_MODEL.md) — the formal adversary model, the per-threat attack→defense→code matrix, the §17 OWASP ASI-2026 coverage map, and an honest residual-risk analysis.
 - [**Whitepaper**](docs/WHITEPAPER.md) — threat model, the seven invariants, and the formal argument for authorization-before-execution.
 - Feature deep-dives: [workload identity](docs/INTEGRATIONS.md) · [telemetry](docs/TELEMETRY.md) · [OAuth resource server](docs/INTEGRATIONS.md) · [extensibility](docs/EXTENSIBILITY.md) · [governed-alias pattern](docs/INTEGRATIONS.md) · [A2A choke-point](docs/ARCHITECTURE.md) · [workspace generate](docs/WORKSPACE_GENERATE.md).
@@ -1122,24 +1211,39 @@ concurrent, `always` vs. `everysec`) and the group-commit design that would rais
 
 ---
 
-## 🤝 Evaluate & work with us
+## Evaluate & work with us
 
 - **Try it alone, free, now:** `./scripts/quickstart_demo.sh` (or `mcpip up`) — sandbox
   gateway + live walkthrough in one command; no signup, no sales call.
-- **Questions / evaluation help:** [GitHub Issues](https://github.com/katzyuval/mcpip/issues)
+- **Questions / evaluation help:** [GitHub Issues](https://github.com/mcpip-security/mcpip/issues)
   · security reports via [`SECURITY.md`](SECURITY.md) (private disclosure).
 - **Design-partner program** (regulated / high-consequence workflows): time-boxed pilot,
   self-hosted in your boundary, direct maintainer support — details + openly published
-  structure in [`SUPPORT.md`](SUPPORT.md) and [`docs/GTM_PRICING.md`](docs/GTM_PRICING.md).
+  structure in [`SUPPORT.md`](SUPPORT.md).
 
-## 📄 License
+## Project policies
+
+Published, versioned in-repo, and changed only by commit — diff the policy exactly as you
+diff the code.
+
+| Policy | What it covers |
+|---|---|
+| [`TERMS.md`](TERMS.md) | Terms of use: the license grant in plain terms, entitlements, acceptable use, operator responsibilities, no-certification statement, warranty & liability. |
+| [`PRIVACY.md`](PRIVACY.md) | Data handling: what stays inside your boundary, and the two opt-in, default-off channels that can leave it. |
+| [`SECURITY.md`](SECURITY.md) | Coordinated disclosure — how to report a vulnerability privately. |
+| [`TRADEMARK.md`](TRADEMARK.md) | Name and mark usage: what needs no permission, what needs a different name. |
+| [`CONTRIBUTING.md`](CONTRIBUTING.md) | How to contribute, the gates a change must pass, and what gets rejected. |
+| [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md) | Contributor Covenant 2.1, plus one security-specific clause. |
+| [`LICENSING.md`](LICENSING.md) | The component→license map (BSL core / Apache-2.0 SDKs). |
+
+## License
 
 **Open-core, source-available.** The gateway **core is licensed under the Business Source License
 1.1** ([`LICENSE`](LICENSE)) — read, self-host, modify, and run in production for your own
 organization; it converts to **Apache-2.0** on the Change Date (2030-07-16). The **client SDKs
 (`sdk/python`, `sdk/typescript`) are Apache-2.0**. Enterprise features/support are gated by a
 signed entitlement license (`core/licensing.py`), unchanged. Full map and the rationale:
-[`LICENSING.md`](LICENSING.md) · [`docs/STRATEGY.md`](docs/STRATEGY.md).
+[`LICENSING.md`](LICENSING.md) · [`TERMS.md`](TERMS.md).
 
 <div align="center">
 

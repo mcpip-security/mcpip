@@ -135,6 +135,31 @@ def _build_up(sub: argparse._SubParsersAction[argparse.ArgumentParser], parent: 
         default=False,
         help="print what would run without starting anything",
     )
+    p.add_argument(
+        "--auto",
+        action="store_true",
+        default=False,
+        help="self-driving setup: draft a deny-by-default workspace plan, validate it, "
+        "and apply only on explicit consent (sandbox-only)",
+    )
+    p.add_argument(
+        "--yes",
+        action="store_true",
+        default=False,
+        help="with --auto: consent to apply the validated plan without prompting",
+    )
+    p.add_argument(
+        "--brief",
+        metavar="TEXT",
+        default="",
+        help="with --auto: the company brief the workspace draft is derived from",
+    )
+    p.add_argument(
+        "--company",
+        metavar="NAME",
+        default="My Company",
+        help="with --auto: the company name for the drafted workspace",
+    )
 
 
 # ---------------------------------------------------------------------------

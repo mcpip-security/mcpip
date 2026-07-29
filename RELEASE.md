@@ -317,3 +317,46 @@ MCPIP will never invent them:
 
 Decide and register both once; thereafter pass the canonical `--builder-id` on every
 release cut.
+
+---
+
+## 7. The public distribution package (`mcpip-security/mcpip`)
+
+The working repository carries maintainer material the public repository must not:
+the strategy, roadmap, pricing, narrative-deck, competitive-review and
+managed-cloud documents, plus the agent context lake and its instruction file.
+The exact held-back set is declared at the top of the builder and restated in
+every package it produces. The public cut is produced by that builder, never by
+hand:
+
+```bash
+python scripts/build_production_package.py            # -> dist/mcpip-<version>-production.zip + sha256
+python scripts/build_production_package.py --check    # verify only, writes nothing
+python scripts/build_production_package.py --keep-tree  # leave dist/mcpip-<version>/ to inspect
+```
+
+**What it does.** Stages an *allowlisted* copy of the tree (product source, tests,
+SDKs, console, deploy manifests, operator/security/compliance docs, the policy
+set, `release/` with its public verification keys), holds back the internal
+material, rewrites every citation of a held-back document into plain prose, drops
+the declared pointer lines and sections, normalizes the repository slug to
+`mcpip-security/mcpip`, and writes `PACKAGE_MANIFEST.json` (per-file SHA-256,
+source commit, and the exclusion list stated openly).
+
+**What it guarantees, by failing rather than degrading.**
+
+| Guarantee | Failure mode it prevents |
+|---|---|
+| Allowlist, not denylist | A new top-level file silently shipping because an ignore rule was not updated. It is held back and printed as `NOT ALLOWLISTED`. |
+| Zero mentions of held-back material | A public document citing a file the reader cannot open. |
+| Every relative Markdown link resolves in-package | Broken navigation in the published docs. |
+| Each declared rewrite anchor matches exactly one line | A half-edited sentence shipping after upstream prose moved. The build stops and names the anchor. |
+| Deterministic archive (sorted order, fixed timestamps) | An unreviewable package hash. The same tree always produces the same ZIP. |
+| Private key material pruned; `release/keys/*.pub.pem` deliberately kept | Shipping a `.pem`/`.key` that should never leave the signer. |
+
+**The working tree is never mutated** — the builder stages a copy. A red build
+means "update the rewrite table in the script", not "the packager is broken".
+
+This step is independent of the signing ceremony above: package *after* the
+release artifacts are signed, so the public cut carries the current signed
+`release/manifest.json`.

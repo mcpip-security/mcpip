@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "mcpip": {
+      "command": "python3",
+      "args": ["scripts/claude_mcp_bridge.py"],
+      "env": {
+        "MCPIP_URL": "http://localhost:8080",
+        "MCPIP_TENANT": "mcpip-inc",
+        "MCPIP_AGENT": "anthropic-claude-1"
+      }
+    }
+  }
+}

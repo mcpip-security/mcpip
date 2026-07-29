@@ -1286,6 +1286,9 @@ export interface PlanSkill {
   target: string;
   risk_tier: string;
   classification: string;
+  /** Advisory display metadata carried through plan → apply into the overlay. */
+  service?: string;
+  access?: 'read' | 'write';
 }
 
 /** A reviewable workspace scaffold: org chart + a governed starter skill catalog. */
@@ -1372,16 +1375,19 @@ export async function listDisabledSkills(
   }
 }
 
-/** One operator-registered skill with its creation timestamp (ISO-8601, or null). */
+/** One operator-registered skill: creation timestamp plus the advisory permission-model
+    display metadata (service label + read/write access) the gateway projects for it. */
 export interface RegisteredSkill {
   alias: string;
   registered_at: string | null;
+  service: string | null;
+  access: 'read' | 'write' | null;
 }
 
 /**
  * GET /v1/admin/skills/registered — operator-registered (deregisterable) skills with
- * their creation timestamps. Reads the `entries` field; falls back to the legacy
- * `registered` names list (null timestamps) for older gateways.
+ * their creation timestamps and service/access display metadata. Reads the `entries`
+ * field; falls back to the legacy `registered` names list for older gateways.
  */
 export async function listRegisteredSkills(
   token: string,
@@ -1395,11 +1401,18 @@ export async function listRegisteredSkills(
     const body = (await res.json()) as { registered?: unknown; entries?: unknown };
     if (Array.isArray(body.entries)) {
       return body.entries
-        .filter((e): e is { alias: string; registered_at?: unknown } => !!e && typeof (e as { alias?: unknown }).alias === 'string')
-        .map((e) => ({ alias: e.alias, registered_at: typeof e.registered_at === 'string' ? e.registered_at : null }));
+        .filter((e): e is Record<string, unknown> & { alias: string } => !!e && typeof (e as { alias?: unknown }).alias === 'string')
+        .map((e) => ({
+          alias: e.alias,
+          registered_at: typeof e.registered_at === 'string' ? e.registered_at : null,
+          service: typeof e.service === 'string' ? e.service : null,
+          access: e.access === 'read' || e.access === 'write' ? e.access : null,
+        }));
     }
     return Array.isArray(body.registered)
-      ? body.registered.filter((a): a is string => typeof a === 'string').map((alias) => ({ alias, registered_at: null }))
+      ? body.registered
+          .filter((a): a is string => typeof a === 'string')
+          .map((alias) => ({ alias, registered_at: null, service: null, access: null }))
       : null;
   } catch {
     return null;
@@ -1701,6 +1714,10 @@ export interface RegisterSkillBody {
   risk_tier?: 'auto' | 'pin_required';
   /** 'unclassified' or 'restricted' (operator overlay cannot mint 'classified'). */
   classification?: 'unclassified' | 'restricted';
+  /** Human service label for the permission table (advisory display metadata). */
+  service?: string;
+  /** Structured access level ('read'/'write') — display metadata, never enforcement. */
+  access?: 'read' | 'write';
 }
 
 /**
@@ -2440,6 +2457,172 @@ export async function extensionReject(
       init,
     );
     return res.status === 200;
+  } catch {
+    return false;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Per-user authenticator (USER-BASED 2FA, RFC 6238 TOTP). Enrollment binds a
+   standard authenticator app to the CALLER's principal; a staged step-up code
+   becomes revealable only against a fresh, un-replayed code from that app. The
+   payload-bound PIN itself is untouched — these surfaces gate WHO may read a
+   delivered code. All failures are opaque by design; helpers return null/false
+   rather than surfacing gateway internals.
+--------------------------------------------------------------------------- */
+
+export interface AuthnStatus {
+  enrolled: boolean;
+  pending: boolean;
+  enrolled_at: number | null;
+}
+
+export interface AuthnProvisioning {
+  secret: string;
+  provisioning_uri: string;
+  digits: number;
+  period_s: number;
+}
+
+export interface AuthnEnrollmentRow {
+  agent_id: string;
+  state: string;
+  enrolled_at: number | null;
+}
+
+/** GET /v1/authenticator — the caller's own enrollment state (never the secret). */
+export async function authnStatus(
+  token: string,
+  opts: GatewayClientOptions = {},
+): Promise<AuthnStatus | null> {
+  try {
+    const res = await fetch(`${baseOf(opts)}/v1/authenticator`, {
+      method: 'GET',
+      headers: authHeaders(token),
+    });
+    if (!res.ok) {
+      return null;
+    }
+    const body = (await res.json()) as AuthnStatus;
+    return typeof body.enrolled === 'boolean' ? body : null;
+  } catch {
+    return null;
+  }
+}
+
+/** POST /v1/authenticator/enroll — provisioning material, returned exactly ONCE. */
+export async function authnEnroll(
+  token: string,
+  opts: GatewayClientOptions = {},
+): Promise<AuthnProvisioning | null> {
+  try {
+    const res = await fetch(`${baseOf(opts)}/v1/authenticator/enroll`, {
+      method: 'POST',
+      headers: authHeaders(token),
+    });
+    if (!res.ok) {
+      return null;
+    }
+    const body = (await res.json()) as AuthnProvisioning;
+    return typeof body.secret === 'string' && typeof body.provisioning_uri === 'string'
+      ? body
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+/** POST /v1/authenticator/enroll/confirm — prove possession, activate. */
+export async function authnConfirm(
+  token: string,
+  code: string,
+  opts: GatewayClientOptions = {},
+): Promise<boolean> {
+  try {
+    const res = await fetch(`${baseOf(opts)}/v1/authenticator/enroll/confirm`, {
+      method: 'POST',
+      headers: { ...authHeaders(token), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+/** POST /v1/authenticator/disable — 2FA-off ceremony (valid current code required). */
+export async function authnDisable(
+  token: string,
+  code: string,
+  opts: GatewayClientOptions = {},
+): Promise<boolean> {
+  try {
+    const res = await fetch(`${baseOf(opts)}/v1/authenticator/disable`, {
+      method: 'POST',
+      headers: { ...authHeaders(token), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+/** POST /v1/authenticator/reveal — TOTP-gated single-use release of a staged code. */
+export async function authnReveal(
+  token: string,
+  challengeId: string,
+  code: string,
+  opts: GatewayClientOptions = {},
+): Promise<string | null> {
+  try {
+    const res = await fetch(`${baseOf(opts)}/v1/authenticator/reveal`, {
+      method: 'POST',
+      headers: { ...authHeaders(token), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ challenge_id: challengeId, code }),
+    });
+    if (!res.ok) {
+      return null;
+    }
+    const body = (await res.json()) as { otp?: unknown };
+    return typeof body.otp === 'string' ? body.otp : null;
+  } catch {
+    return null;
+  }
+}
+
+/** GET /v1/admin/authenticator/enrollments — the tenant roster (admin). */
+export async function authnEnrollments(
+  token: string,
+  opts: GatewayClientOptions = {},
+): Promise<AuthnEnrollmentRow[] | null> {
+  try {
+    const res = await fetch(`${baseOf(opts)}/v1/admin/authenticator/enrollments`, {
+      method: 'GET',
+      headers: authHeaders(token),
+    });
+    if (!res.ok) {
+      return null;
+    }
+    const body = (await res.json()) as { enrollments?: unknown };
+    return Array.isArray(body.enrollments) ? (body.enrollments as AuthnEnrollmentRow[]) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** DELETE /v1/admin/authenticator/{agent} — lost-device removal (admin). */
+export async function authnAdminDisable(
+  token: string,
+  agentId: string,
+  opts: GatewayClientOptions = {},
+): Promise<boolean> {
+  try {
+    const res = await fetch(
+      `${baseOf(opts)}/v1/admin/authenticator/${encodeURIComponent(agentId)}`,
+      { method: 'DELETE', headers: authHeaders(token) },
+    );
+    return res.ok;
   } catch {
     return false;
   }

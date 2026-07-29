@@ -23,6 +23,7 @@ GEMINI_FUNCTION_CALL: Final[str] = "gemini_function_call"
 BEDROCK_TOOL_USE: Final[str] = "bedrock_tool_use"
 MCP_JSONRPC: Final[str] = "mcp_jsonrpc"
 RAW_MCP: Final[str] = "raw_mcp"
+A2A_TASK: Final[str] = "a2a_task"
 
 SOURCE_FORMATS: Final[tuple[str, ...]] = (
     OPENAI_TOOL_CALL,
@@ -31,6 +32,7 @@ SOURCE_FORMATS: Final[tuple[str, ...]] = (
     BEDROCK_TOOL_USE,
     MCP_JSONRPC,
     RAW_MCP,
+    A2A_TASK,
 )
 
 
@@ -86,6 +88,36 @@ def raw_mcp(alias: str, arguments: Mapping[str, Any]) -> dict[str, Any]:
     return {"tool": alias, "arguments": dict(arguments)}
 
 
+def a2a_task(
+    alias: str,
+    arguments: Mapping[str, Any],
+    *,
+    task_id: str = "mcpip-sdk-task",
+    context_id: str = "mcpip-sdk-ctx",
+    message_id: str = "mcpip-sdk-msg",
+) -> dict[str, Any]:
+    """A2A ``Task`` envelope carrying EXACTLY ONE ``DataPart`` skill invocation.
+
+    MCPIP does not sit on the A2A message bus — it gates the single
+    side-effecting call a governed identity proposes, so the accepted envelope
+    is deliberately narrow: one message, one data part, ``{skill, arguments}``.
+    A task carrying zero or several invocations is a hard 422, not a guess."""
+    return {
+        "kind": "task",
+        "id": task_id,
+        "contextId": context_id,
+        "status": {"state": "submitted"},
+        "message": {
+            "kind": "message",
+            "role": "agent",
+            "messageId": message_id,
+            "parts": [
+                {"kind": "data", "data": {"skill": alias, "arguments": dict(arguments)}}
+            ],
+        },
+    }
+
+
 def build(source_format: str, alias: str, arguments: Mapping[str, Any]) -> dict[str, Any]:
     """Build the ``tool_call`` dict for ``source_format`` — ValueError on an
     unknown format (fail fast client-side; the gateway would 422)."""
@@ -101,6 +133,8 @@ def build(source_format: str, alias: str, arguments: Mapping[str, Any]) -> dict[
         return mcp_tools_call(alias, arguments)
     if source_format == RAW_MCP:
         return raw_mcp(alias, arguments)
+    if source_format == A2A_TASK:
+        return a2a_task(alias, arguments)
     raise ValueError(
         f"unknown source_format {source_format!r} — expected one of {SOURCE_FORMATS}"
     )
@@ -113,6 +147,7 @@ __all__ = [
     "BEDROCK_TOOL_USE",
     "MCP_JSONRPC",
     "RAW_MCP",
+    "A2A_TASK",
     "SOURCE_FORMATS",
     "openai_tool_call",
     "anthropic_tool_use",
@@ -120,5 +155,6 @@ __all__ = [
     "bedrock_tool_use",
     "mcp_tools_call",
     "raw_mcp",
+    "a2a_task",
     "build",
 ]

@@ -58,7 +58,7 @@ from main import _DemoIdP
 
 _AUTO_ALIAS = "skill_spend_summary"       # tenant-acme AUTO, un-compartmented → allow.
 _PIN_ALIAS = "skill_payroll_run"          # tenant-acme PIN_REQUIRED → staged-deny.
-_FALCON_ALIAS = "skill_falcon_telemetry"  # aegis-dynamics compartmented → deny w/o entitlement.
+_FALCON_ALIAS = "skill_airframe_telemetry"  # aegis-dynamics compartmented → deny w/o entitlement.
 _EVENTS_STREAM = "mcpip:worm:events"
 _CORR_HEADER = "x-mcpip-correlation-id"
 

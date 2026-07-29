@@ -87,7 +87,7 @@ function StatTile({
       </div>
       <div className="flex items-baseline gap-1">
         {value === null ? (
-          <span className="text-[22px] font-semibold text-slate-600">—</span>
+          <span className="text-[22px] font-semibold text-slate-500">—</span>
         ) : (
           <AnimatedNumber
             value={value}
@@ -146,7 +146,7 @@ function DecisionMix({
             <span className={`h-2.5 w-2.5 rounded-sm ${s.cls}`} aria-hidden="true" />
             <span className="text-[12px] font-medium text-ink">{s.label}</span>
             <span className="tabular text-[12px] text-slate-500">{s.value.toLocaleString()}</span>
-            <span className="tabular text-[11px] text-slate-600">{pct(s.value).toFixed(1)}%</span>
+            <span className="tabular text-[11px] text-slate-500">{pct(s.value).toFixed(1)}%</span>
           </div>
         ))}
       </div>
@@ -239,7 +239,7 @@ export function Analytics({ gateway }: { gateway: GatewayLive }): JSX.Element {
         <EmptyState
           icon={PlugZap}
           title="Connect a gateway to see analytics"
-          detail="Analytics reads the tenant's own live decision totals, governed-identity count, latency, and a recent-window breakdown of aliases and deny reasons — all from the running gateway. Offline shows nothing rather than a fabricated dashboard."
+          detail="Connect a gateway to see its live decision totals and breakdowns."
         />
       </Panel>
     );

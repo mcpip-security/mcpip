@@ -9,15 +9,23 @@ Subcommands
 ``mcpip verify bundle BUNDLE.tar.gz --pubkey PATH``
     Verify an offline air-gap bundle end-to-end with NO network.
 
-``mcpip export-audit --redis-url URL --out FILE [--verify]``
-    Read-only export of the WORM audit stream + epoch headers to JSONL;
-    ``--verify`` independently recomputes each epoch's Merkle root.
+``mcpip export-audit --redis-url URL --out FILE [--verify --pubkey PATH]``
+    Read-only export of the WORM audit stream + epoch headers to JSONL.
+    ``--verify`` independently re-verifies the whole signed chain — Merkle
+    roots, ``epoch_hash``, ``prev_epoch_hash`` linkage, the Ed25519 epoch
+    signatures (against ``--pubkey``, the WORM public key), and the
+    out-of-tamper-domain anchor low-watermark (``--anchor-path``). It fails
+    closed: ``--verify`` without ``--pubkey`` is refused rather than reporting
+    a verdict no signature backed.
 
-Fail-closed contract: on ANY verification failure this program prints exactly
-``verification failed`` to stderr (opaque — no reason, no path, no hash) and
-returns exit code 2. Success prints ``verified: mcpip <version> (<n>
-artifacts)`` and returns 0. The tool never writes anywhere except the
-explicit ``--out`` file of ``export-audit`` and never self-updates anything.
+Fail-closed contract: on ANY RELEASE verification failure this program prints
+exactly ``verification failed`` to stderr (opaque — no reason, no path, no hash)
+and returns exit code 2. Success prints ``verified: mcpip <version> (<n>
+artifacts)`` and returns 0. ``export-audit --verify`` is the one operator-facing
+exception to that opacity — it names the failed integrity CHECK and the first bad
+epoch, because the operator running it is the one triaging the incident (no agent
+ever sees this output) — and also returns 2. The tool never writes anywhere except
+the explicit ``--out`` file of ``export-audit`` and never self-updates anything.
 """
 
 from __future__ import annotations
@@ -70,7 +78,24 @@ def _build_parser() -> argparse.ArgumentParser:
     export.add_argument(
         "--verify",
         action="store_true",
-        help="recompute each exported epoch's Merkle root independently",
+        help="independently re-verify the exported chain (requires --pubkey)",
+    )
+    export.add_argument(
+        "--pubkey",
+        default=None,
+        help="WORM epoch-signing PUBLIC key (PEM) — "
+        "worm_signing_ed25519.pub.pem from the key ceremony",
+    )
+    export.add_argument(
+        "--anchor-path",
+        default=None,
+        help="out-of-tamper-domain anchor file (default: MCPIP_WORM_ANCHOR_PATH, "
+        "else <MCPIP_WORM_PATH>.anchor)",
+    )
+    export.add_argument(
+        "--require-anchor",
+        action="store_true",
+        help="fail when no signed anchor watermark is found (continuous checks)",
     )
     return parser
 
@@ -127,27 +152,51 @@ def _run_export_audit(args: argparse.Namespace) -> int:
     # Local import keeps `mcpip verify` free of any redis dependency.
     from mcpip_verify.audit_export import export_audit
 
-    result = export_audit(args.redis_url, Path(args.out), bool(args.verify))
+    pubkey_pem = Path(args.pubkey).read_bytes() if args.pubkey else None
+    result = export_audit(
+        args.redis_url,
+        Path(args.out),
+        bool(args.verify),
+        public_key_pem=pubkey_pem,
+        anchor_path=args.anchor_path,
+        require_anchor=bool(args.require_anchor),
+    )
     print(f"exported: {result.events} events, {result.epochs} epochs -> {args.out}")
     if args.verify:
+        # Both verdict lines NAME the checks: an operator must never have to guess
+        # which proofs a green run actually computed (or a red run failed).
         if not result.intact:
+            position = (
+                "" if result.first_bad_epoch is None
+                else f" at epoch {result.first_bad_epoch}"
+            )
             print(
-                "audit chain: TAMPERED "
-                f"(first bad epoch {result.first_bad_epoch})",
+                f"audit chain: TAMPERED — {result.failed_check} failed{position}",
                 file=sys.stderr,
             )
             return 2
-        print(
-            "audit chain: intact "
-            f"({result.verified_epochs} epochs verified, "
-            f"{result.skipped_epochs} compacted epochs skipped)"
+        anchor = (
+            f", anchor low-watermark epoch {result.anchor_epoch} matched"
+            if result.anchor_epoch is not None
+            else ""
         )
+        print(
+            f"audit chain: intact — {result.verified_epochs} epochs fully verified, "
+            f"{result.signature_only_epochs} signature-only (events trimmed){anchor}"
+        )
+        print(f"  checked: {', '.join(result.checks_performed)}")
+        for skipped in result.checks_not_performed:
+            print(f"  NOT checked: {skipped}")
     return 0
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
+    if args.command == "export-audit" and args.verify and not args.pubkey:
+        # Fail closed on the USAGE, not with a green verdict: without the WORM
+        # public key the epoch signatures cannot be checked at all.
+        parser.error("--verify requires --pubkey (the WORM public key PEM)")
     try:
         if args.command == "verify":
             return _run_verify(args)

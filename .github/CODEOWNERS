@@ -1,0 +1,52 @@
+# Code ownership → review routing for the invariant-critical paths.
+#
+# Closes SOC2_READINESS.md #27 (no CODEOWNERS / review routing). This file only
+# ROUTES review requests; it becomes an ENFORCED control once branch protection
+# on `main` requires CODEOWNER review (an organizational GitHub setting — see
+# docs/SOC2_READINESS.md §5 "Cannot be fixed in code"). Owning the security core
+# means a change to identity, canonicalization, the payload lock, the WORM
+# ledger, the connector registry, or the boot/integrity/license gates cannot
+# merge without an owner's review.
+
+# Default owner for everything not matched below.
+*                                   @katzyuval
+
+# --- Identity & the payload lock (Stage 3). --------------------------------
+/auth/                              @katzyuval
+/services/auth_engine.py            @katzyuval
+
+# --- Tamper-evident audit ledger (Stage 4). --------------------------------
+/audit/                             @katzyuval
+
+# --- Canonicalization, hard limits, shared primitives. ---------------------
+/interfaces.py                      @katzyuval
+/bridge/intent_parser.py            @katzyuval
+/bridge/fastwalk.py                 @katzyuval
+/rust/                              @katzyuval
+
+# --- Connector registry (hash-pinned) + parsers. ---------------------------
+/bridge/connectors/registry.py      @katzyuval
+/bridge/connectors/                 @katzyuval
+
+# --- Boot integrity, licensing, config, security funnel. -------------------
+/core/integrity.py                  @katzyuval
+/core/licensing.py                  @katzyuval
+/core/security.py                   @katzyuval
+/core/config.py                     @katzyuval
+
+# --- Secret/credential handling. -------------------------------------------
+/services/secret_vault.py           @katzyuval
+/services/forensic_store.py         @katzyuval
+/services/cloud_broker.py           @katzyuval
+/services/authn_channel.py          @katzyuval
+
+# --- The served edge + composition root. -----------------------------------
+/app/main.py                        @katzyuval
+/main.py                            @katzyuval
+
+# --- Signed release artifacts + release tooling. ---------------------------
+/release/                           @katzyuval
+/scripts/                           @katzyuval
+
+# --- CI / supply-chain config. ---------------------------------------------
+/.github/                           @katzyuval

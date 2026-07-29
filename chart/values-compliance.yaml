@@ -1,0 +1,56 @@
+# MCPIP — hardened "compliance" values overlay.
+#
+#   helm install mcpip ./chart -n mcpip -f chart/values.yaml -f chart/values-compliance.yaml
+#
+# This turns ON every opt-in SOC 2 control that ships default-OFF, converting the
+# design-level controls into ones that actually RUN in the deployment (see
+# docs/SOC2_READINESS.md — the opt-in posture is why a default install scores lower than
+# the control design). It is additive over values.yaml; enable it consciously.
+#
+# PREREQUISITES the operator MUST provide (the gateway fails closed at boot otherwise):
+#   1. Two 32-byte random keys added to the keys Secret (secrets.existingSecret), mounted
+#      read-only at /etc/mcpip/keys, alongside the existing jwt_public.pem / worm_signing.pem:
+#        - worm_content.key   (AES-256 for WORM event-body at-rest encryption)
+#        - pseudonym.key      (HMAC key for delegation-identifier pseudonymization)
+#      e.g.  head -c 32 /dev/urandom > worm_content.key ; head -c 32 /dev/urandom > pseudonym.key
+#      Guard these like any private key; DESTROYING them crypto-shreds the encrypted audit
+#      bodies / the natural-person link (that is the point of the erasure lever).
+#   2. Redis running with >= durability.waitReplicas SYNCED replicas (the bundled single
+#      StatefulSet is NOT enough — use an HA Redis; see docs/OPERATIONS.md "Availability").
+#   3. A Prometheus Operator in-cluster for prometheusRule (and set additionalLabels to
+#      match your ruleSelector).
+
+# --- Availability: synchronous-replication quorum + disruption budgets. --------
+durability:
+  # Every audit emit must be acked by >= this many synced Redis replicas before the
+  # authorize proceeds — HA without weakening write-before-execute. Needs an HA Redis.
+  waitReplicas: 2
+  waitTimeoutMs: 2000
+pdb:
+  enabled: true
+  maxUnavailable: 1
+redis:
+  pdb:
+    enabled: true
+    maxUnavailable: 1
+
+# --- Monitoring: reference alerting rules (needs the Prometheus Operator CRD). ---
+prometheusRule:
+  enabled: true
+  additionalLabels:
+    release: prometheus
+
+# --- Confidentiality + Privacy: at-rest encryption + pseudonymization (need the keys). ---
+# Passed through the ConfigMap env map into the gateway's MCPIP_* settings. The key PATHS
+# point at the read-only Secret mount; the KEY FILES themselves are the operator's to add
+# (prereq 1). Flag-on/key-missing is a fail-closed boot error, by design.
+env:
+  MCPIP_ENCRYPT_WORM_AT_REST: "true"
+  MCPIP_WORM_CONTENT_KEY_PATH: "/etc/mcpip/keys/worm_content.key"
+  # Rotating the content key: add the successor as worm_content.key, and list the RETIRED
+  # key(s) here (os.pathsep-joined) so bodies sealed under them stay readable across the
+  # audit-retention window. Empty until the first rotation. See docs/OPERATIONS.md "Key
+  # generation & rotation → WORM content key".
+  #   MCPIP_WORM_CONTENT_KEY_FALLBACK_PATHS: "/etc/mcpip/keys/worm_content.prev.key"
+  MCPIP_PSEUDONYMIZE_PRINCIPALS: "true"
+  MCPIP_PSEUDONYM_KEY_PATH: "/etc/mcpip/keys/pseudonym.key"

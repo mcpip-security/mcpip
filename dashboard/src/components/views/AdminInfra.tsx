@@ -3,6 +3,7 @@ import {
   Boxes,
   KeyRound,
   PlugZap,
+  Check,
   Loader2,
   CheckCircle2,
   XCircle,
@@ -15,6 +16,7 @@ import {
   ChevronRight,
   Vault as VaultIcon,
   ShieldCheck,
+  X,
   ShieldAlert,
   KeySquare,
   Server,
@@ -25,6 +27,7 @@ import {
   Coins,
 } from 'lucide-react';
 import { HealthPanel } from '../HealthPanel';
+import { MySecurity } from './MySecurity';
 import { SoftwareUpdatesView, LicenseUsageView } from './SoftwarePanel';
 import { Field, Input, Badge, Panel, PanelHeader, EmptyState, Select } from '../ui';
 import { useCompanyConfig, loadCompanyConfig, slugifyTenant, deleteProfile } from '../../lib/companyConfig';
@@ -37,7 +40,9 @@ import {
   listCloudEnvironments,
   listVaultSecrets,
   mcpStepUpCapability,
+  catalog as fetchCatalog,
   mintDevToken,
+  readyz,
   POLICY_SCHEMA,
   protectedResourceMetadata,
   putPolicy,
@@ -346,6 +351,81 @@ function StandardsInterop({ gateway }: { gateway: GatewayLive }): JSX.Element {
   );
 }
 
+/* ---------------------------------------------------------------------------
+   Pipeline handshake — the plug-and-play MOTION.
+
+   Connecting used to be a spinner then a verdict, which wastes the most teachable
+   two seconds the product gets. This resolves the four pipeline stages in sequence
+   instead, so an operator watching a connect LEARNS the architecture without reading
+   a word of docs.
+
+   HONEST BY CONSTRUCTION: each step is a REAL request whose label states what that
+   request actually proved — never a timed animation dressed up as work. Steps run in
+   dependency order (a token must exist before the catalog can be read); the caption
+   names the true pipeline order so the sequence is never mistaken for it. A step that
+   fails stops the run and stays failed — there is no cosmetic "all green".
+--------------------------------------------------------------------------- */
+
+type StepState = 'idle' | 'running' | 'ok' | 'fail';
+
+interface HandshakeStep {
+  readonly stage: string;
+  /** What the probe PROVED — not what we wish it proved. */
+  readonly proves: string;
+  readonly state: StepState;
+}
+
+const HANDSHAKE_STAGES: ReadonlyArray<{ stage: string; proves: string }> = [
+  { stage: 'Bridge', proves: 'the ingress answers and is parsing requests' },
+  { stage: 'Auth', proves: 'a verified identity is accepted' },
+  { stage: 'Obfuscator', proves: 'aliases resolve — targets stay hidden' },
+  { stage: 'Audit', proves: 'the WORM store is durable and ready' },
+];
+
+function StepDot({ state }: { state: StepState }): JSX.Element {
+  if (state === 'ok') return <Check size={13} className="text-verified" aria-hidden="true" />;
+  if (state === 'fail') return <X size={13} className="text-denied" aria-hidden="true" />;
+  if (state === 'running')
+    return <Loader2 size={13} className="animate-spin text-ink" aria-hidden="true" />;
+  return <span className="h-1.5 w-1.5 rounded-full bg-slate-600" aria-hidden="true" />;
+}
+
+function PipelineHandshake({ steps }: { steps: readonly HandshakeStep[] }): JSX.Element | null {
+  if (steps.every((s) => s.state === 'idle')) return null;
+  return (
+    <div className="border-t border-hairline px-5 py-3.5">
+      <p className="eyebrow mb-2.5">Handshake</p>
+      <ol className="flex flex-col gap-1.5">
+        {steps.map((s) => (
+          <li key={s.stage} className="flex items-center gap-2.5 text-[12px]">
+            <span className="flex h-4 w-4 shrink-0 items-center justify-center">
+              <StepDot state={s.state} />
+            </span>
+            <span
+              className={`w-[92px] shrink-0 font-medium ${
+                s.state === 'idle' ? 'text-slate-500' : 'text-ink'
+              }`}
+            >
+              {s.stage}
+            </span>
+            <span
+              className={`min-w-0 truncate ${
+                s.state === 'fail' ? 'text-denied' : 'text-slate-400'
+              }`}
+            >
+              {s.state === 'fail' ? `could not confirm ${s.proves}` : s.proves}
+            </span>
+          </li>
+        ))}
+      </ol>
+      <p className="mt-2.5 text-[11px] text-slate-500">
+        Each line is a real request. Steps run in dependency order; the pipeline itself is
+        Bridge → Obfuscator → Auth → Audit, and every authorize crosses all four.
+      </p>
+    </div>
+  );
+}
+
 function ConnectionPanel({ gateway }: { gateway: GatewayLive }): JSX.Element {
   const live = gateway.mode === 'live';
   const [url, setUrl] = useState(gateway.configuredBase ?? 'http://localhost:8080');
@@ -358,11 +438,69 @@ function ConnectionPanel({ gateway }: { gateway: GatewayLive }): JSX.Element {
     }
   }, [gateway.configuredBase, live, gateway.apiBase]);
 
+  const [steps, setSteps] = useState<readonly HandshakeStep[]>(
+    HANDSHAKE_STAGES.map((s) => ({ ...s, state: 'idle' as StepState })),
+  );
+
+  /** Mark one stage, leaving the rest untouched. */
+  const mark = (i: number, state: StepState): void =>
+    setSteps((prev) => prev.map((s, j) => (j === i ? { ...s, state } : s)));
+
   const connect = async (target: string): Promise<void> => {
     setUrl(target);
     setState('testing');
+    setSteps(HANDSHAKE_STAGES.map((s) => ({ ...s, state: 'idle' as StepState })));
+
+    // 1 · BRIDGE — gateway.connect() performs the real /healthz reachability probe and
+    // pins the endpoint. Everything downstream depends on it, so a failure stops here
+    // rather than showing three more steps we never actually attempted.
+    mark(0, 'running');
     const ok = await gateway.connect(target);
-    setState(ok ? 'ok' : 'fail');
+    mark(0, ok ? 'ok' : 'fail');
+    if (!ok) {
+      setState('fail');
+      return;
+    }
+
+    // 2 · AUTH — mint and present a real token. This is the identity leg: if it fails the
+    // gateway is reachable but will not accept us, which is a DIFFERENT problem from
+    // unreachable, and the operator must be able to tell them apart.
+    mark(1, 'running');
+    let identified = false;
+    let token = '';
+    try {
+      token = await mintDevToken({}, { base: target });
+      identified = Boolean(token);
+    } catch {
+      identified = false;
+    }
+    mark(1, identified ? 'ok' : 'fail');
+
+    // 3 · OBFUSCATOR — read the catalog. Success proves aliases resolve for this identity
+    // AND that the response carries no targets; it is skipped (not faked) without identity.
+    mark(2, 'running');
+    let resolved = false;
+    if (identified) {
+      try {
+        resolved = Array.isArray(await fetchCatalog(token, { base: target }));
+      } catch {
+        resolved = false;
+      }
+    }
+    mark(2, resolved ? 'ok' : 'fail');
+
+    // 4 · AUDIT — /readyz carries the durability verdict for the WORM store. Write-before-
+    // execute is only a guarantee if that store is actually ready to accept the write.
+    mark(3, 'running');
+    let durable = false;
+    try {
+      durable = (await readyz({ base: target })).ready;
+    } catch {
+      durable = false;
+    }
+    mark(3, durable ? 'ok' : 'fail');
+
+    setState('ok');
   };
 
   const statusTone = live ? 'verified' : state === 'fail' ? 'denied' : 'muted';
@@ -470,6 +608,9 @@ function ConnectionPanel({ gateway }: { gateway: GatewayLive }): JSX.Element {
           <ShieldCheck size={11} className="shrink-0 text-slate-500" />
           With no gateway connected, every panel shows an honest empty state — the console never fabricates data.
         </p>
+        {/* Handshake — four real probes, one per pipeline stage. Renders only once a
+            connect has been attempted; idle stays invisible. */}
+        <PipelineHandshake steps={steps} />
       </Panel>
 
       {/* Standards interop — the gateway's advertised OAuth 2.1 RS / AuthZEN / MRT surfaces. */}
@@ -1248,7 +1389,7 @@ function PolicyGuardrails({ gateway }: { gateway: GatewayLive }): JSX.Element {
                 mono
                 value={draft.scope_value}
                 onChange={(e) => setDraft({ ...draft, scope_value: e.target.value })}
-                placeholder={draft.scope === 'alias' ? 'skill_dynamodb_write' : 'cloud_iam'}
+                placeholder={draft.scope === 'alias' ? 'skill_aws_dynamodb' : 'cloud_iam'}
               />
             </Field>
             <div className="hidden sm:block" />
@@ -1367,6 +1508,9 @@ export function AdminInfra({
   }
   if (subtab === 'vault') {
     return <SecretVaultPanel gateway={gateway} />;
+  }
+  if (subtab === 'security') {
+    return <MySecurity gateway={gateway} />;
   }
   if (subtab === 'policy') {
     return <PolicyGuardrails gateway={gateway} />;

@@ -1,8 +1,10 @@
 /* ---------------------------------------------------------------------------
    Skills & Access — govern what agents can call. Sub-tabs:
-     • registry   — the live obfuscator catalog with the docker-style controls
-                    (play/stop kill-switch, register, deregister) plus the
-                    per-team "view as" compartment filter; canary decoys badged.
+     • registry   — the live obfuscator catalog as a permission table (each
+                    service listed once with Read/Write checkboxes over the
+                    enable/disable kill-switch; register, deregister, per-alias
+                    inspector) plus the per-team "view as" compartment filter;
+                    canary decoys badged.
      • canaries   — the LIVE tripwire instrument: decoy roster, session trips,
                     per-agent quarantine state (all from real admin endpoints).
      • separation — the compartment-separation self-test over the operator's

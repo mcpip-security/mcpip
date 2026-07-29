@@ -1,13 +1,18 @@
 {
   "compilerOptions": {
     "composite": true,
+    // matchAll() over a RegExp iterator needs ES2020+; the default target is ES3.
+    "target": "ES2020",
+    "lib": ["ES2020"],
     "skipLibCheck": true,
     "module": "ESNext",
     "moduleResolution": "bundler",
     "allowSyntheticDefaultImports": true,
     "strict": true,
-    // vite.config.ts imports node:fs — it needs the node type library explicitly.
+    // vite.config.ts and tests/ read files — they need the node type library
+    // explicitly. The APP graph (tsconfig.json) deliberately keeps "types": []
+    // hermetic, which is why file-reading assertions live out here and not in src/.
     "types": ["node"]
   },
-  "include": ["vite.config.ts"]
+  "include": ["vite.config.ts", "tests/**/*.ts"]
 }

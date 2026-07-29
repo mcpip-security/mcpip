@@ -1007,7 +1007,7 @@ def test_pin_gated_vend_completes_after_stepup() -> None:
             auth = await _engine_with_pin(client)
             ident = _identity(tenant, _uid("agent"), comp)
             args = {"table": "orders", "op": "PutItem"}
-            entry = AliasEntry("skill_dynamodb_write", env.env_id, "cloud_iam", RiskTier.PIN_REQUIRED, compartment=comp)
+            entry = AliasEntry("skill_aws_dynamodb", env.env_id, "cloud_iam", RiskTier.PIN_REQUIRED, compartment=comp)
             challenge = await auth.register_lock(ident, entry.alias, args, RiskTier.PIN_REQUIRED)
             otp = await auth.peek_authenticator_otp(ident, challenge)
             res = await _gate_then_vend(
@@ -1034,7 +1034,7 @@ def test_pin_gated_vend_missing_challenge_denies() -> None:
             transport = CloudIAMTransport(store, sandbox_mode=True, vault=None)
             auth = await _engine_with_pin(client)
             ident = _identity(tenant, _uid("agent"), comp)
-            entry = AliasEntry("skill_dynamodb_write", env.env_id, "cloud_iam", RiskTier.PIN_REQUIRED, compartment=comp)
+            entry = AliasEntry("skill_aws_dynamodb", env.env_id, "cloud_iam", RiskTier.PIN_REQUIRED, compartment=comp)
             with pytest.raises(GatewayDeny) as exc:
                 await _gate_then_vend(
                     transport=transport, entry=entry, identity=ident, arguments={"table": "orders"},
@@ -1061,7 +1061,7 @@ def test_pin_gated_vend_wrong_pin_denies() -> None:
             auth = await _engine_with_pin(client)
             ident = _identity(tenant, _uid("agent"), comp)
             args = {"table": "orders"}
-            entry = AliasEntry("skill_dynamodb_write", env.env_id, "cloud_iam", RiskTier.PIN_REQUIRED, compartment=comp)
+            entry = AliasEntry("skill_aws_dynamodb", env.env_id, "cloud_iam", RiskTier.PIN_REQUIRED, compartment=comp)
             challenge = await auth.register_lock(ident, entry.alias, args, RiskTier.PIN_REQUIRED)
             otp = await auth.peek_authenticator_otp(ident, challenge)
             wrong = "111111" if otp != "111111" else "222222"
@@ -1091,7 +1091,7 @@ def test_pin_replayed_denies_second_vend() -> None:
             auth = await _engine_with_pin(client)
             ident = _identity(tenant, _uid("agent"), comp)
             args = {"table": "orders"}
-            entry = AliasEntry("skill_dynamodb_write", env.env_id, "cloud_iam", RiskTier.PIN_REQUIRED, compartment=comp)
+            entry = AliasEntry("skill_aws_dynamodb", env.env_id, "cloud_iam", RiskTier.PIN_REQUIRED, compartment=comp)
             challenge = await auth.register_lock(ident, entry.alias, args, RiskTier.PIN_REQUIRED)
             otp = await auth.peek_authenticator_otp(ident, challenge)
             first = await _gate_then_vend(
@@ -1124,7 +1124,7 @@ def test_pin_payload_tamper_denies_vend() -> None:
             transport = CloudIAMTransport(store, sandbox_mode=True, vault=None)
             auth = await _engine_with_pin(client)
             ident = _identity(tenant, _uid("agent"), comp)
-            entry = AliasEntry("skill_dynamodb_write", env.env_id, "cloud_iam", RiskTier.PIN_REQUIRED, compartment=comp)
+            entry = AliasEntry("skill_aws_dynamodb", env.env_id, "cloud_iam", RiskTier.PIN_REQUIRED, compartment=comp)
             challenge = await auth.register_lock(ident, entry.alias, {"table": "orders"}, RiskTier.PIN_REQUIRED)
             otp = await auth.peek_authenticator_otp(ident, challenge)
             with pytest.raises(GatewayDeny) as exc:
@@ -1154,7 +1154,7 @@ def test_pin_wrong_agent_denies_vend() -> None:
             agent_a = _identity(tenant, _uid("agent-a"), comp)
             agent_b = _identity(tenant, _uid("agent-b"), comp)
             args = {"table": "orders"}
-            entry = AliasEntry("skill_dynamodb_write", env.env_id, "cloud_iam", RiskTier.PIN_REQUIRED, compartment=comp)
+            entry = AliasEntry("skill_aws_dynamodb", env.env_id, "cloud_iam", RiskTier.PIN_REQUIRED, compartment=comp)
             challenge = await auth.register_lock(agent_a, entry.alias, args, RiskTier.PIN_REQUIRED)
             otp = await auth.peek_authenticator_otp(agent_a, challenge)
             with pytest.raises(GatewayDeny) as exc:

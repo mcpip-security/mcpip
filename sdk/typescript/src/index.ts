@@ -21,6 +21,7 @@ export {
   bedrockToolUse,
   mcpToolsCall,
   rawMcp,
+  a2aTask,
 } from './client.js';
 export type { CallOptions, McpipClientOptions, TokenSource } from './client.js';
 

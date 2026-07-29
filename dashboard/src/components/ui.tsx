@@ -151,7 +151,10 @@ export function EmptyState({
 }): JSX.Element {
   return (
     <div className="flex h-full flex-col items-center justify-center gap-2 px-6 py-12 text-center">
-      <Icon size={24} className="text-slate-600" />
+      {/* slate-500, not -600: this icon is meaningful non-text content (1.4.11),
+          and slate-600 is the ramp's decorative step (2.40:1 light / 2.78:1 dark
+          on elevated). Only the ramp's USE moves; the ramp itself stays. */}
+      <Icon size={24} className="text-slate-500" />
       <p className="text-[13px] font-medium text-slate-400">{title}</p>
       {detail ? <p className="max-w-sm text-[11.5px] leading-relaxed text-slate-500">{detail}</p> : null}
       {action ? <div className="mt-2">{action}</div> : null}

@@ -69,7 +69,7 @@ function Row({
         {!allow && e.reason ? (
           <span className="ml-2 text-denied">{e.reason}</span>
         ) : (
-          <span className="ml-2 text-slate-600">{e.transport}</span>
+          <span className="ml-2 text-slate-500">{e.transport}</span>
         )}
       </span>
       <span className="flex items-center gap-2.5">

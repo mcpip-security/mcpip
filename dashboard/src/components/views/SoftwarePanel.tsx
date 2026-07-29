@@ -16,7 +16,6 @@ import {
   Waypoints,
   BellRing,
   ListChecks,
-  ChevronRight,
 } from 'lucide-react';
 import { Panel, PanelHeader, Badge, EmptyState } from '../ui';
 import type { GatewayLive } from '../../lib/useGatewayLive';
@@ -236,11 +235,7 @@ function UpdatePanel({ gateway }: { gateway: GatewayLive }): JSX.Element {
 
       <p className="flex shrink-0 items-start gap-1.5 border-t border-hairline px-5 py-2.5 text-[10.5px] leading-relaxed text-slate-500">
         <ShieldCheck size={12} className="mt-px shrink-0 text-slate-500" />
-        <span>
-          MCPIP never auto-installs. Updates are immutable, signed artifacts applied by a{' '}
-          <span className="text-ink">redeploy</span> — the console notifies; your change-control applies. No
-          auto-updater, no remote code.
-        </span>
+        <span>MCPIP never auto-installs — the console notifies, your change-control redeploys.</span>
       </p>
     </Panel>
   );
@@ -334,11 +329,7 @@ function LicensePanel({ gateway }: { gateway: GatewayLive }): JSX.Element {
 
       <p className="flex shrink-0 items-start gap-1.5 border-t border-hairline px-5 py-2.5 text-[10.5px] leading-relaxed text-slate-500">
         <BadgeCheck size={12} className="mt-px shrink-0 text-slate-500" />
-        <span>
-          Licensing gates process <span className="text-ink">boot only</span> — never the per-request
-          authorization pipeline. Verified offline against the signed document; air-gapped enclaves validate
-          exactly like connected deployments.
-        </span>
+        <span>Licensing gates process boot only — never per-request decisions.</span>
       </p>
     </Panel>
   );
@@ -546,31 +537,12 @@ function DeploymentUsagePanel({ gateway }: { gateway: GatewayLive }): JSX.Elemen
                 badge={<Waypoints size={12} className={pdp!.tone === 'verified' ? 'text-verified' : pdp!.tone === 'staged' ? 'text-staged' : 'text-slate-400'} />}
               />
 
-              {/* The long "why it's off / how to enable" prose for forensic + PDP
-                  is reference material — one disclosure keeps the panel glanceable. */}
-              <details className="group mt-2.5">
-                <summary className="flex cursor-pointer list-none items-center gap-1.5 text-[10.5px] font-medium text-slate-500 hover:text-ink">
-                  <ChevronRight size={12} className="shrink-0 transition-transform group-open:rotate-90" />
-                  Posture details
-                </summary>
-                <div className="mt-2 space-y-1.5">
-                  <p className="flex items-start gap-1.5 text-[10.5px] leading-relaxed text-slate-500">
-                    <Camera size={12} className="mt-px shrink-0 text-slate-500" />
-                    <span>{forensic!.detail}</span>
-                  </p>
-                  <p className="flex items-start gap-1.5 text-[10.5px] leading-relaxed text-slate-500">
-                    <Waypoints size={12} className="mt-px shrink-0 text-slate-500" />
-                    <span>{pdp!.detail}</span>
-                  </p>
-                </div>
-              </details>
             </div>
 
             <p className="mt-3 flex items-start gap-1.5 text-[10.5px] leading-relaxed text-slate-500">
               <Users size={12} className="mt-px shrink-0 text-slate-500" />
               <span>
-                The governed-agent count is a <span className="text-ink">cardinality</span> (a HyperLogLog
-                PFCOUNT) — the agent ids themselves are never stored or exposed. {tel!.detail}
+                The agent count is a cardinality only — agent ids are never stored or exposed.
               </span>
             </p>
           </>
@@ -579,11 +551,7 @@ function DeploymentUsagePanel({ gateway }: { gateway: GatewayLive }): JSX.Elemen
 
       <p className="flex shrink-0 items-start gap-1.5 border-t border-hairline px-5 py-2.5 text-[10.5px] leading-relaxed text-slate-500">
         <ShieldCheck size={12} className="mt-px shrink-0 text-slate-500" />
-        <span>
-          These are this deployment’s OWN-tenant numbers, read locally. No tenant/agent/alias/target
-          crosses this boundary — only aggregate integers. The opt-in beacon (when enabled) reports the
-          same shape to the vendor; an <span className="text-ink">air-gapped</span> deployment never phones home.
-        </span>
+        <span>Own-tenant aggregates, read locally — only integers, never ids.</span>
       </p>
     </Panel>
   );

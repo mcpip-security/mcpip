@@ -57,8 +57,8 @@ if (result.status === 'allowed') {
 | 202  | `{ status: 'staged', challengeId, actionRequired, ... }` — see the PIN ceremony |
 | 4xx/5xx | throws — `McpipDenied` (opaque), `McpipInvalidRequest` (422/413), `McpipUnavailable` (503/network) |
 
-Envelope builders for all six dialects: `openaiToolCall`, `anthropicToolUse`,
-`geminiFunctionCall`, `bedrockToolUse`, `mcpToolsCall`, `rawMcp`. Exactly one
+Envelope builders for every dialect: `openaiToolCall`, `anthropicToolUse`,
+`geminiFunctionCall`, `bedrockToolUse`, `mcpToolsCall`, `rawMcp`, `a2aTask`. Exactly one
 of `source_format` / `vendor` goes in the request (the type enforces it).
 
 ## The PIN ceremony (pin_required aliases)

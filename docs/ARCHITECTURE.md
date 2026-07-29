@@ -13,7 +13,7 @@ exact invariants, envelopes, diagrams, tables, benchmarks, and pseudocode are
 unchanged from their originating design memos. Sibling references: operational
 and deployment concerns live in [docs/OPERATIONS.md](OPERATIONS.md), connector
 and dialect extension in [docs/EXTENSIBILITY.md](EXTENSIBILITY.md), and
-future-wave sequencing in [docs/ROADMAP.md](ROADMAP.md).
+future-wave sequencing in the internal roadmap.
 
 ---
 
@@ -87,7 +87,7 @@ carries structured JSON), MCPIP pins **one** strict envelope shape — a top-lev
   `interfaces.py` (hard limits in one place).
 
 Every A2A ingress model is Pydantic v2 `extra="forbid", strict=True`, exactly
-like the existing six dialects' models.
+like the other six dialects' models.
 
 ### Identity is JWT-only; the envelope's actor is *recorded-not-trusted*
 
@@ -163,15 +163,15 @@ not widened** — no new key was added to the set.
 
 *Does MCPIP ever enter the prompt path?*
 
-*Last updated: 2026-07-17 (2026-H2 reaffirmation, `docs/ROADMAP.md` **F2** — see §7). A decision memo for the single most consequential product decision MCPIP
+*Last updated: 2026-07-17 (2026-H2 reaffirmation, the internal roadmap **F2** — see §7). A decision memo for the single most consequential product decision MCPIP
 faces — whether to cross from post-reasoning tool-call **interception** into the model's **content /
-generation path** to build the two data-plane pillars (`ROADMAP.md` Pillars 1–2: **oracle
+generation path** to build the two data-plane pillars (the internal roadmap Pillars 1–2: **oracle
 inversion** and **cryptographic taint-tracking**). This is a **DESIGN DOCUMENT ONLY**: it writes no
 data-plane code, reserves no pointer token, and changes no behavior. It exists so the call is made
 **deliberately, by the owner** — the roadmap's explicit instruction: "decide it deliberately, don't
-drift into it" (`docs/ROADMAP.md §2`, `ROADMAP.md §3.2`). Companions: `WHITEPAPER.md §2.2`
-(the "interceptor, not an LLM proxy" trust boundary), `STRATEGY.md §2` (primitive #7),
-`ROADMAP.md §3.3–3.4` (the pillar sketches), `docs/OPERATIONS.md` (sibling
+drift into it" (the internal roadmap). Companions: `WHITEPAPER.md §2.2`
+(the "interceptor, not an LLM proxy" trust boundary), the internal strategy notes (primitive #7),
+the internal roadmap (the pillar sketches), `docs/OPERATIONS.md` (sibling
 FUTURE-wave design material).*
 
 ---
@@ -189,7 +189,7 @@ FUTURE-wave design material).*
   the model and holds vendor keys. These are different bets with different blast radii. **(B) is a
   do-not-build** (it *is* the "LLM proxy" the whitepaper disavows). (A) is the only version worth ever
   reconsidering, and only on the transports where MCPIP already dispatches inline.
-- **Crossing the line deletes a named product primitive.** `STRATEGY.md` primitive #7 —
+- **Crossing the line deletes a named product primitive.** The internal strategy notes primitive #7 —
   "self-hosted, **inference-free** data-plane; the gateway never calls a model, holds no vendor keys" — and
   the "the fox can't guard the henhouse; the authorizer must be independent of the thing it authorizes"
   battlecard are *positioning assets*, not incidental facts. The fork spends them.
@@ -199,7 +199,7 @@ FUTURE-wave design material).*
   hard and must not be made by accident.
 - **What ships now: this memo. What stays unbuilt: everything else** — no `dataplane/` stage, no vault
   write, no `{{PTR_}}` reservation, no taint labels. The parity-sensitive pointer-token reservation is
-  *its own future wave* under the byte-identity invariant (`docs/ROADMAP.md §2`), and even that is not this
+  *its own future wave* under the byte-identity invariant (the internal roadmap), and even that is not this
   wave.
 
 ---
@@ -232,7 +232,7 @@ Concretely, four facts define the current boundary:
 
 **"Entering the prompt path" means breaking fact #1** — inserting MCPIP into the flow of content *to and
 from* the model, so it can vault-and-swap what the model reads (Pillar 1) or enforce taint at the moment
-content is interpolated (Pillar 2). `ROADMAP.md §2` states the dependency plainly: "you cannot
+content is interpolated (Pillar 2). The internal roadmap states the dependency plainly: "you cannot
 vault-and-pointer-swap what the model reads (P1) [or] enforce taint at interpolation time (P2) … unless
 you mediate content flowing to and from the model."
 
@@ -247,7 +247,7 @@ learns `mainframe.cics.PAYR`). Oracle inversion generalizes that inversion from 
 *data*: the model operates over **opaque pointers**, and the real bytes are late-bound only at execution,
 *after* the authorization decision is committed.
 
-**What it would concretely require** (sketch from `ROADMAP.md §3.3`, not a build order):
+**What it would concretely require** (sketch from the internal roadmap, not a build order):
 
 - A `dataplane/` stage at the point where tool results / untrusted content re-enter the agent loop.
 - **Vault write:** `SETEX vault:{tenant}:{sha256_16} <raw bytes>` (short TTL); the raw string handed to
@@ -258,7 +258,7 @@ learns `mainframe.cics.PAYR`). Oracle inversion generalizes that inversion from 
 - **De-referencing compiler:** one pipelined `MGET` in `_dispatch`, **after** the WORM ALLOW is emitted,
   so the decision is provably made over pointers and only the executing transport ever sees plaintext.
 - **The load-bearing invariant:** `lock_payload_hash` must hash the **pointer form**, never the
-  interpolated form, "or the TOCTOU lock re-opens" (`ROADMAP.md §3.3`). This single sentence is the
+  interpolated form, "or the TOCTOU lock re-opens" (the internal roadmap). This single sentence is the
   reason the pointer-token reservation is *its own parity-sensitive wave* and not a casual add.
 
 **What it unlocks.** A deterministic **data air-gap**: an agent can act on data it structurally cannot
@@ -271,7 +271,7 @@ category-defining and, unusually, *true*: "the model never sees your secrets, ev
 **What it is.** Information-flow control: every vaulted datum carries a provenance label, and the gateway
 refuses to let low-trust data flow into a high-trust sink.
 
-**What it would concretely require** (sketch from `ROADMAP.md §3.4`, *builds on 2.1*):
+**What it would concretely require** (sketch from the internal roadmap, *builds on 2.1*):
 
 - Per vault entry, store `{"bytes": …, "taint": UNTRUSTED_USER | EXTERNAL_WEB | INTERNAL_DB | SYSTEM}`.
 - Per-field **taint ceilings** declared on `AliasEntry` (`field_policies: dict[str, frozenset[Taint]]`,
@@ -385,7 +385,7 @@ per-field taint ceilings on `AliasEntry` plus enforcement at one interpolation c
 - **Parity drift** in the Rust mirror on the new pointer type — caught only by the differential gate
   (`tests/test_fastwalk_differential.py`), which would (correctly) refuse to ship until re-pinned.
 
-**Scaffold that is parity-safe to pre-decide (but still not this wave).** Per `docs/ROADMAP.md §2`, the *shape*
+**Scaffold that is parity-safe to pre-decide (but still not this wave).** Per the internal roadmap, the *shape*
 can be reserved so a future entry is additive not a rewrite: reserve the `{{PTR_<hash>}}` token shape in
 `enforce_argument_safety` (Python **and** Rust, per the parity invariant) and pre-decide that
 `lock_payload_hash` hashes the *pointer* form. **This memo does not do that** — it is called out here
@@ -399,7 +399,7 @@ invariants guard against. It is its own wave, gated by the owner decision below.
 
 #### For (why this is the genuine frontier)
 
-- **The two pillars are the only truly un-copied capabilities left.** `STRATEGY.md §3`
+- **The two pillars are the only truly un-copied capabilities left.** The internal strategy notes
   finds no incumbent scoring above ~3/7 on today's primitives, and the two *rare* primitives (opaque
   aliasing, write-before-execute) are already MCPIP's. Oracle inversion and cryptographic IFC are the
   *next* two nobody ships — a deterministic data air-gap and deterministic IFC would be a moat an order of
@@ -408,7 +408,7 @@ invariants guard against. It is its own wave, gated by the owner decision below.
   *data*; write-before-execute *decision* → a decision *provably made over pointers*. The conceptual
   through-line is clean.
 - **It maps to the target buyer.** The strategy is "regulated / air-gapped accounts where closed cloud
-  bundles structurally can't play" (`STRATEGY.md §5`). "The model never sees the regulated
+  bundles structurally can't play" (the internal strategy notes). "The model never sees the regulated
   data" is a claim that exact buyer pays for.
 
 #### Against (why not now, and maybe not ever at depth B)
@@ -418,7 +418,7 @@ invariants guard against. It is its own wave, gated by the owner decision below.
   being a narrow deterministic gate. Entering the content path doesn't invalidate those proofs, but it
   bolts a much larger, softer surface onto a system whose entire credibility is its narrowness.
 - **It is a multi-quarter, high-risk build touching the most dangerous code in the repo** — the
-  byte-identity parity core. For a solo founder (`docs/ROADMAP.md`'s explicit lens), this is the textbook
+  byte-identity parity core. For a solo founder (the internal roadmap's explicit lens), this is the textbook
   "expensive, speculative, defer-until-pulled" feature. The roadmap ranks it #10 and says exactly this.
 - **It spends a named positioning primitive (#7) and the "independent authorizer" battlecard** — the two
   things that let MCPIP compose *beneath* every guardrail and *beside* every IdP rather than compete with
@@ -467,13 +467,13 @@ Take it in the smallest positioning-preserving increments, each fail-closed and 
 
 1. **Reserve the pointer token** (`{{PTR_}}`) in `enforce_argument_safety`, Python + Rust in lockstep,
    with `lock_payload_hash` pre-decided to hash the pointer form. Its *own* wave; re-pin the differential
-   gate deliberately. No behavior yet — pure scaffold. (This is the item `docs/ROADMAP.md §2` allows to
+   gate deliberately. No behavior yet — pure scaffold. (This is the item the internal roadmap allows to
    pre-decide; it is still not this wave.)
 2. **Pillar 1, scoped to proxy transports only** — vault + pointer-swap on tool results MCPIP *already*
    handles inline, where entering the content path costs the least positioning (MCPIP is already the data
    plane there). De-reference strictly after the WORM ALLOW.
 3. **Pillar 2 on top** — taint labels + per-field ceilings + `TAINT_VIOLATION`, once the vault exists
-   (`ROADMAP.md §3.4` estimates ~20% marginal cost over Pillar 1).
+   (the internal roadmap estimates ~20% marginal cost over Pillar 1).
 4. **Never depth (B).** No inference proxy, no vendor keys, ever.
 
 Each step preserves fail-closed opacity (agent sees only `MCPIPDenied` + `correlation_id`),
@@ -486,18 +486,18 @@ Every other FUTURE-wave item (`docs/OPERATIONS.md`, the [group-commit WORM ceili
 the network-enforcement posture) is an *edge* or *packaging* concern the roadmap resolves with a design doc
 and a behavior-neutral scaffold. This one is different in kind: it changes **what MCPIP is** — from a narrow
 deterministic authorizer of the final action to a mediator of the agent's data flow. It rewrites the threat
-model, the battlecard, the latency story, and the trust posture at once. `ROADMAP.md §3.2` names it
+model, the battlecard, the latency story, and the trust posture at once. The internal roadmap names it
 correctly: "a product decision (deployment story, threat model, latency budget) that should be made
 *deliberately* before any data-plane code is written." That is why this memo exists, why it writes no code,
 and why the call belongs to the owner — made once, on purpose, with the triggers above met, and never by drift.
 
 ---
 
-### 7. 2026-H2 reaffirmation (`docs/ROADMAP.md` F2) — the line holds, and ASI06 does not move it
+### 7. 2026-H2 reaffirmation (the internal roadmap F2) — the line holds, and ASI06 does not move it
 
-*Roadmap action: `docs/ROADMAP.md §3 F2` scopes this wave as **"nothing new — reaffirm."** This section
+*Roadmap action: The internal roadmap scopes this wave as **"nothing new — reaffirm."** This section
 is that reaffirmation, forced into the open by two 2026-H2 developments — the OWASP ASI-2026 taxonomy
-(`STRATEGY.md §5.1`, ASI06 memory/context poisoning) and the shipped **F1 A2A choke-point**
+(the internal strategy notes, ASI06 memory/context poisoning) and the shipped **F1 A2A choke-point**
 connector. Neither changes the recommendation of §6. Both sharpen why.*
 
 **7.1 The recommendation is unchanged and now dated: DO NOT enter the prompt path.** MCPIP remains an
@@ -511,7 +511,7 @@ made and this wave writes no data-plane code, reserves no `{{PTR_}}` token, and 
 **7.2 ASI06 (memory & context poisoning) is OUT-OF-SCOPE-BY-DESIGN — and that is the correct scope, not a
 gap to close with a detector.** ASI06 writes malicious content into an agent's persistent memory / RAG
 store so it later behaves wrongly across sessions, with attack and effect temporally decoupled
-(`STRATEGY.md §5.7`; MINJA-style trajectory injection). MCPIP is stateless and sees only the
+(the internal strategy notes; MINJA-style trajectory injection). MCPIP is stateless and sees only the
 individual tool-call payload — it has **zero visibility into the agent's memory store**, so a
 memory-poisoned agent's later well-formed, in-policy call is authorized like any other. This is not an
 accident to be patched: **MCPIP governs the tool call, not the agent's memory or reasoning.** Judging
@@ -545,8 +545,7 @@ stronger where it bites.
 **7.4 Explicitly RESIST building a per-identity behavioral-anomaly detector.** The tempting "fix" for
 ASI06/ASI07 is an in-agent, per-identity behavioral / probabilistic anomaly detector. **Do not build
 it.** It forfeits the deterministic-gate identity that *is* the moat and drifts MCPIP onto the
-commoditizing model-guardrail turf it deliberately avoids (`STRATEGY.md §5.7`,
-`STRATEGY.md §6`, `SECURITY_THREAT_MODEL.md §17`). **"The fox can't guard the henhouse"** —
+commoditizing model-guardrail turf it deliberately avoids (the internal strategy notes, `SECURITY_THREAT_MODEL.md §17`). **"The fox can't guard the henhouse"** —
 a probabilistic detector that lives inside, and reasons about, the very agent it is meant to police is
 not an independent authorizer; the authorizer must stay independent of the thing it authorizes. An
 honest "out-of-scope-by-design, here is the damage limit" is worth more than a detector that manufactures
@@ -569,7 +568,7 @@ path — and, reaffirmed 2026-H2, from outside the agent's memory too.)*
 
 *Group-commit WORM throughput: ceiling, measurement, and design.*
 
-*Last updated: 2026-07-17. Companion to `docs/ROADMAP.md §2` (line 76 / line 149) — the
+*Last updated: 2026-07-17. Companion to the internal roadmap (line 76 / line 149) — the
 "group-commit WORM throughput (the known ~1k emit/s ceiling)" future item. This document
 is a **rigorous design + a REAL benchmark of the current ceiling**. It deliberately does
 **NOT** rewrite the durable substrate: raising the ceiling for real requires a NEW

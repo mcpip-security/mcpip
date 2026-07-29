@@ -1,6 +1,5 @@
 import { useMemo } from 'react';
 import type { ReactNode } from 'react';
-import { ChevronRight } from 'lucide-react';
 import { AnimatedNumber } from './AnimatedNumber';
 import { Sparkline } from './Sparkline';
 import type { AuditVerifyResult } from '../lib/api';
@@ -9,8 +8,8 @@ import type { MetricsSnapshot } from '../lib/types';
 
 /* ---------------------------------------------------------------------------
    Overview KPI wall — six tiles, every number a REAL gateway source. The
-   `compact` variant keeps the four decision-flow tiles on the wall and tucks
-   readiness + catalog behind a native disclosure (Live landing density):
+   `compact` variant keeps the four decision-flow tiles on the wall and puts
+   readiness + catalog on a second row:
 
      • Decisions/s + sparkline   — per-scrape deltas of the gateway's own
        mcpip_authorize_decisions_total counter (throughputHistory records one
@@ -178,10 +177,15 @@ export function MetricsGrid({ gateway, compact = false }: MetricsGridProps): JSX
         ? 'no authorize traffic observed yet'
         : 'no /metrics signal';
 
+  // This tile counts the catalog VISIBLE TO THIS CONSOLE's own identity (GET
+  // /v1/catalog is agent-scoped, so compartment-scoped skills this console isn't
+  // in are pruned out). The operator's FULL governed registry — every team's
+  // skills across every compartment — lives in Governance → Skills, so point
+  // there rather than letting this scoped count read as the whole catalog.
   const compartmentDetail =
     compartments === 0
-      ? 'no compartments in my catalog'
-      : `${compartments} compartment${compartments === 1 ? '' : 's'} in my catalog`;
+      ? 'this console’s view · full registry in Governance → Skills'
+      : `${compartments} compartment${compartments === 1 ? '' : 's'} · full registry in Governance → Skills`;
 
   // The four decision-flow tiles — throughput, cumulative split, gateway
   // latency, audit-chain integrity. These stay on the wall in every variant.
@@ -213,9 +217,9 @@ export function MetricsGrid({ gateway, compact = false }: MetricsGridProps): JSX
           ) : (
             <span className="tabular block truncate">
               <span className="text-verified">{fmt(m.allowTotal)} allow</span>
-              <span className="text-slate-600"> · </span>
+              <span aria-hidden="true" className="text-slate-600"> · </span>
               <span className="text-denied">{fmt(m.denyTotal)} deny</span>
-              <span className="text-slate-600"> · </span>
+              <span aria-hidden="true" className="text-slate-600"> · </span>
               <span className="text-staged">{fmt(m.stagedTotal)} staged</span>
             </span>
           )
@@ -235,14 +239,14 @@ export function MetricsGrid({ gateway, compact = false }: MetricsGridProps): JSX
   );
 
   // The two scope/infra tiles — readiness (the fail-closed hinge) and catalog
-  // scope. Secondary to the decision flow; disclosed, not dropped, in compact.
+  // scope. Secondary to the decision flow; a second row in compact.
   const secondaryTiles = (
     <>
       <Tile label="Readiness" detail={<DetailText text={readiness.detail} />}>
         <span className={`metric-value ${CHIP_TEXT[readiness.tone]}`}>{readiness.value}</span>
       </Tile>
 
-      <Tile label="Catalog skills" detail={<DetailText text={compartmentDetail} />}>
+      <Tile label="Catalog · this console" detail={<DetailText text={compartmentDetail} />}>
         <Value value={gateway.catalog.length} />
       </Tile>
     </>
@@ -254,22 +258,12 @@ export function MetricsGrid({ gateway, compact = false }: MetricsGridProps): JSX
         <section aria-label="Gateway telemetry" className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           {decisionTiles}
         </section>
-        <details className="group">
-          <summary className="eyebrow flex cursor-pointer list-none items-center gap-1.5 py-0.5 text-slate-500 transition-colors hover:text-slate-400">
-            <ChevronRight
-              size={13}
-              className="shrink-0 transition-transform group-open:rotate-90"
-              aria-hidden="true"
-            />
-            Readiness &amp; catalog
-          </summary>
-          <section
-            aria-label="Gateway readiness and catalog scope"
-            className="mt-2.5 grid grid-cols-2 gap-3"
-          >
-            {secondaryTiles}
-          </section>
-        </details>
+        <section
+          aria-label="Gateway readiness and catalog scope"
+          className="grid grid-cols-2 gap-3"
+        >
+          {secondaryTiles}
+        </section>
       </div>
     );
   }

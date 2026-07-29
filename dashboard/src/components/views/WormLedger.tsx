@@ -22,7 +22,6 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   BadgeCheck,
   Check,
-  ChevronRight,
   ClipboardCheck,
   Copy,
   Download,
@@ -103,19 +102,9 @@ function ConnectAction(): JSX.Element {
   );
 }
 
-/* A compact, consistent 'why this matters' disclosure — every long explanatory
-   paragraph collapses behind one so the panels read as controls, not prose. The
-   text is preserved verbatim, one click away. */
-function Why({ label = 'Why this matters', children }: { label?: string; children: React.ReactNode }): JSX.Element {
-  return (
-    <details className="group">
-      <summary className="flex cursor-pointer list-none items-center gap-1 text-[10.5px] font-medium text-slate-500 transition-colors hover:text-ink focus:outline-none focus-visible:shadow-focus-ring">
-        <ChevronRight size={11} className="shrink-0 transition-transform group-open:rotate-90" />
-        {label}
-      </summary>
-      <div className="mt-1.5 space-y-1.5 pl-4">{children}</div>
-    </details>
-  );
+/* One short muted helper line — the only in-panel explanation treatment. */
+function Hint({ children }: { children: React.ReactNode }): JSX.Element {
+  return <p className="text-[10.5px] leading-relaxed text-slate-500">{children}</p>;
 }
 
 /* --- Toolbar: search · observed-value filters · the one honest export ------ */
@@ -248,8 +237,7 @@ function InspectorEmpty(): JSX.Element {
       <MousePointerClick size={22} className="text-slate-600" />
       <p className="text-[12.5px] font-medium text-slate-400">Select an event</p>
       <p className="max-w-[230px] text-[11.5px] leading-relaxed text-slate-500">
-        Inspect the whitelist projection of a decision and verify its Merkle inclusion proof
-        against the signed epoch root.
+        Pick a row to inspect its record and verify its integrity proof.
       </p>
     </div>
   );
@@ -271,9 +259,7 @@ function ProofOutcome({ proof }: { proof: ProofRun }): JSX.Element | null {
           </span>
         </div>
         <p className="pl-6 text-[11px] leading-relaxed text-slate-500">
-          The tail epoch is still open. A chain verification force-seals it — run one from the{' '}
-          <span className="font-medium text-ink">Chain integrity</span> panel below, or retry in a
-          moment (the sandbox sealer closes epochs about every second).
+          The tail epoch is still open — run a check on the Integrity tab, or retry in a moment.
         </p>
       </div>
     );
@@ -290,10 +276,8 @@ function ProofOutcome({ proof }: { proof: ProofRun }): JSX.Element | null {
           </span>
         </div>
         <p className="pl-6 text-[11px] leading-relaxed text-slate-500">
-          Over-HTTP inclusion proofs are a sandbox affordance — a production gateway never mounts{' '}
-          <span className="font-mono text-[10.5px]">/v1/audit/proof</span>. Export the sealed ledger
-          with <span className="font-mono text-[10.5px]">mcpip export-audit</span> and verify
-          inclusion with the external verifier against the published audit key.
+          Production gateways never mount this endpoint — export the ledger with{' '}
+          <span className="font-mono text-[10.5px]">mcpip export-audit</span> and verify externally.
         </p>
       </div>
     );
@@ -398,15 +382,10 @@ function ProofOutcome({ proof }: { proof: ProofRun }): JSX.Element | null {
           {incl.record}
         </pre>
         <div className="mt-1.5">
-          <Why label="About this record">
-            <p className="leading-relaxed">
-              Returned verbatim by <span className="font-mono">/v1/audit/proof</span> — the exact
-              bytes the gateway sealed; the leaf hash is SHA-256 over precisely this string
-              (domain-separated). The Ed25519 signature binds the epoch root into the signed chain;
-              the console holds no audit public key, so signature verification stays with chain
-              verification (sandbox) or the external verifier (production).
-            </p>
-          </Why>
+          <Hint>
+            The exact bytes the gateway sealed, returned verbatim by{' '}
+            <span className="font-mono">/v1/audit/proof</span>.
+          </Hint>
         </div>
       </div>
     </div>
@@ -438,11 +417,8 @@ function ForensicOutcome({ forensic }: { forensic: ForensicRun }): JSX.Element |
           </span>
         </div>
         <p className="pl-6 text-[11px] leading-relaxed text-slate-500">
-          Forensic capture may be off on this gateway (production defaults it{' '}
-          <span className="font-mono text-[10.5px]">off</span>), or the capture for this correlation
-          id was never taken or has expired (<span className="font-mono text-[10.5px]">TTL</span>).
-          The gateway keeps these cases indistinguishable by design — no exists-elsewhere oracle —
-          so the console does not claim which.
+          Capture may be off, never taken, or expired — the gateway keeps these indistinguishable
+          by design.
         </p>
       </div>
     );
@@ -684,30 +660,25 @@ function Inspector({
           ) : null}
         </dl>
 
-        <Why label="About this projection">
-          <p className="leading-relaxed">
-            The whitelist projection served by{' '}
-            <span className="font-mono">/v1/admin/decisions/recent</span> — every field above is the
-            gateway&apos;s own record of this decision. The raw payload and the real target are never
-            projected (topology hygiene); the sealed WORM record itself returns with an inclusion
-            proof below.
-          </p>
-        </Why>
+        <Hint>
+          The gateway&apos;s own record of this decision — payloads and real targets are never
+          included.
+        </Hint>
 
-        {/* Merkle inclusion proof — the per-event affordance, surfaced only when the
-            row carries an event_id the proof endpoint can anchor on. */}
+        {/* Integrity (Merkle inclusion) proof — the per-event affordance, surfaced
+            only when the row carries an event_id the proof endpoint can anchor on. */}
         {p.event_id === null ? (
           <div className="border-t border-hairline pt-4">
             <div className="mb-2 flex items-center gap-1.5">
               <ShieldCheck size={12} className="text-slate-500" />
               <span className="text-[10.5px] font-semibold uppercase tracking-[0.1em] text-slate-500">
-                Inclusion proof
+                Integrity proof
               </span>
             </div>
             <p className="text-[10.5px] leading-relaxed text-slate-500">
-              This gateway&apos;s feed rows carry no <span className="font-mono">event_id</span>, so
-              a per-event proof cannot be requested. Upgrade the gateway to a build whose feed
-              projects the WORM event id.
+              This gateway&apos;s feed rows carry no{' '}
+              <span className="font-mono">event_id</span> — upgrade the gateway to request
+              per-event proofs.
             </p>
           </div>
         ) : (
@@ -715,7 +686,7 @@ function Inspector({
             <div className="mb-2 flex items-center gap-1.5">
               <ShieldCheck size={12} className="text-slate-500" />
               <span className="text-[10.5px] font-semibold uppercase tracking-[0.1em] text-slate-500">
-                Inclusion proof
+                Integrity proof
               </span>
             </div>
             <button
@@ -725,22 +696,16 @@ function Inspector({
               className="btn-primary w-full"
             >
               {fetching ? <Loader2 size={13} className="animate-spin" /> : <ShieldCheck size={13} />}
-              Verify inclusion proof
+              Verify integrity proof
             </button>
             {proof !== null ? <ProofOutcome proof={proof} /> : null}
           </div>
         )}
 
-        {/* Forensic reconstruction — the CAP_FORENSIC_READ investigator payload, kept
-            reachable on every row (keyed on correlation id) but disclosure-gated so the
-            inspector stays lean. The capture-posture banner renders once expanded. */}
-        <details className="group border-t border-hairline pt-4">
-          <summary className="flex cursor-pointer list-none items-center justify-between gap-2 focus:outline-none focus-visible:shadow-focus-ring">
+        {/* Forensic reconstruction — the CAP_FORENSIC_READ investigator payload. */}
+        <div className="border-t border-hairline pt-4">
+          <div className="mb-2 flex items-center justify-between gap-2">
             <div className="flex items-center gap-1.5">
-              <ChevronRight
-                size={12}
-                className="shrink-0 text-slate-500 transition-transform group-open:rotate-90"
-              />
               <FileSearch size={12} className="text-slate-500" />
               <span className="text-[10.5px] font-semibold uppercase tracking-[0.1em] text-slate-500">
                 Forensic reconstruction
@@ -748,38 +713,32 @@ function Inspector({
             </div>
             <span className="inline-flex items-center gap-1 rounded-md border border-staged/25 bg-staged/8 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-staged">
               <Lock size={10} className="shrink-0" />
-              forensic · access is audited
+              access is audited
             </span>
-          </summary>
-          <div className="mt-2.5">
-            <Why label="Why this is investigator-only">
-              <p className="leading-relaxed">
-                Reconstruct the REAL query behind this correlation id — the alias and normalized
-                arguments the opaque agent wire and this decision feed never surface.
-                Investigator-only: it uses a <span className="font-mono">CAP_FORENSIC_READ</span>{' '}
-                credential (which even directory admin does not confer), and the gateway records a
-                WORM <span className="font-mono">forensic_read</span> before disclosing anything.
-              </p>
-            </Why>
-            <div className="mt-2.5">
-              <ForensicCaptureBanner posture={capturePosture} />
-              <button
-                type="button"
-                onClick={onRunForensic}
-                disabled={forensicFetching}
-                className="btn-primary w-full"
-              >
-                {forensicFetching ? (
-                  <Loader2 size={13} className="animate-spin" />
-                ) : (
-                  <FileSearch size={13} />
-                )}
-                Reconstruct payload
-              </button>
-              {forensic !== null ? <ForensicOutcome forensic={forensic} /> : null}
-            </div>
           </div>
-        </details>
+          <Hint>
+            Rebuilds the real query behind this correlation id — needs{' '}
+            <span className="font-mono">CAP_FORENSIC_READ</span>, and the read itself is
+            WORM-logged.
+          </Hint>
+          <div className="mt-2.5">
+            <ForensicCaptureBanner posture={capturePosture} />
+            <button
+              type="button"
+              onClick={onRunForensic}
+              disabled={forensicFetching}
+              className="btn-primary w-full"
+            >
+              {forensicFetching ? (
+                <Loader2 size={13} className="animate-spin" />
+              ) : (
+                <FileSearch size={13} />
+              )}
+              Reconstruct payload
+            </button>
+            {forensic !== null ? <ForensicOutcome forensic={forensic} /> : null}
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -835,7 +794,7 @@ function Events({ gateway, ledger }: { gateway: GatewayLive; ledger: UseWormLedg
         <EmptyState
           icon={ScrollText}
           title="No gateway connected"
-          detail="Connect a gateway to observe its live decision feed. The console never fabricates ledger rows — offline means empty."
+          detail="Connect a gateway to stream its live decision feed."
           action={<ConnectAction />}
         />
       </Panel>
@@ -882,7 +841,7 @@ function Events({ gateway, ledger }: { gateway: GatewayLive; ledger: UseWormLedg
         <EmptyState
           icon={ShieldAlert}
           title="Decision feed unavailable"
-          detail="The admin feed read (/v1/admin/decisions/recent) could not be established. On a production gateway the console needs a real CAP_DIRECTORY_ADMIN credential — the sandbox token minter is not mounted there."
+          detail="The admin feed read failed — the console needs a CAP_DIRECTORY_ADMIN credential on this gateway."
         />
       ) : ledger.feedState === 'waiting' ? (
         <EmptyState
@@ -894,7 +853,7 @@ function Events({ gateway, ledger }: { gateway: GatewayLive; ledger: UseWormLedg
         <EmptyState
           icon={Inbox}
           title="No decisions observed this session"
-          detail="The feed is live and idle — real agent traffic appears here within a poll (~3s). Nothing is fabricated while you wait."
+          detail="The feed is live and idle — real agent traffic appears within ~3 s."
           action={
             <button type="button" className="btn-ghost" onClick={() => navigateTo('command', 'probe')}>
               Fire an Authorize Probe
@@ -1000,10 +959,10 @@ function Events({ gateway, ledger }: { gateway: GatewayLive; ledger: UseWormLedg
         <Panel>
           <PanelHeader
             icon={ScrollText}
-            title="Session-observed decisions"
+            title="Decisions"
             right={
               <span className="tabular">
-                {ledger.rows.length} of {ledger.observedCount} observed
+                {ledger.rows.length} of {ledger.observedCount} observed this session
               </span>
             }
           />
@@ -1029,7 +988,7 @@ function Integrity({ gateway }: { gateway: GatewayLive }): JSX.Element {
         <EmptyState
           icon={ScrollText}
           title="No gateway connected"
-          detail="Connect a gateway to verify its epoch chain and export signed attestation. Integrity is proven against a live node, never simulated."
+          detail="Connect a gateway to verify its chain and export its signed attestation."
           action={<ConnectAction />}
         />
       </Panel>
@@ -1158,10 +1117,10 @@ function AttestationEvidence({ gateway }: { gateway: GatewayLive }): JSX.Element
     <Panel className="shrink-0">
       <PanelHeader
         icon={BadgeCheck}
-        title="Attestation & evidence"
+        title="Audit exports"
         right={
           <div className="flex items-center gap-2">
-            <span className="text-[10.5px] text-slate-500">production-available</span>
+            <span className="text-[10.5px] text-slate-500">signed attestation · evidence bundle</span>
             <button
               type="button"
               onClick={() => void load()}
@@ -1258,15 +1217,10 @@ function AttestationEvidence({ gateway }: { gateway: GatewayLive }): JSX.Element
               </button>
             </div>
 
-            <Why label="What this attests">
-              <p className="leading-relaxed">
-                Every signed field was Ed25519-signed by the WORM epoch key at epoch close / anchor
-                append — this read mints no key and signs nothing new. Bind the epoch{' '}
-                <span className="font-mono">signature</span> to the published audit public key
-                (<span className="font-mono">signing_key_id</span>) with the external verifier; it
-                carries no hidden target, payload, or secret.
-              </p>
-            </Why>
+            <Hint>
+              Verify the signature against the published audit public key with the external
+              verifier.
+            </Hint>
           </>
         ) : (
           <div className="space-y-1.5">
@@ -1290,22 +1244,17 @@ function AttestationEvidence({ gateway }: { gateway: GatewayLive }): JSX.Element
             </div>
           </div>
         )}
-        {/* Compliance evidence — the CAP_DIRECTORY_ADMIN bundle, folded into a
-            COLLAPSED disclosure beneath the attestation (its default focus). Evidence,
-            NEVER a certification: the bundle's own disclaimer prints verbatim and each
-            framework shows as a "provides evidence for" row. Its own live read + export. */}
-        <details className="group border-t border-hairline pt-3">
-          <summary className="flex cursor-pointer list-none items-center justify-between gap-2 focus:outline-none focus-visible:shadow-focus-ring">
+        {/* Compliance evidence — the CAP_DIRECTORY_ADMIN bundle beneath the
+            attestation. Evidence, NEVER a certification: the bundle's own disclaimer
+            prints verbatim. Its own live read + export. */}
+        <div className="border-t border-hairline pt-3">
+          <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-1.5">
-              <ChevronRight
-                size={12}
-                className="shrink-0 text-slate-500 transition-transform group-open:rotate-90"
-              />
               <ClipboardCheck size={13} className="text-slate-500" />
               <span className="text-[12.5px] font-semibold text-ink">Compliance evidence</span>
             </div>
             <span className="text-[10.5px] text-slate-500">evidence · not a certification</span>
-          </summary>
+          </div>
           <div className="mt-3 space-y-3">
             {bundle !== null ? (
               <>
@@ -1432,7 +1381,7 @@ function AttestationEvidence({ gateway }: { gateway: GatewayLive }): JSX.Element
               </div>
             )}
           </div>
-        </details>
+        </div>
       </div>
     </Panel>
   );
@@ -1468,8 +1417,8 @@ function ChainIntegritySection({ gateway }: { gateway: GatewayLive }): JSX.Eleme
       <Panel className="shrink-0">
         <PanelHeader
           icon={ShieldCheck}
-          title="Signed epoch chain"
-          right={gateway.audit !== null ? 'auto-verified every 5s while connected' : 'sandbox affordance'}
+          title="Integrity check"
+          right={gateway.audit !== null ? 'signed epoch chain · auto-verified every 5s' : 'signed epoch chain'}
         />
         <div className="space-y-4 px-5 py-4">
           {intact === null ? (
@@ -1485,9 +1434,9 @@ function ChainIntegritySection({ gateway }: { gateway: GatewayLive }): JSX.Eleme
                   </span>
                 </div>
                 <p className="pl-6 text-[11px] leading-relaxed text-slate-500">
-                  In production, export the sealed ledger with{' '}
-                  <span className="font-mono text-[10.5px]">mcpip export-audit</span> and verify
-                  every epoch root and its Ed25519 chain signature with the external verifier.
+                  Export the ledger with{' '}
+                  <span className="font-mono text-[10.5px]">mcpip export-audit</span> and verify it
+                  with the external verifier.
                 </p>
               </div>
             ) : (
@@ -1534,14 +1483,10 @@ function ChainIntegritySection({ gateway }: { gateway: GatewayLive }): JSX.Eleme
             Verify chain now
           </button>
 
-          <Why label="What a verify covers">
-            <p className="leading-relaxed">
-              Verification force-closes the open tail epoch first, so a decision made moments ago is
-              sealed under a signed root — and its per-event inclusion proof resolves — immediately
-              after a check. An intact verdict covers sealed epochs; the still-open tail commits on
-              its next seal.
-            </p>
-          </Why>
+          <Hint>
+            A verify seals the open tail epoch first, so even a decision made moments ago is
+            covered.
+          </Hint>
         </div>
       </Panel>
 

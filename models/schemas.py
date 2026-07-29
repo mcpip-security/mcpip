@@ -173,6 +173,11 @@ class CatalogItem(BaseModel):
     transport_class: str          # coarse class, NOT target.
     classification: str
     compartment: Optional[str] = None   # the caller's own/granted compartment uuid.
+    # Advisory display access mode ("read"/"write"). BENIGN: derived from the already-
+    # projected risk data (an explicit annotation or the risk-tier fallback) — never a
+    # target hint, never an enforcement input. The service label deliberately stays OFF
+    # this agent-facing shape (operator surfaces only).
+    access: Optional[str] = None
 
 
 class ErrorResponse(BaseModel):

@@ -1,0 +1,25 @@
+# Gateway PodDisruptionBudget (SOC2_READINESS.md #32, A1.2).
+#
+# Keep at least one gateway serving during a VOLUNTARY disruption (node drain,
+# cluster upgrade). The HPA floor is 2 replicas (hpa.yaml), so maxUnavailable: 1
+# lets one pod be evicted at a time while the other keeps authorizing — without a
+# PDB a drain could evict both at once and (because MCPIP fails closed) deny every
+# agent action until reschedule.
+#
+# The bundled single-replica Redis intentionally has NO PDB: with replicas=1 a
+# blocking PDB would wedge every node drain, and a non-blocking one is a no-op. A
+# Redis PDB ships with the HA topology (SOC2_READINESS.md #31).
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: mcpip-gateway
+  namespace: mcpip
+  labels:
+    app.kubernetes.io/name: mcpip
+    app.kubernetes.io/component: gateway
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: mcpip
+      app.kubernetes.io/component: gateway

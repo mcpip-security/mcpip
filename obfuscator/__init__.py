@@ -17,6 +17,8 @@ from obfuscator.alias_registry import (
     CrossTenant,
     UnknownAlias,
     build_demo_registry,
+    display_service,
+    effective_access,
 )
 from obfuscator.tenant_catalog import (
     AEGIS,
@@ -33,6 +35,8 @@ __all__ = [
     "CrossTenant",
     "UnknownAlias",
     "build_demo_registry",
+    "display_service",
+    "effective_access",
     "seed_industry_catalog",
     "FALCON",
     "AEGIS",

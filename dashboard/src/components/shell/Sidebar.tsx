@@ -50,17 +50,19 @@ function SectionButton({
     >
       <span
         className={`absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-full transition-colors ${
-          active ? 'bg-ink' : 'bg-transparent'
+          active ? 'bg-verified' : 'bg-transparent'
         }`}
         aria-hidden="true"
       />
       <Icon
         size={16}
         strokeWidth={active ? 2.25 : 2}
-        className={active ? 'text-ink' : 'text-slate-500 group-hover:text-ink'}
+        className={active ? 'text-verified' : 'text-slate-500 group-hover:text-ink'}
       />
       <span className="flex-1 text-[13px] font-medium tracking-tight">{item.label}</span>
-      {locked ? <Lock size={12} className="shrink-0 text-slate-600" aria-label="locked" /> : null}
+      {/* slate-500: this padlock is the ONLY signal that an item is plan-gated,
+          so it is meaningful non-text content and owes 3:1 (1.4.11). */}
+      {locked ? <Lock size={12} className="shrink-0 text-slate-500" aria-label="locked" /> : null}
     </button>
   );
 }
