@@ -22,7 +22,7 @@ TypeScript mirror noted at the end.
 > these same clients (no reimplemented wire logic). Zero to authorized in three
 > commands: `mcpip login` → `mcpip sandbox dev-token` → `mcpip authorize`. Full
 > command reference, config precedence, the token/OTP-never-in-argv model, and
-> the exit-code table live in **[`docs/CLI.md`](./CLI.md)**. The Python bin is
+> the exit-code table live in **[`docs/start/CLI.md`](CLI.md)**. The Python bin is
 > the flagship; a zero-dependency TypeScript bin mirrors it (`npx @mcpip/sdk
 > mcpip <args>` until published).
 
@@ -287,4 +287,4 @@ MYPYPATH=sdk/python/src mypy --strict sdk/python/src/mcpip_sdk tests/test_sdk_py
 A gateway also serves `GET {host}/openapi.json` and `/docs` (FastAPI
 defaults). Treat them as a route inventory only — response schemas, the
 JSON-RPC dialect, and the opaque-denial envelope are documented here and in
-`docs/GETTING_STARTED.md`, not there.
+`docs/start/GETTING_STARTED.md`, not there.

@@ -451,7 +451,7 @@ class Components:
     # Community-gate seam (DENY-ONLY, Phase 2). Evaluated on the hot path at step 4c′
     # (right after the mandate gate, adjacent to the policy gate). The default is a strict
     # NO-OP provider — the honest "no community gate engine configured" state — so no gates
-    # are enforced until a CEL gate engine is registered (docs/EXTENSIBILITY.md §8). It is
+    # are enforced until a CEL gate engine is registered (docs/build/EXTENSIBILITY.md §8). It is
     # deny-only: it can only ever ADD a POLICY_GATE_DENIED, never mint identity or repoint.
     # NOT Redis-bound (stateless), so it is wired once at build and is NOT part of the
     # ``_rebind_redis`` set.
@@ -1290,7 +1290,7 @@ def _build_telemetry_beacon(
         "  # allow/deny/staged totals, uptime, and a timestamp. NO     #\n"
         "  # tenant/agent/alias/target/secret ever leaves the box.     #\n"
         "  # Disable with MCPIP_TELEMETRY_ENABLED=false. See            #\n"
-        "  # docs/TELEMETRY.md.                                         #\n"
+        "  # docs/operate/TELEMETRY.md.                                         #\n"
         "  ############################################################\n",
         file=sys.stderr,
         flush=True,
@@ -1455,7 +1455,7 @@ def _build_response_playbook(
         "buffer for high-signal deny events and responds deterministically (freeze + alert), "
         f"triggers={sorted(active)} auto_quarantine={settings.response_auto_quarantine}. It "
         "reads already-committed records and can NEVER block/flip a decision. Disable with "
-        "MCPIP_RESPONSE_ENABLED=false. See docs/RESPONSE_PLAYBOOK.md.",
+        "MCPIP_RESPONSE_ENABLED=false. See docs/operate/RESPONSE_PLAYBOOK.md.",
         file=sys.stderr,
         flush=True,
     )
@@ -3996,7 +3996,7 @@ async def healthz() -> dict[str, Optional[str]]:
     ``version`` is the release version from the single-source ``VERSION`` file.
     ``region`` is the BEHAVIOR-NEUTRAL operator region tag (``MCPIP_REGION``) — an
     observability label only (``None`` when unset), never consulted for routing,
-    authorization, key derivation, or storage (see ``docs/OPERATIONS.md``).
+    authorization, key derivation, or storage (see ``docs/operate/OPERATIONS.md``).
     """
     return {
         "status": "live",
@@ -4335,7 +4335,7 @@ async def version_info(request: Request) -> Response:
             # BEHAVIOR-NEUTRAL region tag (MCPIP_REGION) — an observability label for
             # console/SDK display and log correlation ONLY (None when unset). It is
             # NEVER consulted for routing, authorization, key derivation, or storage;
-            # region pinning is an edge concern (see docs/OPERATIONS.md).
+            # region pinning is an edge concern (see docs/operate/OPERATIONS.md).
             "region": _components.settings.region,
         },
     )
@@ -5589,7 +5589,7 @@ async def _registry_pin_valid(
 # the cloud_iam skills vend out of the box. Role ARNs are placeholders (000000000000) and
 # NO cloud secret is stored (the gateway would assume the role with its own host identity).
 # One READ binding (skill_aws_s3) and one write-scoped WRITE binding
-# (skill_aws_dynamodb). docs/INTEGRATIONS.md registers the real write binding
+# (skill_aws_dynamodb). docs/build/INTEGRATIONS.md registers the real write binding
 # against a live account via /v1/admin/cloud/environments.
 _DEMO_CLOUD_ENV = CloudEnvironment(
     env_id="aws-eng-readonly",
@@ -5854,7 +5854,7 @@ async def deregister_skill(alias: str, request: Request) -> Response:
 #   * GATES (Phase 2, kind='gate') — the manifest SCHEMA + submit/store/review flow ship here
 #     and the DENY-ONLY ``CommunityGateProvider`` seam is wired at pipeline step 4c′, but the
 #     CEL parse/lint/evaluate RUNTIME is DEFERRED (an owner dependency decision — see
-#     docs/EXTENSIBILITY.md §8). A gate is therefore stored PENDING but APPROVAL is refused
+#     docs/build/EXTENSIBILITY.md §8). A gate is therefore stored PENDING but APPROVAL is refused
 #     (no static prover ⇒ no approve-without-proof); enabling a CEL engine is purely additive.
 # ---------------------------------------------------------------------------
 
@@ -6128,7 +6128,7 @@ async def list_pending_extensions(request: Request) -> Response:
         if manifest_kind(manifest) == "gate":
             # Community GATE (Phase 2): a topology-free deny predicate, NOT an alias→target.
             # ``approvable`` is the honest reviewer signal — gate approval is BLOCKED until
-            # the deferred CEL prover/engine is registered (docs/EXTENSIBILITY.md §8), so a
+            # the deferred CEL prover/engine is registered (docs/build/EXTENSIBILITY.md §8), so a
             # reviewer sees WHY it cannot yet approve rather than a silent dead button.
             items.append(
                 {
@@ -6357,7 +6357,7 @@ async def approve_extension(submission_id: str, request: Request) -> Response:
     # --- Community GATE approval (Phase 2) is fail-closed WITHOUT the deferred CEL prover. --
     # A gate is submitted + schema-validated + stored PENDING, but APPROVING one requires a
     # STATIC cost/whitelist proof over the CEL AST (max_cost ≤ budget + whitelist-only field
-    # refs) — and that prover needs the DEFERRED CEL runtime (docs/EXTENSIBILITY.md §8). The
+    # refs) — and that prover needs the DEFERRED CEL runtime (docs/build/EXTENSIBILITY.md §8). The
     # prover ships BUNDLED with a community-gate ENGINE; with none registered a gate cannot be
     # proven safe, so approval is REFUSED — opaque, fail-closed, no approve-without-proof.
     # Registering an engine is the single additive change that supplies BOTH the hot-path

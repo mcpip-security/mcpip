@@ -65,7 +65,7 @@ BUNDLE_DISCLAIMER: str = (
 # ---------------------------------------------------------------------------
 # Static control-mapping manifest.
 #
-# Grounded in docs/COMPLIANCE.md §1 (the T-controls) + §2/§3 mappings, reusing the SAME
+# Grounded in docs/operate/COMPLIANCE.md §1 (the T-controls) + §2/§3 mappings, reusing the SAME
 # mechanism language so the doc and this code agree. Each clause entry states the MCPIP
 # mechanism, the concrete evidence it yields, a repository code pointer, and a coverage note.
 # Phrasing is always "provides evidence FOR" — never "certified/authorized/passed".

@@ -9,9 +9,9 @@ authorization boundary (the **Governed-Alias Pattern**), and a runnable
 end-to-end **Cloud IAM Live-Fire** that vends a real least-privilege AWS
 credential through the gateway. Each section below is a distinct integration
 topic, co-located here as the single cloud-identity reference. For orientation
-elsewhere: setup lives in `docs/GETTING_STARTED.md`, the pipeline and domain
-concepts in `docs/ARCHITECTURE.md`, running/operating the gateway in
-`docs/OPERATIONS.md`, and client-side integration in `docs/SDK.md`.
+elsewhere: setup lives in `docs/start/GETTING_STARTED.md`, the pipeline and domain
+concepts in `docs/build/ARCHITECTURE.md`, running/operating the gateway in
+`docs/operate/OPERATIONS.md`, and client-side integration in `docs/start/SDK.md`.
 
 ---
 
@@ -399,7 +399,7 @@ reasoning. That is the structural circuit-breaker the injection classes lack an 
   `cloud_rest`, and the `HSETNX`-backed apply can only *add* a new opaque alias — never repoint an
   existing one, never reach a privileged transport.
 - **Community-authored skills inherit the same guarantees plus a manifest hash-pin** re-verified on
-  every boot-load (rug-pull defense — see `docs/EXTENSIBILITY.md`). This is MCPIP defending its
+  every boot-load (rug-pull defense — see `docs/build/EXTENSIBILITY.md`). This is MCPIP defending its
   *own* extension supply chain, the T13 answer to the `postmark-mcp` class for skills you host.
 
 ### 5. Honest scope

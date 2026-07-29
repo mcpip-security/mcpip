@@ -54,7 +54,7 @@ policy protects.
 Do not describe a deployment, fork, or derivative as **certified**, **audited**,
 or **compliant** on the strength of the MCPIP name. The project ships
 *evidence* — signed audit chains, a control cross-walk, a threat model — and is
-explicit that evidence is [not a certification](docs/COMPLIANCE.md). Attributing
+explicit that evidence is [not a certification](docs/operate/COMPLIANCE.md). Attributing
 a certification to MCPIP misrepresents both the project and the mark.
 
 ## Requests and enforcement

@@ -16,7 +16,7 @@
 #      Guard these like any private key; DESTROYING them crypto-shreds the encrypted audit
 #      bodies / the natural-person link (that is the point of the erasure lever).
 #   2. Redis running with >= durability.waitReplicas SYNCED replicas (the bundled single
-#      StatefulSet is NOT enough — use an HA Redis; see docs/OPERATIONS.md "Availability").
+#      StatefulSet is NOT enough — use an HA Redis; see docs/operate/OPERATIONS.md "Availability").
 #   3. A Prometheus Operator in-cluster for prometheusRule (and set additionalLabels to
 #      match your ruleSelector).
 
@@ -49,7 +49,7 @@ env:
   MCPIP_WORM_CONTENT_KEY_PATH: "/etc/mcpip/keys/worm_content.key"
   # Rotating the content key: add the successor as worm_content.key, and list the RETIRED
   # key(s) here (os.pathsep-joined) so bodies sealed under them stay readable across the
-  # audit-retention window. Empty until the first rotation. See docs/OPERATIONS.md "Key
+  # audit-retention window. Empty until the first rotation. See docs/operate/OPERATIONS.md "Key
   # generation & rotation → WORM content key".
   #   MCPIP_WORM_CONTENT_KEY_FALLBACK_PATHS: "/etc/mcpip/keys/worm_content.prev.key"
   MCPIP_PSEUDONYMIZE_PRINCIPALS: "true"

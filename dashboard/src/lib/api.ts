@@ -2307,7 +2307,7 @@ export async function authenticatorOtp(
    four are opaque-deny + WORM-audited (every mutation logs BEFORE it takes
    effect). The declared `target` on a pending skill is a reviewer-only surface —
    it never crosses the agent wire. GATE approval is refused until the deferred
-   CEL engine is registered (no approve-without-proof, docs/EXTENSIBILITY.md §8).
+   CEL engine is registered (no approve-without-proof, docs/build/EXTENSIBILITY.md §8).
 --------------------------------------------------------------------------- */
 
 /**

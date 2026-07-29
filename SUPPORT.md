@@ -34,7 +34,7 @@ git clone https://github.com/mcpip-security/mcpip && cd mcpip
 ./scripts/quickstart_demo.sh     # sandbox gateway + live walkthrough, one command
 ```
 
-Then [`docs/GETTING_STARTED.md`](docs/GETTING_STARTED.md) (connect an agent in
+Then [`docs/start/GETTING_STARTED.md`](docs/start/GETTING_STARTED.md) (connect an agent in
 one URL) and [`docs/README.md`](docs/README.md) (the full documentation index).
 
 ## Policies

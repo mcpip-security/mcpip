@@ -21,7 +21,7 @@ data:
   # Synchronous-replication quorum: every emitted audit event must be acked by this
   # many Redis replicas before the authorize proceeds (write-before-execute across a
   # replica). Requires the bundled/external Redis to run with >= this many synced
-  # replicas — see docs/OPERATIONS.md "Availability".
+  # replicas — see docs/operate/OPERATIONS.md "Availability".
   MCPIP_WORM_WAIT_REPLICAS: {{ .Values.durability.waitReplicas | quote }}
   MCPIP_WORM_WAIT_TIMEOUT_MS: {{ .Values.durability.waitTimeoutMs | quote }}
   {{- end }}

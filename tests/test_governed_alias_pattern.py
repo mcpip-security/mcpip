@@ -1,5 +1,5 @@
 """
-MCPIP — the GOVERNED-ALIAS deployment pattern, driven end to end (docs/INTEGRATIONS.md).
+MCPIP — the GOVERNED-ALIAS deployment pattern, driven end to end (docs/build/INTEGRATIONS.md).
 
     ◐ "postmark-mcp / line-jumping live in a plane MCPIP does not observe — UNLESS the
        sensitive side-effecting tool is a governed alias."  (LANDSCAPE_2026H2 §5.5)

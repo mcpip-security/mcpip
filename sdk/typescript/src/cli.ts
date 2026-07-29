@@ -3,7 +3,7 @@
 /* ---------------------------------------------------------------------------
    @mcpip/sdk — the `mcpip` command-line interface (thin bin over the clients).
 
-   A zero-dependency mirror of the flagship Python CLI (docs/CLI.md). It WRAPS
+   A zero-dependency mirror of the flagship Python CLI (docs/start/CLI.md). It WRAPS
    McpipClient / McpipSandboxClient — no reimplemented wire logic — and inherits
    the gateway's discipline: fail-closed and OPAQUE (a deny prints only a
    correlation id), secrets never touch argv/stdout/logs, stable exit codes.
@@ -33,7 +33,7 @@ import type { TokenSource } from './client.js';
 import type { AuthorizeRequest, AuthorizeStaged, SourceFormat } from './types.js';
 
 // ---------------------------------------------------------------------------
-// Exit codes — identical contract to the Python CLI (docs/CLI.md).
+// Exit codes — identical contract to the Python CLI (docs/start/CLI.md).
 // ---------------------------------------------------------------------------
 
 const EXIT = {
@@ -1049,7 +1049,7 @@ Commands: login whoami config context catalog authorize complete decision
 Global:   --gateway URL --context NAME --sandbox/--no-sandbox --json --quiet
           --token-file PATH | --token-stdin | --token-cmd 'CMD'   (never --token)
 Exit:     0 ok · 3 deny · 4 unreachable · 5 invalid · 7 sandbox-only · 8 config · 9 step-up
-Docs:     docs/CLI.md   (admin control plane: use the Python bin for now)`);
+Docs:     docs/start/CLI.md   (admin control plane: use the Python bin for now)`);
 }
 
 run(process.argv.slice(2))

@@ -26,7 +26,7 @@ SENTINEL = "5e470000-0000-4000-8000-0000005e4715"  # aegis-dynamics / project-se
 
 # --- Demo company compartments (mcpip-inc) — the runnable A→Z walkthrough. ---------
 # A single small company whose teams are separated by compartment. Used by
-# scripts/demo_company.py and docs/GETTING_STARTED.md to show team-scoped ALLOW vs
+# scripts/demo_company.py and docs/start/GETTING_STARTED.md to show team-scoped ALLOW vs
 # cross-team DENY over the real MCP endpoint (an Engineering agent reads the company
 # overview but is denied the Finance wage sheet; a Finance agent reads it).
 MCPIP_ENGINEERING = "e0900000-0000-4000-8000-e0900000e090"  # mcpip-inc / team-engineering
@@ -180,12 +180,12 @@ INDUSTRY_ALIASES: dict[str, tuple[AliasEntry, ...]] = {
         # policy (one table, PutItem only) — MCPIP authorizes + vends + audits; it does
         # NOT proxy or content-inspect the downstream DynamoDB call. ``target`` is the
         # env_id of the write-scoped CloudEnvironment binding (seeded in sandbox by
-        # _hydrate_cloud_environments; docs/INTEGRATIONS.md drives it against a
+        # _hydrate_cloud_environments; docs/build/INTEGRATIONS.md drives it against a
         # real table with a run-locally least-privilege role).
         AliasEntry("skill_aws_dynamodb", "aws-eng-dynamodb-write", "cloud_iam", RiskTier.PIN_REQUIRED,
                    compartment=MCPIP_ENGINEERING, service="AWS DynamoDB", access="write"),
         # Company-wide GOVERNED-ALIAS reference for a data-egress / email-send tool
-        # (docs/INTEGRATIONS.md). The lesson of the postmark-mcp / line-jumping
+        # (docs/build/INTEGRATIONS.md). The lesson of the postmark-mcp / line-jumping
         # class (LANDSCAPE_2026H2 §5.5): a sensitive side-effecting tool is only governed
         # if the AGENT calls it as an MCPIP alias instead of holding the raw third-party
         # MCP server. Registered as cloud_rest + PIN_REQUIRED so the recipient set rides in

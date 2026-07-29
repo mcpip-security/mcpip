@@ -87,7 +87,7 @@ are responsible for:
 - **Non-bypassability** — MCPIP authorizes the calls that reach it. If an agent
   retains a network path around the gateway, or holds a standing credential to
   the downstream system, the control is bypassed. Network enforcement is a
-  deployment responsibility; [`docs/OPERATIONS.md`](docs/OPERATIONS.md) ships
+  deployment responsibility; [`docs/operate/OPERATIONS.md`](docs/operate/OPERATIONS.md) ships
   the manifests.
 - **Configuration** — which skills exist, which are auto-allowed vs. step-up
   gated, who holds which capability, and what your retention window is.
@@ -108,7 +108,7 @@ certification. Nothing in this repository is a SOC 2 report, an audit opinion, a
 FedRAMP authorization, or a regulatory approval; those can only be issued by
 independent qualified third parties, about **your** organization, after an
 examination. Deploying MCPIP does not make you compliant with anything. See
-[`docs/COMPLIANCE.md`](docs/COMPLIANCE.md), which says the same thing at length.
+[`docs/operate/COMPLIANCE.md`](docs/operate/COMPLIANCE.md), which says the same thing at length.
 
 ---
 

@@ -12,7 +12,7 @@
 [![Pydantic](https://img.shields.io/badge/Pydantic-v2%20strict-E92063?logo=pydantic&logoColor=white)](https://docs.pydantic.dev/)
 [![Redis](https://img.shields.io/badge/Redis-7%20async-DC382D?logo=redis&logoColor=white)](https://redis.io/)
 [![JWT](https://img.shields.io/badge/JWT-EdDSA%20%2F%20RS256-000000?logo=jsonwebtokens&logoColor=white)](https://pyjwt.readthedocs.io/)
-[![Audit](https://img.shields.io/badge/WORM-Merkle--epoch%20Ed25519-4B32C3)](docs/WHITEPAPER.md)
+[![Audit](https://img.shields.io/badge/WORM-Merkle--epoch%20Ed25519-4B32C3)](docs/background/WHITEPAPER.md)
 [![Posture](https://img.shields.io/badge/posture-fail--closed-0E8A16)](#security-invariants)
 [![Gates](https://img.shields.io/badge/demo-10%2F10%20gates-0E8A16)](#the-10-gate-demo)
 [![CI](https://github.com/mcpip-security/mcpip/actions/workflows/ci.yml/badge.svg)](https://github.com/mcpip-security/mcpip/actions/workflows/ci.yml)
@@ -489,7 +489,7 @@ mcpip --context sbx authorize skill_spend_summary --arg period=2026-Q2
 
 `--json` for scripting, `--quiet` for the load-bearing id only, stable exit codes
 (a deny is `3`), secrets never on stdout/argv. Full reference:
-[`docs/CLI.md`](./docs/CLI.md) · library guide: [`docs/SDK.md`](./docs/SDK.md).
+[`docs/start/CLI.md`](./docs/start/CLI.md) · library guide: [`docs/start/SDK.md`](./docs/start/SDK.md).
 
 ---
 
@@ -690,7 +690,7 @@ The flow is submit → review → approve, all tenant-scoped from the JWT (cross
 
 Every ceiling is **by construction**, not by reviewer vigilance: a community skill can only ever ADD a new opaque alias onto a `cloud_rest` target — it can never repoint an existing alias, reach a privileged transport (`legacy_mainframe`/`grant_issue`/`cloud_iam`), or smuggle a `restricted`-classification AUTO read (the overlay forces `restricted ⇒ pin_required`). **Rug-pull defense on load:** `_hydrate_catalog_overlay` re-verifies each community row's pinned manifest against `mcpip:ext:approved:{tenant}` and skips any mismatch, so a post-approval edit to the manifest or the overlay fields refuses to load and forces re-review — the same "refuse on unexpected edit" discipline as the hash-pinned connector registry.
 
-Community **gates** (a custom deny predicate on the hot path) ship in this release only as the `kind='gate'` manifest **schema** and a deny-only `CommunityGateProvider` **seam** (pipeline step 4c′), a fail-closed no-op until a CEL engine is registered — the CEL runtime is a deferred owner dependency decision. See [`docs/EXTENSIBILITY.md`](docs/EXTENSIBILITY.md) for the full design and the deferred-runtime rationale.
+Community **gates** (a custom deny predicate on the hot path) ship in this release only as the `kind='gate'` manifest **schema** and a deny-only `CommunityGateProvider` **seam** (pipeline step 4c′), a fail-closed no-op until a CEL engine is registered — the CEL runtime is a deferred owner dependency decision. See [`docs/build/EXTENSIBILITY.md`](docs/build/EXTENSIBILITY.md) for the full design and the deferred-runtime rationale.
 
 ### ReBAC relation graph — the operator Knowledge-Graph, made real
 
@@ -914,8 +914,8 @@ correlation id, JWT material, or approval code can ever appear in a metric name 
 label. Multi-worker aggregation via `PROMETHEUS_MULTIPROC_DIR` (set in the image).
 
 The full deploy/rotate/backup/incident procedures live in the
-[**Operations runbook**](docs/OPERATIONS.md); the control mapping in the
-[**Compliance pack**](docs/COMPLIANCE.md).
+[**Operations runbook**](docs/operate/OPERATIONS.md); the control mapping in the
+[**Compliance pack**](docs/operate/COMPLIANCE.md).
 
 ---
 
@@ -941,7 +941,7 @@ The full deploy/rotate/backup/incident procedures live in the
 | `services/policy_engine.py` | Services | The **deny-only** policy overlay: `VelocityAmountPolicyEngine` (fixed-window velocity cap + amount ceiling, all fail-closed) + `PolicyDocStore` for the per-tenant `mcpip-policy/1` document behind `PUT`/`GET /v1/admin/policy`. No document ⇒ no limits (opt-in); Redis error / malformed doc ⇒ `policy_denied`. |
 | `services/extension_manifest.py` | Services | The `mcpip-extension/1` **community-extension** manifest schema (strict Pydantic, `reject_unsafe_string` + identity-fold hard-deny + a `sha256` self-pin via `canonical_manifest_bytes`). `ExtensionManifest` = community-SKILL (`kind='skill'`, `cloud_rest`-only; `parse_manifest`); `GateManifest` = community-GATE (`kind='gate'`, `language='cel'`, `referenced_context_fields ⊆ GATE_CONTEXT_FIELDS`, `max_cost ≤ MAX_GATE_COST` — **DATA validation only, no CEL parse**; `parse_gate_manifest`). `manifest_kind` routes the two, which never share a code path. |
 | `services/extension_submissions.py` | Services | `ExtensionSubmissionStore` — the per-tenant submit/review state: `mcpip:ext:pending:{tenant}` (bounded by `MAX_PENDING_SUBMISSIONS`) + `mcpip:ext:approved:{tenant}` (canonical manifest + pinned `sha256`). Writes fail closed, reads fail soft; tenant comes only from the JWT, so cross-tenant approve is structurally impossible. Backs the submit → review → approve flow and the boot rug-pull re-verify. |
-| `services/community_gate.py` | Services | The Phase-2 **deny-only** community-gate seam. `NoOpCommunityGateProvider` (default; always `continue` — the honest "no engine configured" state) + `register_community_gate_engine` / `active_community_gate_provider` / `community_gate_engine_registered`. **No `celpy` import** — the CEL runtime is a deferred owner decision (`docs/EXTENSIBILITY.md §8`); registering an engine is the single additive change that turns gates on. |
+| `services/community_gate.py` | Services | The Phase-2 **deny-only** community-gate seam. `NoOpCommunityGateProvider` (default; always `continue` — the honest "no engine configured" state) + `register_community_gate_engine` / `active_community_gate_provider` / `community_gate_engine_registered`. **No `celpy` import** — the CEL runtime is a deferred owner decision (`docs/build/EXTENSIBILITY.md §8`); registering an engine is the single additive change that turns gates on. |
 | `main.py` | gateway | `MCPIPGateway.authorize_and_execute(...)`; `CloudRESTTransport` + `LegacyMainframeTransport` (EBCDIC cp500 80-byte frame); the 10-gate `__main__` demo with a PASS/FAIL report and `sys.exit`. |
 | `app/main.py` | HTTP edge | FastAPI app (`uvicorn app.main:app`); reproduces the pipeline over `POST /v1/authorize` with the staged-challenge branch; `POST /v1/mcp` (the MCP-native edge — same pipeline, JSON-RPC framing, no proxying); `GET /healthz` · `/readyz` · `/v1/catalog`; correlation-id middleware + opaque exception handlers. |
 | `core/` · `models/` · `services/` | HTTP edge | `core/config.py` (`MCPIP_*` settings), `core/security.py` (`map_engine_exception`), `models/schemas.py` (strict request/response), `services/*` (thin `TokenResolver`/`PinValidator`/registry adapters). |
@@ -1079,7 +1079,7 @@ All settings are read by `core/config.py` (`pydantic-settings`, env-prefix `MCPI
 | `MCPIP_SHED_RETRY_AFTER_S` | `1` | `Retry-After` seconds advertised on a shed `503`. |
 | `MCPIP_WORKERS` · `MCPIP_BACKLOG` | `4` · `2048` | uvicorn worker processes and kernel accept backlog (horizontal + backlog half of the load-shed fix). |
 | `MCPIP_API_HOST` · `MCPIP_API_PORT` | `0.0.0.0` · `8080` | Bind address/port for `uvicorn app.main:app`. |
-| `MCPIP_REGION` | `None` | **Behavior-neutral** operator region/cell tag (e.g. `us-east-1`, `eu-frankfurt`, `gov-cloud`), surfaced read-only on `/healthz` + `/v1/version` for console/SDK display and log correlation. It changes **nothing** — no routing, authorization, Redis key derivation, or storage (every key is already tenant-prefixed, so region pinning is an edge/deployment concern: one MCPIP + Redis stack per region). Deliberately **never a metric label** (a free-form string would break the closed-enum label discipline). Unset ⇒ the tag is simply absent (honest unset state); boot is byte-for-byte unchanged. Design: [`docs/OPERATIONS.md`](docs/OPERATIONS.md). |
+| `MCPIP_REGION` | `None` | **Behavior-neutral** operator region/cell tag (e.g. `us-east-1`, `eu-frankfurt`, `gov-cloud`), surfaced read-only on `/healthz` + `/v1/version` for console/SDK display and log correlation. It changes **nothing** — no routing, authorization, Redis key derivation, or storage (every key is already tenant-prefixed, so region pinning is an edge/deployment concern: one MCPIP + Redis stack per region). Deliberately **never a metric label** (a free-form string would break the closed-enum label discipline). Unset ⇒ the tag is simply absent (honest unset state); boot is byte-for-byte unchanged. Design: [`docs/operate/OPERATIONS.md`](docs/operate/OPERATIONS.md). |
 
 ### Scaling & graceful load-shedding
 
@@ -1181,7 +1181,7 @@ around **~100 approval-consume/s per process**. Scale reads horizontally (statel
 workers/nodes); scale durable writes by sharding Redis per tenant/cell. The durable-emit
 ceiling is now measured, not estimated — reproduce it with
 [`scripts/bench_worm_emit.py`](scripts/bench_worm_emit.py) and see
-[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the full curve (serial vs.
+[`docs/build/ARCHITECTURE.md`](docs/build/ARCHITECTURE.md) for the full curve (serial vs.
 concurrent, `always` vs. `everysec`) and the group-commit design that would raise it.
 
 ---
@@ -1190,24 +1190,24 @@ concurrent, `always` vs. `everysec`) and the group-commit design that would rais
 
 **The enterprise doc set** — the hubs below are the front door;
 
-- [**Operator & deployment guide**](docs/OPERATIONS.md) — self-host / VPC / air-gapped install, the fail-closed production boot, the dark-feature flags stated honestly, region topology, non-bypassability, and desktop packaging. The deployment hub.
-- [**Client SDKs & CLI index**](docs/GETTING_STARTED.md) — the shared Python/TypeScript client contract + the `mcpip` CLI, the three-client model, the PIN ceremony, envelopes, and opaque-deny semantics. The client hub.
+- [**Operator & deployment guide**](docs/operate/OPERATIONS.md) — self-host / VPC / air-gapped install, the fail-closed production boot, the dark-feature flags stated honestly, region topology, non-bypassability, and desktop packaging. The deployment hub.
+- [**Client SDKs & CLI index**](docs/start/GETTING_STARTED.md) — the shared Python/TypeScript client contract + the `mcpip` CLI, the three-client model, the PIN ceremony, envelopes, and opaque-deny semantics. The client hub.
 - [**Coordinated disclosure**](SECURITY.md) — how to report a vulnerability privately.
 
 **Reference docs** (authoritative product/security/legal/feature references):
 
-- [**Operations runbook**](docs/OPERATIONS.md) — the deep day-2 ops: key ceremony + rotation, `mcpip verify`, license install, audit verification/export, backup & restore, incident response, deploy preflight.
-- [**Compliance pack**](docs/COMPLIANCE.md) — the shipped controls mapped to SOC 2 / FedRAMP (NIST 800-53) families and the supply-chain statement (illustrative mapping, **not** a certification).
+- [**Operations runbook**](docs/operate/OPERATIONS.md) — the deep day-2 ops: key ceremony + rotation, `mcpip verify`, license install, audit verification/export, backup & restore, incident response, deploy preflight.
+- [**Compliance pack**](docs/operate/COMPLIANCE.md) — the shipped controls mapped to SOC 2 / FedRAMP (NIST 800-53) families and the supply-chain statement (illustrative mapping, **not** a certification).
 - [**Security threat model**](SECURITY_THREAT_MODEL.md) — the formal adversary model, the per-threat attack→defense→code matrix, the §17 OWASP ASI-2026 coverage map, and an honest residual-risk analysis.
-- [**Whitepaper**](docs/WHITEPAPER.md) — threat model, the seven invariants, and the formal argument for authorization-before-execution.
-- Feature deep-dives: [workload identity](docs/INTEGRATIONS.md) · [telemetry](docs/TELEMETRY.md) · [OAuth resource server](docs/INTEGRATIONS.md) · [extensibility](docs/EXTENSIBILITY.md) · [governed-alias pattern](docs/INTEGRATIONS.md) · [A2A choke-point](docs/ARCHITECTURE.md) · [workspace generate](docs/WORKSPACE_GENERATE.md).
-- Runnable walkthroughs: [demo company](docs/GETTING_STARTED.md) · [Claude MCP bridge](docs/GETTING_STARTED.md) · [DynamoDB live-fire](docs/INTEGRATIONS.md) · [end-to-end lifecycle](docs/GETTING_STARTED.md).
+- [**Whitepaper**](docs/background/WHITEPAPER.md) — threat model, the seven invariants, and the formal argument for authorization-before-execution.
+- Feature deep-dives: [workload identity](docs/build/INTEGRATIONS.md) · [telemetry](docs/operate/TELEMETRY.md) · [OAuth resource server](docs/build/INTEGRATIONS.md) · [extensibility](docs/build/EXTENSIBILITY.md) · [governed-alias pattern](docs/build/INTEGRATIONS.md) · [A2A choke-point](docs/build/ARCHITECTURE.md) · [workspace generate](docs/build/WORKSPACE_GENERATE.md).
+- Runnable walkthroughs: [demo company](docs/start/GETTING_STARTED.md) · [Claude MCP bridge](docs/start/GETTING_STARTED.md) · [DynamoDB live-fire](docs/build/INTEGRATIONS.md) · [end-to-end lifecycle](docs/start/GETTING_STARTED.md).
 
 **FUTURE-wave design docs** (rigorous designs + honest scope boundaries — the three below are *designs and decisions, not built substrate rewrites*):
 
-- [**Group-commit WORM throughput**](docs/ARCHITECTURE.md) — a **REAL benchmark** of the current durable-before-authorize ceiling (reproduce with [`scripts/bench_worm_emit.py`](scripts/bench_worm_emit.py)) plus the app-managed-WAL group-commit design that would raise it. Raising the ceiling for real is a substrate rewrite of the tamper-evidence core — an explicit **owner decision, deferred**; `audit/worm_logger.py` is untouched.
-- [**Multi-region topology & residency**](docs/OPERATIONS.md) — region-pinned tenants as a *deployment* shape (one MCPIP + Redis cell per region, because every key is already tenant-prefixed); per-region WORM ledger with no cross-region chain. Ships only the behavior-neutral `MCPIP_REGION` observability tag; a cross-region control plane stays deferred.
-- [**The data-plane fork**](docs/ARCHITECTURE.md) — a **decision memo** on whether MCPIP should ever enter the model's prompt/content path (the "oracle inversion" / taint-tracking pillars). Recommendation: hold the "interceptor, not a proxy" line; this is an explicit **owner decision, pending**. Writes no data-plane code and reserves no pointer token.
+- [**Group-commit WORM throughput**](docs/build/ARCHITECTURE.md) — a **REAL benchmark** of the current durable-before-authorize ceiling (reproduce with [`scripts/bench_worm_emit.py`](scripts/bench_worm_emit.py)) plus the app-managed-WAL group-commit design that would raise it. Raising the ceiling for real is a substrate rewrite of the tamper-evidence core — an explicit **owner decision, deferred**; `audit/worm_logger.py` is untouched.
+- [**Multi-region topology & residency**](docs/operate/OPERATIONS.md) — region-pinned tenants as a *deployment* shape (one MCPIP + Redis cell per region, because every key is already tenant-prefixed); per-region WORM ledger with no cross-region chain. Ships only the behavior-neutral `MCPIP_REGION` observability tag; a cross-region control plane stays deferred.
+- [**The data-plane fork**](docs/build/ARCHITECTURE.md) — a **decision memo** on whether MCPIP should ever enter the model's prompt/content path (the "oracle inversion" / taint-tracking pillars). Recommendation: hold the "interceptor, not a proxy" line; this is an explicit **owner decision, pending**. Writes no data-plane code and reserves no pointer token.
 
 ---
 

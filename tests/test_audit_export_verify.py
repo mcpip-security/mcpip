@@ -4,7 +4,7 @@ MCPIP V2 — offline audit-export verification suite (``mcpip export-audit --ver
     ◐  "The exporter is the ONLY tamper check production operators can run —
        so it must fail on everything the gateway's own verify_chain fails on."
 
-``/v1/audit/verify`` is sandbox-gated (404 in production), so ``docs/OPERATIONS.md``
+``/v1/audit/verify`` is sandbox-gated (404 in production), so ``docs/operate/OPERATIONS.md``
 routes production operators to ``export-audit --verify`` as THE continuous tamper
 check. This suite builds a REAL signed ledger — a real ``WormLogger`` + a real
 ``AnchorStore`` + a throwaway Ed25519 WORM key against the same local Redis the

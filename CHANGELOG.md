@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **`mcpip export-audit --verify` now verifies the whole signed chain, not just the
   Merkle roots (audit-integrity defect).** The offline exporter — which
-  `docs/OPERATIONS.md` names as THE continuous tamper check for
+  `docs/operate/OPERATIONS.md` names as THE continuous tamper check for
   production, because `/v1/audit/verify` is sandbox-gated — recomputed per-epoch Merkle
   roots ONLY: it checked no Ed25519 epoch signature, no `prev_epoch_hash` linkage, no
   `epoch_hash`, and no rollback watermark, so a rolled-back ledger and a ledger with a
@@ -68,7 +68,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **`mcpip export-audit --pubkey / --anchor-path / --require-anchor`.** `--pubkey` (the
   `worm_signing_ed25519.pub.pem` half of the key ceremony) was already advertised by
-  `docs/GETTING_STARTED.md` and `scripts/provision_gateway_keys.py` but rejected by the
+  `docs/start/GETTING_STARTED.md` and `scripts/provision_gateway_keys.py` but rejected by the
   parser; it is now real and REQUIRED by `--verify` (no key ⇒ no verdict, rather than a
   green verdict no signature backed). `--anchor-path` defaults to
   `MCPIP_WORM_ANCHOR_PATH`, else `<MCPIP_WORM_PATH>.anchor`, exactly like the gateway;
@@ -104,7 +104,7 @@ surfaces, and the A2A choke-point connector) behind one release version.
   /v1/admin/stats` surfaces the honest enabled/disabled/air-gap `TelemetryStatus` alongside
   the real governed-agent count + decision totals; mirrored through both SDKs (`stats()` →
   `DeploymentStats`), the `mcpip admin stats` CLI, and the console's Deployment · License &
-  Usage panel. `docs/TELEMETRY.md`.
+  Usage panel. `docs/operate/TELEMETRY.md`.
 - **Opt-in, off-hot-path license refresh (fail-open, never widens trust)** —
   `services/license_refresh.py` + `core/licensing.py` verify a candidate license against the
   EXISTING license-root ONLY and atomically swap in a strictly-newer valid document; absent
@@ -135,7 +135,7 @@ surfaces, and the A2A choke-point connector) behind one release version.
   `GET /.well-known/oauth-protected-resource` (RFC 9728; `resource` + `authorization_servers`
   only, no scopes/secret/topology), and an optional SEP-2352 `iss_binding` claim honored AFTER
   full verification. RFC 8707 audience binding and the `{EdDSA, RS256}` alg gate are unchanged.
-  `docs/INTEGRATIONS.md`.
+  `docs/build/INTEGRATIONS.md`.
 - **RFC 8693 full delegation chain + ID-JAG recognition (N3, audit-only)** — `project_act_chain`
   walks the nested `act` chain (fail-closed at every hop, bounded by `MAX_DELEGATION_CHAIN`) into
   a new audit-only `Identity.act_chain`; `is_id_jag` recognizes the ID-JAG token-type marker. Both
@@ -152,7 +152,7 @@ surfaces, and the A2A choke-point connector) behind one release version.
   declared A2A `message.metadata` is recorded-not-trusted into the non-locked `a2a_context` (WORM
   only, never merged into arguments, never crossed to the agent wire). Adds `Vendor.A2A` + the a2a
   binding as the 7th `SOURCE_FORMAT`, re-pinning the hash-pinned connector registry
-  (`REGISTRY_VERSION` 2→3, `_PINNED_REGISTRY_SHA256` recomputed). `docs/ARCHITECTURE.md`.
+  (`REGISTRY_VERSION` 2→3, `_PINNED_REGISTRY_SHA256` recomputed). `docs/build/ARCHITECTURE.md`.
 - **Author-your-own community SKILLS with reviewer approval (Phase 1, shipped for real)** —
   customers and the community can now author their own skills instead of MCPIP hand-building
   every connector. A community skill is inert declarative data — one additive `alias → target`
@@ -211,7 +211,7 @@ surfaces, and the A2A choke-point connector) behind one release version.
   prover that ships bundled with a CEL engine, so `approve_extension` refuses a `kind='gate'` manifest while
   no engine is registered. Enabling the runtime later is purely additive — a single
   `register_community_gate_engine(...)` supplies both the hot-path provider and the approve-time prover.
-  Design + deferred-footprint rationale in `docs/EXTENSIBILITY.md §8`.
+  Design + deferred-footprint rationale in `docs/build/EXTENSIBILITY.md §8`.
 - **ReBAC relation-tuple projection — the operator Knowledge-Graph made real (strictly additive)** — a
   Zanzibar-style relation-tuple layer (`services/relation_store.py`, `RelationTupleStore` + `RelationEdge`)
   that is a best-effort, Redis-auto-expiring **projection** of committed compartment grants, NOT a second
@@ -284,26 +284,26 @@ surfaces, and the A2A choke-point connector) behind one release version.
   `read_persistence_posture` probe. It **measures, never fabricates** (it says so and reports only what it
   could measure if a managed Redis refuses `CONFIG SET`), isolates onto a dedicated logical DB, flushes
   only WORM keys, and restores the server's original AOF config on exit (behavior-neutral). Backs the
-  benchmark half of `docs/ARCHITECTURE.md`.
+  benchmark half of `docs/build/ARCHITECTURE.md`.
 - **Behavior-neutral `MCPIP_REGION` observability tag** — a new optional `region` setting
   (`core/config.py`) surfaced read-only on `/healthz` and `/v1/version` for console/SDK display and log
   correlation. It is **purely an observability annotation**: it changes NOTHING about routing,
   authorization, Redis key derivation, or storage (every key is already tenant-prefixed, so region pinning
   is an edge/deployment concern), is deliberately **never a metric label** (a free-form operator string
   would break the closed-enum label discipline in `core/metrics.py`), and `None` ⇒ the tag is simply
-  absent (boot is byte-for-byte unchanged when unset). Design in `docs/OPERATIONS.md`.
+  absent (boot is byte-for-byte unchanged when unset). Design in `docs/operate/OPERATIONS.md`.
 - **Three FUTURE-wave design docs (designs + decisions, no substrate rewrite)** — the roadmap's FUTURE
   items are now addressed as rigorous design work, explicitly NOT as built substrate changes:
-  - `docs/ARCHITECTURE.md` — the group-commit WORM throughput ceiling: the REAL benchmark above plus
+  - `docs/build/ARCHITECTURE.md` — the group-commit WORM throughput ceiling: the REAL benchmark above plus
     the app-managed-WAL group-commit design that would raise it (batch N emits → ONE fsync → each waiter
     returns only post-fsync, so durable-before-authorize is PRESERVED), crash-safety + tamper-evidence +
     migration story. Raising the ceiling is a substrate rewrite of the tamper-evidence core — an explicit
     **owner decision, deferred**; the emit/durability path in `audit/worm_logger.py` is unchanged.
-  - `docs/OPERATIONS.md` — region-pinned tenants as a deployment topology (one MCPIP + Redis cell per
+  - `docs/operate/OPERATIONS.md` — region-pinned tenants as a deployment topology (one MCPIP + Redis cell per
     region), per-region WORM ledger + anchor + signing key with NO cross-region chain, residency-by-
     partition posture. Ships only the behavior-neutral `MCPIP_REGION` tag; a cross-region control plane
     stays deferred.
-  - `docs/ARCHITECTURE.md` — a decision memo on the single most consequential product call: whether
+  - `docs/build/ARCHITECTURE.md` — a decision memo on the single most consequential product call: whether
     MCPIP should ever enter the model's prompt/content path (the "oracle inversion" / taint-tracking
     data-plane pillars), which contradicts today's "interceptor, not a proxy" positioning. Recommendation:
     hold the line; the call is an explicit **owner decision, pending**. Writes NO data-plane code and
@@ -458,7 +458,7 @@ surfaces, and the A2A choke-point connector) behind one release version.
   `@mcpip/sdk`, a zero-dependency ESM mirror (`McpipClient` /
   `McpipSandboxClient` / `McpipAdminClient`, discriminated `AuthorizeResult`
   union, `McpipDenied{correlationId}`, `McpipSandboxOnly`) with a 30-check
-  live smoke (`smoke.mjs`). Shared wire contract documented in `docs/SDK.md`;
+  live smoke (`smoke.mjs`). Shared wire contract documented in `docs/start/SDK.md`;
   gate: `tests/test_sdk_python.py` (12 tests against the real in-process
   gateway via `httpx.ASGITransport`).
 - **Operator principal kill-switch (real revocation)** — an admin holding the new
@@ -534,7 +534,7 @@ surfaces, and the A2A choke-point connector) behind one release version.
   minimal-surface Rust wrapper (no shell/fs/process plugins; strict CSP; stripped
   release binary). The web portal is the same `dist/` served over HTTPS (the
   zero-install fallback). Cross-platform CI in
-  `.github/workflows/desktop-release.yml`; details in `docs/OPERATIONS.md`.
+  `.github/workflows/desktop-release.yml`; details in `docs/operate/OPERATIONS.md`.
 - Zero-trust credential provisioning. `scripts/provision_gateway_keys.py` — the
   gateway key ceremony: generates the WORM epoch-signing + IdP identity-signing
   Ed25519 keypairs in memory, writes private PEM `0600` to a gitignored keys dir
@@ -608,7 +608,7 @@ surfaces, and the A2A choke-point connector) behind one release version.
   the gate (an EC key in the JWKS still cannot smuggle an `ES256` identity
   token). Deliberately not network-fetching — the JWKS is supplied at boot, so
   the auth hot path takes no synchronous JWKS round-trip. New
-  `docs/INTEGRATIONS.md` specifies the fleet-scale provisioning story
+  `docs/build/INTEGRATIONS.md` specifies the fleet-scale provisioning story
   (runtime attestation → RFC 8693 token-exchange → ephemeral per-session keys)
   and the MCPIP-vs-platform boundary. Gate: `tests/test_jwks_provider.py`.
 - Multi-issuer trust + attesting-issuer scoping — closes the weak-issuer

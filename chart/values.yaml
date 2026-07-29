@@ -136,7 +136,7 @@ pdb:
 # loss never drops an acked record. 0 (default) = single-node, no WAIT. To use it, run
 # Redis with >= waitReplicas synced replicas (bundled redis.replicas or an external HA
 # Redis) AND set redis.pdb.enabled so a drain can't take the master + its replicas at
-# once. See docs/OPERATIONS.md "Availability & the fail-closed tradeoff".
+# once. See docs/operate/OPERATIONS.md "Availability & the fail-closed tradeoff".
 durability:
   waitReplicas: 0
   waitTimeoutMs: 2000

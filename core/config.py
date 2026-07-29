@@ -85,7 +85,7 @@ class Settings(BaseSettings):
     # extended across a replica, so promoting a synced replica after a master loss never
     # drops an acked record. FAIL-CLOSED: quorum miss/timeout = the emit fails = the
     # request denies. This is the supported HA posture (run Redis with >=N synced
-    # replicas + a promotion runbook, docs/OPERATIONS.md §"Availability"); plain async
+    # replicas + a promotion runbook, docs/operate/OPERATIONS.md §"Availability"); plain async
     # replication WITHOUT this quorum can silently lose acked writes on failover and is
     # NOT a supported durability posture. Scope is the event emit only — every other
     # Redis datum fails closed when lost.
@@ -145,7 +145,7 @@ class Settings(BaseSettings):
     # name a natural person) — are replaced with a keyed-HMAC pseudonym, so the
     # natural-person link becomes CRYPTO-SHREDDABLE (destroy the key ⇒ sever linkage)
     # while the signed audit record stays intact and ``verify_chain``-able. This is the
-    # reconciliation of the immutable ledger with GDPR/CCPA erasure (docs/COMPLIANCE.md
+    # reconciliation of the immutable ledger with GDPR/CCPA erasure (docs/operate/COMPLIANCE.md
     # §2.1). Default OFF ⇒ byte-identical to today: the raw identifiers are recorded
     # (better forensic readability), so enable it only when an erasure posture is needed.
     # When ON a dedicated key is required — ``MCPIP_PSEUDONYM_KEY_PATH`` (≥32 raw bytes)
@@ -235,7 +235,7 @@ class Settings(BaseSettings):
     # HERMETIC (trust_env=False, proxy=None), SSRF-guarded, IP-pinned https client — the
     # same guard the authenticator webhook / JWKS refresher / telemetry beacon use. In
     # sandbox / air-gap (no boot license) the feature is simply absent. See
-    # docs/TELEMETRY.md.
+    # docs/operate/TELEMETRY.md.
     license_refresh_url: str | None = Field(default=None)
     # Background license-pull cadence in seconds (off the hot path). Default 1h.
     license_refresh_interval_s: float = Field(default=3600.0, gt=0.0)
@@ -280,7 +280,7 @@ class Settings(BaseSettings):
     # display and log correlation. It changes NOTHING about routing, authorization, Redis
     # key derivation, or storage — every key is already tenant-prefixed, so region pinning
     # is an edge/deployment concern (one MCPIP + Redis stack per region), NOT a data-plane
-    # behavior this process implements. See ``docs/OPERATIONS.md``. It is deliberately
+    # behavior this process implements. See ``docs/operate/OPERATIONS.md``. It is deliberately
     # NEVER a metric label (a free-form operator string would break the closed-enum label
     # discipline in ``core/metrics.py``). None -> the tag is simply absent (honest
     # unset state); boot is byte-for-byte unchanged when it is not set.
@@ -311,7 +311,7 @@ class Settings(BaseSettings):
     # closed-enum as core/metrics.py), uptime, and a timestamp. It NEVER carries a tenant
     # id, agent id, alias, target, capability, correlation id, secret, payload, argument, or
     # any per-tenant breakdown — only aggregate integers ever leave the box (the same opacity
-    # discipline as the metric labels). See docs/TELEMETRY.md.
+    # discipline as the metric labels). See docs/operate/TELEMETRY.md.
     #
     # AIR-GAP / OPT-IN: this flag DEFAULTS OFF. If it is unset/false OR the process is in
     # sandbox_mode, NO beacon task is ever scheduled and NO install-id/secret file is ever
@@ -324,7 +324,7 @@ class Settings(BaseSettings):
     telemetry_enabled: bool = Field(default=False)
     # HTTPS endpoint of the vendor telemetry receiver. None -> the beacon is ABSENT even if
     # the flag were set (which is then a boot error). The receiver itself is out of scope for
-    # this deployment — it is specced in docs/TELEMETRY.md, not built here.
+    # this deployment — it is specced in docs/operate/TELEMETRY.md, not built here.
     telemetry_url: str | None = Field(default=None)
     # Beacon cadence in seconds, clamped to [MIN_TELEMETRY_INTERVAL_S,
     # MAX_TELEMETRY_INTERVAL_S] at beacon construction (default 1h).

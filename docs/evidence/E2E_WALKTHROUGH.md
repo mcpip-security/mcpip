@@ -694,7 +694,7 @@ Three properties make it auditable rather than merely informative:
 The control mapping is phrased as evidence throughout — "this mechanism provides
 evidence FOR this criterion" — never as a pass. Whether a control is satisfied is
 an auditor's determination, not software's. See
-[`COMPLIANCE.md`](COMPLIANCE.md) for the full clause mapping.
+[`COMPLIANCE.md`](../operate/COMPLIANCE.md) for the full clause mapping.
 
 ## 14. What this run did not prove
 

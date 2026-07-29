@@ -28,7 +28,7 @@ from mcpip_sdk.errors import (
 
 
 class ExitCode(IntEnum):
-    """The CLI's process exit codes — documented in ``docs/CLI.md``."""
+    """The CLI's process exit codes — documented in ``docs/start/CLI.md``."""
 
     OK = 0
     # 1 is the catch-all for an unexpected/unhandled error (see main()).

@@ -66,7 +66,7 @@ load-bearing id, a deny exits `3` with just `{"error":"denied","correlation_id":
 The step-up ceremony works headless too — a non-interactive `authorize` on a
 `pin_required` alias persists the exact envelope and exits `9`; resume with
 `mcpip complete --challenge <id>` (OTP via `--otp-stdin` or an interactive
-no-echo prompt, never argv). Full reference: [`docs/CLI.md`](../../docs/CLI.md).
+no-echo prompt, never argv). Full reference: [`docs/start/CLI.md`](../../docs/start/CLI.md).
 
 ## The three clients
 
@@ -146,5 +146,5 @@ client = MCPIPClient("https://gateway.example", token=fetch_token_from_idp)
 There is deliberately **no** `MCPIPStaged` exception — a staged step-up is a
 successful `Staged` result.
 
-Full documentation for both SDKs (Python and TypeScript): `docs/SDK.md` in the
+Full documentation for both SDKs (Python and TypeScript): `docs/start/SDK.md` in the
 gateway repository.

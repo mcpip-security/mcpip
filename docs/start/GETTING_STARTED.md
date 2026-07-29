@@ -23,9 +23,9 @@ real deny-reason never cross the boundary.
 For deeper reading: the product overview and 7 security invariants live in `README.md`;
 the design thesis ("an interceptor, never a proxy") in the internal strategy notes; the
 attack → defense → code threat model and request pipeline in
-[`ARCHITECTURE.md`](ARCHITECTURE.md); deploy, upgrade, compliance and runbook procedures
-in [`OPERATIONS.md`](OPERATIONS.md); workload-identity / provider-dialect / cloud-IAM
-integration in [`INTEGRATIONS.md`](INTEGRATIONS.md); and what is delivered vs deferred
+[`ARCHITECTURE.md`](../build/ARCHITECTURE.md); deploy, upgrade, compliance and runbook procedures
+in [`OPERATIONS.md`](../operate/OPERATIONS.md); workload-identity / provider-dialect / cloud-IAM
+integration in [`INTEGRATIONS.md`](../build/INTEGRATIONS.md); and what is delivered vs deferred
 (with the honest residual-risk boundary) in the internal roadmap.
 
 ---
@@ -179,8 +179,8 @@ MCPIP ships two first-party clients with **full console parity** plus the `mcpip
 wraps them. Both speak the **identical wire protocol** and expose the same surface with the
 same method names (snake_case in Python, camelCase in TypeScript). The shipping package
 READMEs remain authoritative for install:
-[`sdk/python/README.md`](../sdk/python/README.md) ·
-[`sdk/typescript/README.md`](../sdk/typescript/README.md). Full contract + code samples:
+[`sdk/python/README.md`](../../sdk/python/README.md) ·
+[`sdk/typescript/README.md`](../../sdk/typescript/README.md). Full contract + code samples:
 [`SDK.md`](SDK.md); full CLI command tree: [`CLI.md`](CLI.md).
 
 | | Python | TypeScript |
@@ -225,7 +225,7 @@ if result.is_staged:                      # 202 — a challenge_id was returned
 
 The payload lock is format-independent and byte-identical across all seven dialects; the
 client never sees the target. Over the MCP edge, the same step-up can ride the opt-in MRT /
-SEP-2322 transport (`stepUp:"mrt"`) — see [`INTEGRATIONS.md`](INTEGRATIONS.md).
+SEP-2322 transport (`stepUp:"mrt"`) — see [`INTEGRATIONS.md`](../build/INTEGRATIONS.md).
 
 ### Envelopes — every dialect
 
@@ -398,11 +398,11 @@ decisions it drives itself. Audit them via `export-audit` / the signed chain.
 A hands-on runbook for the operator standing MCPIP up in your environment: provision
 credentials, install your license, boot production fail-closed, then operate and upgrade.
 Every command is copy-paste and grounded in the shipped tooling. Full ops procedures live
-in [`OPERATIONS.md`](OPERATIONS.md).
+in [`OPERATIONS.md`](../operate/OPERATIONS.md).
 
 ### Prerequisites
 
-- Docker + docker-compose (or Kubernetes + Helm — see [`OPERATIONS.md`](OPERATIONS.md)).
+- Docker + docker-compose (or Kubernetes + Helm — see [`OPERATIONS.md`](../operate/OPERATIONS.md)).
 - A Redis you control (linearizable, `appendonly yes` / `appendfsync always`,
   `maxmemory-policy noeviction`). The bundled compose ships one, internal-only.
 - Python 3.12 (production target; the Rust accelerator is `abi3-py312`).
@@ -465,7 +465,7 @@ MultiIssuerResolver([                     # several issuers, each with an assura
 
 `attesting=True` designates which issuers' `cnf` (sender-constraint) counts for a resource
 that demands it — so trusting a weaker IdP for identity never downgrades the
-sender-constraint gate. See [`INTEGRATIONS.md`](INTEGRATIONS.md).
+sender-constraint gate. See [`INTEGRATIONS.md`](../build/INTEGRATIONS.md).
 
 ### Mint agent principals (your clients' identities)
 
@@ -483,7 +483,7 @@ python scripts/mint_principal.py --idp-key <idp_private> \
   gateway enforces**. `--role` is descriptive and authorizes nothing.
 - Keep `--ttl` short. For fleets, prefer sender-constrained tokens (`--cnf-jkt`) over
   ephemeral per-session keys instead of long-lived bearers — see
-  [`INTEGRATIONS.md`](INTEGRATIONS.md).
+  [`INTEGRATIONS.md`](../build/INTEGRATIONS.md).
 
 ### Model the catalog
 
@@ -572,7 +572,7 @@ scripts/deploy_hero.sh                                 # materializes secrets 06
 `deploy_hero.sh` requires `MCPIP_WORM_SIGNING_KEY_PEM`, `MCPIP_JWT_PUBLIC_KEY_PEM`,
 `MCPIP_LICENSE_JSON` from the store; if any is missing — or `MCPIP_SANDBOX_MODE≠false` — it
 aborts before boot. (Kubernetes uses the `mcpip-keys` Secret instead; see
-[`OPERATIONS.md`](OPERATIONS.md).) The key env vars and their production requirements:
+[`OPERATIONS.md`](../operate/OPERATIONS.md).) The key env vars and their production requirements:
 
 | Var | Default | Production |
 |---|---|---|
@@ -610,7 +610,7 @@ curl -s localhost:8080/readyz      # {"status":"ready","redis":"up"}
 - **Cutting a release** (vendor side): bump `VERSION` **and** `CHANGELOG.md` first, then
   build → SBOM → sign the release manifest → sign the boot-integrity manifest (which covers
   `interfaces.py`, `main.py`, and `VERSION`) → build the image and record its immutable
-  digest (see [`OPERATIONS.md`](OPERATIONS.md)).
+  digest (see [`OPERATIONS.md`](../operate/OPERATIONS.md)).
 - **An upgrade is a redeploy.** Artifacts are immutable and signed; there is no in-place
   mutation. To upgrade: `mcpip verify` the new signed release, then deploy the new
   **digest** (never a mutable tag) — compose repull, or
@@ -645,7 +645,7 @@ come *only* from a verified JWT; the `role` claim authorizes nothing; an identit
 capability-shaped key in a tool-call payload is a **hard deny, not a strip**. The reading
 path for the security owner, before any code runs: `README.md` (what it is + the 5
 invariants), the internal strategy notes (the design thesis),
-[`ARCHITECTURE.md`](ARCHITECTURE.md) (attack → defense → code), [`OPERATIONS.md`](OPERATIONS.md)
+[`ARCHITECTURE.md`](../build/ARCHITECTURE.md) (attack → defense → code), [`OPERATIONS.md`](../operate/OPERATIONS.md)
 (control mapping), and the internal roadmap (delivered vs deferred, self-audit).
 
 ### The human factor — PIN step-up 🙋
@@ -668,7 +668,7 @@ once; agents attest per session.
 
 One employee launches an orchestrator that spawns many ephemeral sub-agents. MCPIP scales
 to that **without** breaking keyless agents, because it enforces by **action risk**, not
-per agent (see [`INTEGRATIONS.md`](INTEGRATIONS.md)):
+per agent (see [`INTEGRATIONS.md`](../build/INTEGRATIONS.md)):
 
 - **Cheap / low-risk work rides a bearer token** — no key, never newly denied.
 - **Sensitive actions demand a key-proof.** A sender-constrained token (`cnf.jkt`) requires
@@ -844,7 +844,7 @@ ENG_TOKEN=$(curl -s -X POST http://localhost:8080/v1/dev/token \
   (instance profile / IRSA / OIDC) — no cloud secret is ever stored. Operators manage the
   role→compartment bindings via `/v1/admin/cloud/environments`. This is the zero-trust
   answer to "give an agent an AWS/GCP/Azure role": per-call, scoped, short-lived, killable,
-  and provably audited. See [`INTEGRATIONS.md`](INTEGRATIONS.md).
+  and provably audited. See [`INTEGRATIONS.md`](../build/INTEGRATIONS.md).
 - **Step-up (human-in-the-loop):** `skill_financial_ledger_post` is `pin_required`. A
   Finance agent calling it gets a `202` challenge, not data — the write only commits after
   a payload-bound one-time PIN. Nothing about the amount can be changed between challenge
@@ -876,7 +876,7 @@ cd dashboard && npm install && npm run dev
 ```
 
 **Native desktop app (downloadable installer)** — build the real `.dmg`/`.msi`/`.deb` from
-the same code (full details in [`OPERATIONS.md`](OPERATIONS.md)). Run each line on its own —
+the same code (full details in [`OPERATIONS.md`](../operate/OPERATIONS.md)). Run each line on its own —
 **do not paste a trailing `#` comment into the shell**:
 
 ```bash

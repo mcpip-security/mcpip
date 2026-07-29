@@ -59,9 +59,9 @@ surrounding process evidence.
 | CC6.8 | Prevent/detect unauthorized software | T1–T5: signed releases, digest-pinned deployment, verified boot rejecting any modified source, no self-update channel to subvert. |
 | CC7.1 | Detect configuration changes / vulnerabilities | T3 (SBOM + offline CVE scanning) and T4 (any source drift is a detected, blocking event at next boot). |
 | CC7.2 / CC7.3 | Monitor system components; evaluate events | T7/T13: every decision lands in the tamper-evident WORM log before execution; Prometheus counters expose decision/deny/shed rates; correlation ids join wire events to audit records. |
-| CC7.4 / CC7.5 | Incident response and recovery | Partial — the product supplies the forensic substrate (intact-or-tampered verdicts, first-bad-epoch localization, read-only export, anchor-based rollback detection) and a documented IR runbook (`docs/OPERATIONS.md` § 9); the organization owns the IR program itself. |
+| CC7.4 / CC7.5 | Incident response and recovery | Partial — the product supplies the forensic substrate (intact-or-tampered verdicts, first-bad-epoch localization, read-only export, anchor-based rollback detection) and a documented IR runbook (`docs/operate/OPERATIONS.md` § 9); the organization owns the IR program itself. |
 | CC8.1 | Change management | T1/T2/T5: changes reach production only as new signed, verified, digest-pinned releases through operator change control; there is no in-place change path to manage exceptions for. |
-| A1.2 (Availability) | Recovery infrastructure | Partial — T14 (bounded-tail overload behavior), stateless horizontal scaling, documented audit backup/restore (`docs/OPERATIONS.md` § 8). |
+| A1.2 (Availability) | Recovery infrastructure | Partial — T14 (bounded-tail overload behavior), stateless horizontal scaling, documented audit backup/restore (`docs/operate/OPERATIONS.md` § 8). |
 | PI1 (Processing integrity) | Complete, accurate, timely, authorized processing | T6/T7/T10: authorization-before-execution with a durable record emitted before the action, exactly-once semantics on approvals, fail-closed on every ambiguity. |
 | C1 (Confidentiality) | Identify and protect confidential information | T9/T13 + obfuscation: compartment need-to-know, alias indirection, redaction of `pin`/`jwt`/`token` fields in audit records, sanitized metrics. |
 
@@ -87,11 +87,11 @@ permanent audit ledger records tool-call *metadata + a payload hash*, **not requ
 | TSC | Criterion (abbrev.) | Status | Product contribution |
 |---|---|---|---|
 | P1 | Notice & communication | Partial / Org | This section is the product-side notice of what MCPIP does/does not collect; the data-subject-facing notice is the controller's. |
-| P2 | Choice & consent | Out-of-scope-by-design / Org | Data subjects never interact with MCPIP. Vendor telemetry is the model consent pattern: opt-in, default-OFF, loud (`docs/TELEMETRY.md`); data-subject consent for downstream processing is the controller's. |
+| P2 | Choice & consent | Out-of-scope-by-design / Org | Data subjects never interact with MCPIP. Vendor telemetry is the model consent pattern: opt-in, default-OFF, loud (`docs/operate/TELEMETRY.md`); data-subject consent for downstream processing is the controller's. |
 | P3 | Collection limited to necessary | **Met (structural)** | The permanent ledger stores a `payload_hash`, not arguments; metrics carry closed-set labels; telemetry is aggregate-only. Full-content collection occurs *only* in forensic capture (default-OFF in prod, 1 h, encrypted). |
 | P4 | Use, retention & disposal | Partial | Transient stores auto-dispose via TTL; the WORM ledger is retained indefinitely for audit-integrity (legal-obligation basis below). Retention windows are bounded (`WORM_HOT_EPOCHS`/`WORM_CHECKPOINT_EPOCHS`; being promoted to `MCPIP_*` settings). |
 | P5 | Access (data-subject) | Gap / Org | No product mechanism enumerates "all records about natural person X" (DSAR); `query_decisions` (by agent/time) + forensic reconstruction are partial evidence sources. Records are metadata+hash, limiting exposure. |
-| P6 | Disclosure & breach notification | Partial / Org | Strong breach-**detection** substrate (`verify_chain`/`first_bad_epoch`/anchor/forensic); the notification **process** (GDPR 33/34, HIPAA §164.410) is the controller's. See `docs/OPERATIONS.md` § 9. |
+| P6 | Disclosure & breach notification | Partial / Org | Strong breach-**detection** substrate (`verify_chain`/`first_bad_epoch`/anchor/forensic); the notification **process** (GDPR 33/34, HIPAA §164.410) is the controller's. See `docs/operate/OPERATIONS.md` § 9. |
 | P7 | Quality (accuracy) | Met-by-design | MCPIP is not a system of record for personal data; canonical-JSON + payload-lock guarantee the recorded `payload_hash` matches the executed payload. |
 | P8 | Monitoring & enforcement | Partial | Redaction is enforced at write (`_redact`); the payload-hash-only invariant is a named privacy control asserted by a test that the WORM ctx never carries an `arguments` key. |
 
@@ -128,7 +128,7 @@ that the gateway does not implement today.
 | **IA** — Identification & Authentication | IA-2/IA-9 (service auth), IA-5 | T8: cryptographic machine-to-machine identity with pinned algorithms and full claim validation; IA-5 partially — the product consumes operator-managed PEMs and documents rotation; credential lifecycle is organizational. |
 | **SC** — System & Communications Protection | SC-8, SC-13, SC-28, SC-39 | T1/T7/T12: FIPS-standard primitives (SHA-256, Ed25519) via the `cryptography` library; verification independent of transport security; compartment isolation; note MCPIP does not itself terminate TLS — SC-8 in transit is the deployment's ingress concern. |
 | **SI** — System & Information Integrity | SI-2, SI-3, SI-7 | **SI-7 (software/firmware integrity) is the product's core**: T4 verified boot with cryptographic integrity checks at startup and fail-closed response; SI-2 supported by SBOM-driven offline vulnerability scanning; flaw remediation itself is the redeploy process. |
-| **CP** — Contingency Planning | CP-9, CP-10 | Partial — documented, verifiable backup/restore of the audit ledger (`docs/OPERATIONS.md` § 8), with restore verification that detects restoring a rolled-back ledger. Organizational CP program is out of scope. |
+| **CP** — Contingency Planning | CP-9, CP-10 | Partial — documented, verifiable backup/restore of the audit ledger (`docs/operate/OPERATIONS.md` § 8), with restore verification that detects restoring a rolled-back ledger. Organizational CP program is out of scope. |
 | **SR** — Supply Chain Risk Management | SR-3, SR-4, SR-11 | T1/T2/T3/T16: provenance (SR-4) via signed manifests + SBOM; SR-11 (component authenticity) via offline-verifiable signatures and out-of-band key fingerprints; the air-gap bundle gives acquirers a network-free acceptance-testing path. |
 | **IR** — Incident Response | IR-4, IR-5 | Partial — tamper localization (first bad epoch), forensic export, and a written IR runbook ship with the product; the IR capability/organization is the deployer's. |
 
@@ -310,7 +310,7 @@ attestation of conformity — those are external third-party processes (see §6.
 > check. So these rows provide evidence for the
 > *non-rewritable, tamper-evident, integrity* clauses; the *retention-duration* clause is
 > satisfied by the operator's export archive, whose cadence and immutable custody are the
-> deploying organization's controls. See `docs/OPERATIONS.md` § "Verify & export".
+> deploying organization's controls. See `docs/operate/OPERATIONS.md` § "Verify & export".
 
 ### 6.1 Portable evidence export — `GET /v1/admin/compliance/evidence`
 

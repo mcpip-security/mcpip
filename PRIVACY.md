@@ -26,8 +26,8 @@ send anything **out** of it.
 
 If you are performing a DPIA or filling in a vendor-diligence questionnaire: for
 a self-hosted MCPIP deployment with telemetry disabled, there is **no vendor
-data flow to assess**. [`docs/COMPLIANCE.md`](docs/COMPLIANCE.md) carries the
-control cross-walk; [`docs/TELEMETRY.md`](docs/TELEMETRY.md) carries the beacon
+data flow to assess**. [`docs/operate/COMPLIANCE.md`](docs/operate/COMPLIANCE.md) carries the
+control cross-walk; [`docs/operate/TELEMETRY.md`](docs/operate/TELEMETRY.md) carries the beacon
 specification.
 
 ---
@@ -70,7 +70,7 @@ compliance note:
 You set it. The ledger trims events out of the hot buffer past the configured
 retention window while the signed roots remain, so tamper-evidence survives
 minimization. Deployment guidance is in
-[`docs/OPERATIONS.md`](docs/OPERATIONS.md); optional at-rest encryption of the
+[`docs/operate/OPERATIONS.md`](docs/operate/OPERATIONS.md); optional at-rest encryption of the
 event body is `MCPIP_ENCRYPT_WORM_AT_REST`.
 
 ---
@@ -117,7 +117,7 @@ When enabled, the beacon sends a **closed set of exactly eight fields**:
 This is enforced, not merely promised: a test asserts the serialized body's key
 set is exactly those eight fields and scans the bytes for request-identifying
 strings. Full specification, including the HMAC signing headers and how to
-disable it: [`docs/TELEMETRY.md`](docs/TELEMETRY.md).
+disable it: [`docs/operate/TELEMETRY.md`](docs/operate/TELEMETRY.md).
 
 To turn it off: unset `MCPIP_TELEMETRY_ENABLED` (or set it to `false`). No task
 is scheduled and no client is constructed.

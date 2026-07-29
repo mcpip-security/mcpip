@@ -11,8 +11,8 @@ throughput ceiling and the app-managed WAL design that would raise it). These
 are not redundant — they are separate concerns, each preserved here in full:
 exact invariants, envelopes, diagrams, tables, benchmarks, and pseudocode are
 unchanged from their originating design memos. Sibling references: operational
-and deployment concerns live in [docs/OPERATIONS.md](OPERATIONS.md), connector
-and dialect extension in [docs/EXTENSIBILITY.md](EXTENSIBILITY.md), and
+and deployment concerns live in [docs/operate/OPERATIONS.md](../operate/OPERATIONS.md), connector
+and dialect extension in [docs/build/EXTENSIBILITY.md](EXTENSIBILITY.md), and
 future-wave sequencing in the internal roadmap.
 
 ---
@@ -171,7 +171,7 @@ data-plane code, reserves no pointer token, and changes no behavior. It exists s
 **deliberately, by the owner** — the roadmap's explicit instruction: "decide it deliberately, don't
 drift into it" (the internal roadmap). Companions: `WHITEPAPER.md §2.2`
 (the "interceptor, not an LLM proxy" trust boundary), the internal strategy notes (primitive #7),
-the internal roadmap (the pillar sketches), `docs/OPERATIONS.md` (sibling
+the internal roadmap (the pillar sketches), `docs/operate/OPERATIONS.md` (sibling
 FUTURE-wave design material).*
 
 ---
@@ -225,7 +225,7 @@ Concretely, four facts define the current boundary:
 3. **Parsers are pure; the gateway holds no vendor keys.** Connector purity is mechanically enforced (no
    LLM SDK, no HTTP client, no socket — `tests/test_connector_conformance.py`); the gateway makes no model
    call and stores no vendor credential. For `cloud_iam` it does not even hold the *target* payload — it
-   vends a short-lived credential and the agent makes the call (`docs/OPERATIONS.md`).
+   vends a short-lived credential and the agent makes the call (`docs/operate/OPERATIONS.md`).
 4. **The hot path is a single-round-trip, sub-ms, fail-closed decision.** Strict schema → alias resolve →
    entitlement gates → payload lock (one atomic Lua) → write-before-execute WORM → dispatch. MCPIP judges
    *whether the exact action may run*, never *what the model should read or say*.
@@ -368,7 +368,7 @@ per-field taint ceilings on `AliasEntry` plus enforcement at one interpolation c
 **New trust boundaries.**
 - The **context-ingestion boundary** — MCPIP now trusts that *all* content reaching the model passes
   through it (else the pointer-swap and taint labels are incomplete). This is a *deployment* trust
-  assumption analogous to the non-bypassability gap in `docs/OPERATIONS.md`: if the agent can fetch
+  assumption analogous to the non-bypassability gap in `docs/operate/OPERATIONS.md`: if the agent can fetch
   content around MCPIP, the air-gap has a hole. Enforcing it is an egress-lockdown/mesh problem, not a
   gateway-code problem — the same "compose, don't fight" posture applies.
 - The **vault confidentiality boundary** — a new "MCPIP holds plaintext" boundary that did not exist.
@@ -434,7 +434,7 @@ invariants guard against. It is its own wave, gated by the owner decision below.
 #### 6.1 Recommendation
 
 **Do not enter the prompt path now.** Hold the "interceptor, not a proxy" line as a *stated, deliberate*
-posture — the same way `docs/OPERATIONS.md` holds "don't build a VPN" and "no cross-region chain." Keep the
+posture — the same way `docs/operate/OPERATIONS.md` holds "don't build a VPN" and "no cross-region chain." Keep the
 fork a documented, owner-owned, prospect-pulled decision. **Depth (B)
 (inference proxy) is a permanent do-not-build.** Depth (A) (content mediation) is *deferred*, not
 rejected — reconsidered only when the triggers below fire.
@@ -446,7 +446,7 @@ rejected — reconsidered only when the triggers below fire.
    today's payload-lock + classification + sender-constraint story provably cannot meet? (If the need is
    met by existing controls, the answer is no.)
 2. **Non-bypassability is already solved for that account.** Is that deployment already egress-locked so
-   *all* content provably transits MCPIP (`docs/OPERATIONS.md`)? Content mediation with a bypassable
+   *all* content provably transits MCPIP (`docs/operate/OPERATIONS.md`)? Content mediation with a bypassable
    context path is theater — the air-gap has a hole and the taint labels are incomplete.
 3. **Resourcing.** Is there capacity to touch the byte-identity parity core (Python + Rust + lock hash +
    differential re-pin) *correctly*, under the invariant discipline, without rushing? This is the repo's
@@ -482,7 +482,7 @@ ship.
 
 #### 6.4 Why this is framed as an owner decision
 
-Every other FUTURE-wave item (`docs/OPERATIONS.md`, the [group-commit WORM ceiling](#worm-group-commit),
+Every other FUTURE-wave item (`docs/operate/OPERATIONS.md`, the [group-commit WORM ceiling](#worm-group-commit),
 the network-enforcement posture) is an *edge* or *packaging* concern the roadmap resolves with a design doc
 and a behavior-neutral scaffold. This one is different in kind: it changes **what MCPIP is** — from a narrow
 deterministic authorizer of the final action to a mediator of the agent's data flow. It rewrites the threat

@@ -21,7 +21,7 @@ Discipline:
     UUIDs / compartment, exactly as the gateway enforces.
   * Tokens are short-lived by default (1h); ``--ttl`` bounds the blast radius of a
     leaked token. For fleets, prefer ephemeral per-session keys + sender-constraint
-    (see docs/INTEGRATIONS.md) over long-lived bearer tokens.
+    (see docs/build/INTEGRATIONS.md) over long-lived bearer tokens.
 """
 
 from __future__ import annotations

@@ -7,40 +7,59 @@ systems execute."* Pipeline: **Bridge** (normalize 7 provider dialects → one i
 payload-bound one-time PIN) → **Audit** (Ed25519 Merkle WORM log, written *before*
 execution).
 
-The documentation is organized into the hubs below. Start with
+The documentation is organized into the hubs below — each is a folder. Start with
 **Getting Started**; operators go to **Operations**.
+
+```
+docs/
+├── start/       first contact — quickstart, SDKs, CLI
+├── operate/     running it — day-2, compliance, telemetry, incident response
+├── build/       integrating and extending — architecture, connectors, skills
+├── background/  the whitepaper
+└── evidence/    real end-to-end runs, with the transcripts and screenshots
+```
 
 ## Start here
 
 | Doc | What's inside |
 |---|---|
-| [GETTING_STARTED.md](GETTING_STARTED.md) | Quickstart · connect an agent (REST + MCP) · Claude/MCP client setup · standing up a gateway · the end-to-end request lifecycle · the runnable demo-company walkthrough. |
-| [SDK.md](SDK.md) | The Python + TypeScript client SDKs — the three-client model, PIN ceremony, envelope builders, admin surface, opaque-deny semantics (full console parity). |
-| [CLI.md](CLI.md) | The first-class `mcpip` CLI (git/kubectl-style) — commands, flags, and plug-and-play usage. |
+| [GETTING_STARTED.md](start/GETTING_STARTED.md) | Quickstart · connect an agent (REST + MCP) · Claude/MCP client setup · standing up a gateway · the end-to-end request lifecycle · the runnable demo-company walkthrough. |
+| [SDK.md](start/SDK.md) | The Python + TypeScript client SDKs — the three-client model, PIN ceremony, envelope builders, admin surface, opaque-deny semantics (full console parity). |
+| [CLI.md](start/CLI.md) | The first-class `mcpip` CLI (git/kubectl-style) — commands, flags, and plug-and-play usage. |
 
 ## Operate
 
 | Doc | What's inside |
 |---|---|
-| [OPERATIONS.md](OPERATIONS.md) | Running MCPIP · day-2 runbook (keys, releases, `mcpip verify`, audit export, upgrades) · network enforcement & non-bypassability · deploying behind a service mesh / IAP · desktop packaging · multi-region topology & residency. |
-| [COMPLIANCE.md](COMPLIANCE.md) | The portable compliance-evidence posture (SOC 2 CC6.x, EU AI Act, ISO 42001, …) — evidence, never a certification. |
-| [TELEMETRY.md](TELEMETRY.md) | The opt-in, off-hot-path signed telemetry beacon — what it sends (aggregate integers only), and how to disable it. |
+| [OPERATIONS.md](operate/OPERATIONS.md) | Running MCPIP · day-2 runbook (keys, releases, `mcpip verify`, audit export, upgrades) · network enforcement & non-bypassability · deploying behind a service mesh / IAP · desktop packaging · multi-region topology & residency. |
+| [COMPLIANCE.md](operate/COMPLIANCE.md) | The portable compliance-evidence posture (SOC 2 CC6.x, EU AI Act, ISO 42001, …) — evidence, never a certification. |
+| [TELEMETRY.md](operate/TELEMETRY.md) | The opt-in, off-hot-path signed telemetry beacon — what it sends (aggregate integers only), and how to disable it. |
 
 ## Build & integrate
 
 | Doc | What's inside |
 |---|---|
-| [ARCHITECTURE.md](ARCHITECTURE.md) | The design references: the A2A side-effect choke point, the data-plane-fork owner memo, and the WORM group-commit throughput design. |
-| [INTEGRATIONS.md](INTEGRATIONS.md) | Cloud/identity integration patterns: workload identity (SPIFFE), the OAuth 2.1 resource-server metadata, the governed-alias pattern, and the DynamoDB cloud-IAM live-fire walkthrough. |
-| [EXTENSIBILITY.md](EXTENSIBILITY.md) | Author-your-own community **skills** (implemented) and **gates** (CEL runtime deferred) — reviewer-approval + WORM record + hash-pin. |
-| [WORKSPACE_GENERATE.md](WORKSPACE_GENERATE.md) | Brief → governed workspace scaffold: the draft/validate/apply endpoints, inference-free core with an optional local-first LLM toolchain. |
-| [IMPLEMENTATION_WEB.md](IMPLEMENTATION_WEB.md) | The web/console implementation reference. |
+| [ARCHITECTURE.md](build/ARCHITECTURE.md) | The design references: the A2A side-effect choke point, the data-plane-fork owner memo, and the WORM group-commit throughput design. |
+| [INTEGRATIONS.md](build/INTEGRATIONS.md) | Cloud/identity integration patterns: workload identity (SPIFFE), the OAuth 2.1 resource-server metadata, the governed-alias pattern, and the DynamoDB cloud-IAM live-fire walkthrough. |
+| [EXTENSIBILITY.md](build/EXTENSIBILITY.md) | Author-your-own community **skills** (implemented) and **gates** (CEL runtime deferred) — reviewer-approval + WORM record + hash-pin. |
+| [WORKSPACE_GENERATE.md](build/WORKSPACE_GENERATE.md) | Brief → governed workspace scaffold: the draft/validate/apply endpoints, inference-free core with an optional local-first LLM toolchain. |
+| [IMPLEMENTATION_WEB.md](build/IMPLEMENTATION_WEB.md) | The web/console implementation reference. |
 
 ## Background
 
 | Doc | What's inside |
 |---|---|
-| [WHITEPAPER.md](WHITEPAPER.md) | The technical whitepaper (standalone artifact). |
+| [WHITEPAPER.md](background/WHITEPAPER.md) | The technical whitepaper (standalone artifact). |
+
+## Evidence
+
+Real runs against a real gateway — every command, input, output and screenshot
+reproduced from an actual execution, including what each run did *not* prove.
+
+| Doc | What's inside |
+|---|---|
+| [E2E_WALKTHROUGH.md](evidence/E2E_WALKTHROUGH.md) | One production cycle end to end: key ceremony · signed license · the four gates that refuse a production boot · governed Cloudflare and GitHub calls with full request/response · the five developer integration paths · the persona capability matrix · the PIN step-up cycle including replay denial · WORM trace and tamper detection · period SOC 2 reporting. |
+| [ORGANIZATION_AT_SCALE.md](evidence/ORGANIZATION_AT_SCALE.md) | A whole org on the gateway: concurrent multi-agent traffic from separate client hosts, the non-hierarchical capability matrix (no super-admin), and a live revocation mid-traffic. |
 
 ---
 

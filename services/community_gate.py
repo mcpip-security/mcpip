@@ -12,7 +12,7 @@ gate). The actual CEL parse/lint/evaluate RUNTIME is DEFERRED: adopting an in-pr
 evaluator (``cel-python``/``celpy``) pulls a native-extension chain (``google-re2`` +
 ``pendulum`` + ``jmespath`` + parser machinery) into a fail-closed authorizer whose pitch
 is a small, auditable, air-gappable pure-Python footprint. Whether to take that on is an
-OWNER dependency decision, not an implementer default (docs/EXTENSIBILITY.md §8). So:
+OWNER dependency decision, not an implementer default (docs/build/EXTENSIBILITY.md §8). So:
 
   * NOTHING here imports ``celpy`` (it is not installed; importing it is never required to
     import this module or to pass any test).

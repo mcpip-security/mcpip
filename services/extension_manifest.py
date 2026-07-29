@@ -20,7 +20,7 @@ Phase 2 (community GATES, ``kind='gate'``) adds a SECOND strict manifest variant
 whitelist rule, ``max_cost`` ≤ ``MAX_GATE_COST``, and the same ``sha256`` self-pin. It does
 NOT parse or lint the CEL ``source``: the CEL parse/lint/evaluate RUNTIME (and the static
 cost/whitelist PROVER a gate APPROVAL requires) is a DEFERRED owner dependency decision
-(``docs/EXTENSIBILITY.md §8``) — so a gate can be submitted + schema-validated + stored
+(``docs/build/EXTENSIBILITY.md §8``) — so a gate can be submitted + schema-validated + stored
 PENDING now, but can never be APPROVED until an engine is registered (no
 approve-without-proof). The two kinds are routed by :func:`manifest_kind` and never share a
 code path: a skill manifest still parses through :func:`parse_manifest` (``kind='skill'``
@@ -240,7 +240,7 @@ class GateManifest(BaseModel):
     ``max_cost`` ≤ ``MAX_GATE_COST``, and the same ``sha256`` self-pin discipline as the
     skill manifest. It deliberately does NOT parse/lint the CEL ``source`` — that, and the
     static cost/whitelist PROVER a gate APPROVAL requires, needs the DEFERRED CEL runtime
-    (``docs/EXTENSIBILITY.md §8``). So a gate manifest can be submitted + schema-validated +
+    (``docs/build/EXTENSIBILITY.md §8``). So a gate manifest can be submitted + schema-validated +
     stored, but can never be approved/enforced until an engine is registered.
     """
 
