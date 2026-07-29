@@ -3,7 +3,7 @@
 # The adversarial /v1/authorize suite (tests/test_authorize_api.py) drives the app via
 # Starlette's TestClient (httpx, shipped transitively by fastapi) and pytest.
 -r requirements.txt
-pytest>=8.3,<9
+pytest>=9.1.1,<10
 mypy==1.13.0
 # Release tooling (build-time only — NEVER in requirements.txt or the image):
 build>=1.2,<2
