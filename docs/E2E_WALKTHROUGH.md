@@ -585,17 +585,116 @@ against the signed epoch head.
 
 ## 13. The operator console
 
-![MCPIP operator console showing the Live monitor: 9 decisions since start (3 allow, 3 deny, 3 staged), gateway p50 62.5 ms, audit chain Intact at seq 12 epoch 2, readiness Ready, catalog 9 entries](images/console-live.png)
+### 13.1 Giving the console an identity
 
-Every tile is read from the gateway, not from fixtures: **9 decisions since start
-(3 allow · 3 deny · 3 staged)**, **p50 62.5 ms**, **audit chain Intact · seq #12 ·
-epoch 2**, readiness `Ready`, catalog 9. The footer states the posture the run
-demonstrated — *fail-closed · opaque · WORM-first*.
+The console has no identity of its own on a production gateway. It normally mints
+one via `POST /v1/dev/token` — a **sandbox affordance** that returns `404` when
+`MCPIP_SANDBOX_MODE=false`. Connect it to a production gateway and it says so,
+and takes a real bearer minted by your IdP:
 
-The console's own identity comes from `POST /v1/dev/token`, which is a **sandbox
-affordance**: on a production gateway that route returns `404` and the console's
-live panels stay empty. Point it at a sandbox gateway, or drive a production
-gateway through the API and SDK paths shown above.
+![Console settings: the Operator token card explaining that this gateway is in production posture, the sandbox token forge is not mounted, and a bearer minted by your IdP is required](images/console-operator-token.png)
+
+The token is stored in that browser only and sent as `Authorization: Bearer`.
+MCPIP never mints identity — the gateway verifies the bearer against
+`MCPIP_JWT_PUBLIC_KEY_PATH`, exactly as it does for an agent. Admin surfaces
+additionally require `CAP_DIRECTORY_ADMIN`; a bearer without it authenticates
+fine and simply gets `403` on those reads.
+
+### 13.2 The console on live production traffic
+
+With the token pinned, the same production gateway drives every panel — this is
+the fleet from §7 and [`ORGANIZATION_AT_SCALE.md`](ORGANIZATION_AT_SCALE.md)
+running while the screenshot was taken:
+
+![MCPIP console Live monitor against a production gateway: 133 decisions since start (111 allow, 22 deny), 3.2 decisions per second, gateway p50 3.9 ms, 50 rows in the decision stream showing per-row alias, agent, worm sequence and ALLOW or DENY with otp_delivery_failed reasons](images/console-production-live.png)
+
+**133 decisions (111 allow · 22 deny)**, **3.2 decisions/s**, **p50 3.9 ms**, and
+50 rows in the stream. Each row is a 1:1 projection of a WORM record: timestamp,
+alias, `agent_id`, tenant, transport, the `#worm_sequence`, the verdict, and the
+event id. The `data-agent-1` rows carry `otp_delivery_failed` — the same
+production step-up refusal as §12, visible per call.
+
+Note the audit-chain tile reads **Unverified · external verifier required**. That
+is correct rather than a failure: `/v1/audit/verify` is sandbox-gated, so in
+production the console will not claim a verdict it cannot obtain. The signed
+attestation in §12 and `mcpip export-audit --verify` are the production paths.
+
+### 13.3 Against a sandbox gateway
+
+For comparison, the same console against a sandbox gateway, where it mints its
+own identity and can verify the chain in-place:
+
+![MCPIP console against a sandbox gateway: 9 decisions since start (3 allow, 3 deny, 3 staged), gateway p50 62.5 ms, audit chain Intact at seq 12 epoch 2, catalog 9 entries](images/console-live.png)
+
+**Audit chain Intact · seq #12 · epoch 2** — the verdict the production view
+correctly declines to assert. The footer states the posture both runs
+demonstrated: *fail-closed · opaque · WORM-first*.
+
+## 13a. From a number back to the records — the SOC 2 report
+
+§12 shows six records. An auditor asks about ninety days. `/v1/audit/attestation`
+answers "is the ledger intact *now*"; a Type II engagement is about a *period*.
+
+`scripts/soc2_report.py` closes that gap by composing surfaces the gateway already
+exposes — the cursor-paged decision history (`GET /v1/admin/decisions`), the
+signed attestation, the compliance bundle, and the running version and
+entitlement — into a period report where **every figure carries the records
+behind it**.
+
+```bash
+python3 scripts/soc2_report.py \
+  --gateway http://127.0.0.1:8080 --token-file operator.jwt \
+  --days 90 --out report.md --json report.json
+```
+
+```
+report -> report.md  (225 decisions, coverage=exhausted)
+```
+
+Real output from this run:
+
+```markdown
+| Period start        | 2026-07-28T11:41:12Z |
+| Period end          | 2026-07-29T11:41:12Z |
+| Tenant              | acme-platform        |
+| Running version     | 3.0.0                |
+| Entitlement         | self-hosted (e0d5437b-d0ae-4eb7-a8e4-c21a858166df) |
+| Decisions in period | 225                  |
+| worm_sequence range | 11–238               |
+
+## Coverage of this report
+The decision history was walked to exhaustion — 2 page(s), 228 row(s) scanned.
+
+## Signed ledger commitment (period end)
+| Chain intact  | True |
+| Epoch         | 33   |
+| End sequence  | 238  |
+| Merkle root   | 81c4a9b6056f582358fac0a9ea0eeb86f6a1bc34a59b6fe60ad65d0d5218536d |
+| Signing key id| 090da9528a854204cffe2d461e4b6826867a2d6c86543b8ca689ba4c56d17bf9 |
+
+### Outcomes
+| value   | count | share | worm_sequence range | sample correlation ids |
+| allow   | 187   | 83.1% | 11–237              | 53cface29248…, bf7073ec27cd…, … |
+```
+
+Three properties make it auditable rather than merely informative:
+
+- **Coverage is stated before any figure.** The report says whether the history
+  was walked to exhaustion, truncated at the page cap, or cut short by a failed
+  read. A truncated walk is labelled a lower bound, not a total.
+- **Every bucket is traceable.** Each row carries its `worm_sequence` range and
+  sample correlation ids, so "22 denials" is 22 records you can re-fetch by id —
+  not a number you have to trust.
+- **The figures are bound to a signed commitment.** The period-end Merkle root,
+  epoch hash, signature and key id are printed, so an auditor can re-derive the
+  root from an export and check the signature **without trusting the report or
+  the gateway that produced it**. If `intact=false`, the report says so at the
+  top, and the script exits non-zero.
+
+The control mapping is phrased as evidence throughout — "this mechanism provides
+evidence FOR this criterion" — never as a pass. Whether a control is satisfied is
+an auditor's determination, not software's. See
+[`COMPLIANCE.md`](COMPLIANCE.md) for the full clause mapping.
 
 ## 14. What this run did not prove
 

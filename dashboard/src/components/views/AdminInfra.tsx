@@ -429,6 +429,8 @@ function PipelineHandshake({ steps }: { steps: readonly HandshakeStep[] }): JSX.
 function ConnectionPanel({ gateway }: { gateway: GatewayLive }): JSX.Element {
   const live = gateway.mode === 'live';
   const [url, setUrl] = useState(gateway.configuredBase ?? 'http://localhost:8080');
+  /** Draft operator bearer; committed to the hook (and localStorage) on submit. */
+  const [tokenDraft, setTokenDraft] = useState('');
   const [state, setState] = useState<'idle' | 'testing' | 'ok' | 'fail'>('idle');
 
   // Reflect an auto-detected connection into the field if the operator hasn't pinned one.
@@ -566,6 +568,71 @@ function ConnectionPanel({ gateway }: { gateway: GatewayLive }): JSX.Element {
                 <Link2Off size={14} /> Disconnect
               </button>
             ) : null}
+          </div>
+
+          {/* Operator identity. The console normally mints its own JWT via
+              POST /v1/dev/token — a SANDBOX affordance. Against a production
+              gateway that route is 404, so without a real bearer every live
+              panel would sit empty with no explanation. */}
+          <div className="mt-4 border-t border-hairline pt-4">
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <span className="eyebrow flex items-center gap-1.5">
+                <Link2 size={12} className="text-slate-500" /> Operator token
+              </span>
+              <Badge tone={gateway.identitySource === 'operator-token' ? 'ink' : 'muted'}>
+                {gateway.identitySource === 'operator-token'
+                  ? 'Pinned'
+                  : gateway.identitySource === 'sandbox-forge'
+                    ? 'Sandbox forge'
+                    : 'None'}
+              </Badge>
+            </div>
+            {gateway.needsOperatorToken ? (
+              <p className="mb-2.5 text-[12px] leading-relaxed text-slate-500">
+                This gateway is in <strong>production posture</strong> — the sandbox token
+                forge (<code>POST /v1/dev/token</code>) is not mounted, so the console has no
+                identity of its own and the live panels below stay empty. Paste a bearer minted
+                by your IdP (<code>scripts/mint_principal.py</code>). Admin surfaces additionally
+                need <code>CAP_DIRECTORY_ADMIN</code>.
+              </p>
+            ) : null}
+            <div className="flex flex-col gap-2.5 sm:flex-row sm:items-end">
+              <div className="min-w-0 flex-1">
+                <Field label="Bearer token">
+                  <Input
+                    mono
+                    type="password"
+                    value={tokenDraft}
+                    onChange={(e) => setTokenDraft(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') gateway.setOperatorToken(tokenDraft); }}
+                    placeholder="eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9…"
+                    spellCheck={false}
+                  />
+                </Field>
+              </div>
+              <button
+                type="button"
+                onClick={() => gateway.setOperatorToken(tokenDraft)}
+                disabled={tokenDraft.trim().length === 0}
+                className="btn-primary h-[38px] shrink-0 px-4"
+              >
+                Use token
+              </button>
+              {gateway.identitySource === 'operator-token' ? (
+                <button
+                  type="button"
+                  onClick={() => { gateway.setOperatorToken(null); setTokenDraft(''); }}
+                  className="btn-ghost h-[38px] shrink-0"
+                >
+                  <Link2Off size={14} /> Clear
+                </button>
+              ) : null}
+            </div>
+            <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
+              Stored in this browser only and sent as <code>Authorization: Bearer</code>. MCPIP
+              never mints identity — the token comes from your IdP and the gateway verifies it
+              against <code>MCPIP_JWT_PUBLIC_KEY_PATH</code>.
+            </p>
           </div>
 
           <div className="mt-3 flex flex-wrap items-center gap-1.5">

@@ -63,6 +63,59 @@ per-identity; there is no circuit that trips for everyone.
 Every `403` above is byte-identical to the caller. The reasons live in the
 ledger, not in the response.
 
+### 2.1 Same run, six distinct client hosts
+
+The run above shares a process and a source address, which is not what an
+organization looks like. Repeated with each agent dialling from its **own
+loopback source IP**, so the gateway sees six separate client hosts opening
+independent connections:
+
+```
+6 agents x 25 calls = 150 requests, each agent from its OWN source IP
+wall 0.44s  ->  344 req/s
+latency p50=16.0ms  p95=28.2ms  max=38.5ms
+
+agent         source ip   alias                     200  202  403
+cf-agent-a    127.0.0.2   cf.d1.databases.list       25    0    0
+cf-agent-b    127.0.0.3   cf.d1.databases.list       25    0    0
+gh-agent-a    127.0.0.4   gh.branches.list           25    0    0
+gh-agent-b    127.0.0.5   gh.pr.list                 25    0    0
+ci-agent-1    127.0.0.6   gh.branches.list           25    0    0
+data-agent-1  127.0.0.7   cf.d1.query                 0    0   25
+```
+
+No transport errors, and the verdicts are identical to the shared-source run:
+distinct hosts change throughput characteristics, not decisions.
+
+### 2.2 The network contributes nothing to identity
+
+Worth proving rather than assuming. The same `cf-agent-a` token, dialled from
+three different client hosts:
+
+```
+token=cf-agent-a  source_ip=127.0.0.8   -> HTTP 200  seq=389  corr=7fa6368d42d7…
+token=cf-agent-a  source_ip=127.0.0.9   -> HTTP 200  seq=390  corr=07a3a1741720…
+token=cf-agent-a  source_ip=127.0.0.10  -> HTTP 200  seq=391  corr=b4d8881d2e95…
+```
+
+Ledger attribution for those three calls:
+
+```
+seq 391  agent_id=cf-agent-a  tenant=acme-platform  alias=cf.d1.databases.list
+seq 390  agent_id=cf-agent-a  tenant=acme-platform  alias=cf.d1.databases.list
+seq 389  agent_id=cf-agent-a  tenant=acme-platform  alias=cf.d1.databases.list
+```
+
+Identical attribution from three different addresses. Identity comes from the
+signed token and nothing else — there is no network-derived signal to spoof, no
+allowlisted subnet that silently becomes an authorization boundary, and moving an
+agent between hosts, pods or regions changes no decision and no audit trail.
+
+The flip side, stated plainly: **the ledger does not record source IP.** That is
+deliberate — it is not an authorization input, so it is not evidence the gateway
+claims to hold. If your incident process needs network provenance, it comes from
+your ingress or service-mesh logs, joined to MCPIP records on `correlation_id`.
+
 ## 3. The humans are not one role
 
 The most common way an authorization layer fails an organization is a
@@ -158,12 +211,34 @@ screenshot, since the console authenticates via a sandbox-only route — see
 
 ![MCPIP console Live monitor: 9 decisions since start — 3 allow, 3 deny, 3 staged — gateway p50 62.5 ms, audit chain Intact at seq 12 epoch 2, readiness Ready, catalog 9](images/console-live.png)
 
+## 5a. Reporting across the period
+
+The console shows now; an audit asks about ninety days. `scripts/soc2_report.py`
+walks the paged decision history for a window and emits a period report where
+every figure names the records behind it:
+
+```bash
+python3 scripts/soc2_report.py --gateway <url> --token-file operator.jwt \
+  --days 90 --out report.md --json report.json
+# report -> report.md  (225 decisions, coverage=exhausted)
+```
+
+For the fleet above it reported 225 decisions across `worm_sequence` 11–238,
+bound to a signed period-end commitment (epoch 33, Merkle root
+`81c4a9b6…`, `intact: true`), with per-agent, per-alias, per-deny-reason
+breakdowns that each carry their sequence range and sample correlation ids. See
+[`E2E_WALKTHROUGH.md` §13a](E2E_WALKTHROUGH.md#13a-from-a-number-back-to-the-records--the-soc-2-report).
+
 ## 6. Scaling notes, honestly
 
-- **The 336 req/s figure is a shape, not a benchmark.** Single worker, local
-  Redis, loopback, one tenant. Production runs `--workers N` behind a load
-  balancer. Treat it as evidence that concurrent multi-agent traffic keeps clean
-  per-identity attribution, not as a capacity number.
+- **The 336–344 req/s figures are a shape, not a benchmark.** Single worker,
+  local Redis, loopback, one tenant. Production runs `--workers N` behind a load
+  balancer. Treat them as evidence that concurrent multi-agent traffic keeps
+  clean per-identity attribution, not as capacity numbers.
+- **"Different source IPs" here means loopback aliases,** not separate machines.
+  It exercises distinct client hosts and independent connections against the same
+  kernel — it does not exercise real network latency, NAT, TLS termination, or a
+  load balancer's connection reuse.
 - **p50 61 ms is dominated by the durability contract.** Every allow requires an
   fsync-durable ledger write *before* it returns (`appendfsync always`). That is
   the write-before-execute guarantee being paid for, and it is the right trade

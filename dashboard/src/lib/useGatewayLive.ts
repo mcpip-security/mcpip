@@ -206,6 +206,18 @@ export interface GatewayLive {
   connect: (base: string) => Promise<boolean>;
   /** Clear the pinned endpoint and return to offline / auto-detect. */
   disconnect: () => void;
+  /**
+   * Where this console's identity comes from:
+   *   'operator-token' — an operator pinned a real IdP-minted bearer (production).
+   *   'sandbox-forge'  — minted via POST /v1/dev/token (sandbox gateways only).
+   *   'none'           — neither is available; live panels are honestly empty and
+   *                      the UI should say so rather than render a blank state.
+   */
+  identitySource: 'operator-token' | 'sandbox-forge' | 'none';
+  /** Pin (or clear, with null) an operator-supplied bearer token. Persisted. */
+  setOperatorToken: (token: string | null) => void;
+  /** True when a production gateway is connected but no operator token is pinned. */
+  needsOperatorToken: boolean;
 }
 
 const PROBE_MS = 4000;
@@ -314,6 +326,21 @@ function toStreamEvent(r: RecentDecision): StreamEvent {
 /** localStorage key for the operator-pinned gateway endpoint (plug-and-play). */
 const GATEWAY_KEY = 'mcpip.gateway.base';
 
+/**
+ * localStorage key for an operator-supplied bearer token.
+ *
+ * The console's own identity normally comes from ``POST /v1/dev/token``, which is
+ * a SANDBOX affordance — on a production gateway (``MCPIP_SANDBOX_MODE=false``)
+ * that route is 404 and the console has no identity at all. Rather than leave
+ * every live panel silently empty against production, an operator can pin a real
+ * bearer token minted by their own IdP (``scripts/mint_principal.py``). It takes
+ * precedence over the sandbox forge wherever one is needed.
+ *
+ * This is deliberately NOT a credential the console can mint: MCPIP never issues
+ * identity, so the token is pasted in, stored locally, and sent as-is.
+ */
+const OPERATOR_TOKEN_KEY = 'mcpip.gateway.token';
+
 function readPinnedBase(): string | null {
   try {
     return localStorage.getItem(GATEWAY_KEY);
@@ -322,8 +349,25 @@ function readPinnedBase(): string | null {
   }
 }
 
+function readPinnedToken(): string | null {
+  try {
+    const raw = localStorage.getItem(OPERATOR_TOKEN_KEY);
+    return raw && raw.trim() ? raw.trim() : null;
+  } catch {
+    return null;
+  }
+}
+
 export function useGatewayLive(): GatewayLive {
   const [configuredBase, setConfiguredBase] = useState<string | null>(() => readPinnedBase());
+  /** Operator-pinned bearer (persisted). Wins over the sandbox forge when set. */
+  const [operatorToken, setOperatorTokenState] = useState<string | null>(() => readPinnedToken());
+  /**
+   * Whether POST /v1/dev/token answered on this gateway: true = sandbox forge
+   * available, false = 404 (production posture), null = not tried yet. Recorded
+   * from real attempts only — never inferred.
+   */
+  const [devForgeOk, setDevForgeOk] = useState<boolean | null>(null);
   const [mode, setMode] = useState<GatewayMode>('offline');
   const [apiBase, setApiBase] = useState<string>(API_BASE);
   const [health, setHealth] = useState<HealthzInfo | null>(null);
@@ -361,6 +405,12 @@ export function useGatewayLive(): GatewayLive {
    * token is about to expire (the sandbox mints ~5-minute tokens). Fails soft.
    */
   const ensureToken = useCallback(async (signal?: AbortSignal): Promise<string | null> => {
+    // An operator-pinned bearer always wins: it is a REAL identity from the
+    // customer's IdP, and on a production gateway it is the only one available.
+    const pinned = readPinnedToken();
+    if (pinned) {
+      return pinned;
+    }
     const cached = tokenRef.current;
     if (cached) {
       const expMs = tokenExpRef.current;
@@ -380,6 +430,7 @@ export function useGatewayLive(): GatewayLive {
       const company = loadCompanyConfig();
       const claims = company?.tenant ? { tenant_id: company.tenant } : {};
       const jwt = await mintDevToken(claims, { base, signal });
+      setDevForgeOk(true);
       const { tenant: decoded, expMs } = decodeClaims(jwt);
       tokenRef.current = jwt;
       tokenExpRef.current = expMs;
@@ -387,6 +438,9 @@ export function useGatewayLive(): GatewayLive {
       setTenant(decoded);
       return jwt;
     } catch {
+      // 404 here is the normal production answer, not an error: the sandbox
+      // forge is simply not mounted. Record it so the UI can ask for a token.
+      setDevForgeOk(false);
       return null;
     }
   }, []);
@@ -398,6 +452,13 @@ export function useGatewayLive(): GatewayLive {
    * other admin surface without a real admin credential.
    */
   const ensureAdminToken = useCallback(async (signal?: AbortSignal): Promise<string | null> => {
+    // Same precedence as ensureToken. Whether the pinned bearer actually carries
+    // CAP_DIRECTORY_ADMIN is the gateway's call, not ours — if it does not, the
+    // admin reads return 403 and the panels stay empty, which is the honest result.
+    const pinned = readPinnedToken();
+    if (pinned) {
+      return pinned;
+    }
     const cached = adminTokenRef.current;
     if (cached) {
       const expMs = adminTokenExpRef.current;
@@ -424,10 +485,12 @@ export function useGatewayLive(): GatewayLive {
         claims.tenant_id = tenantId;
       }
       const jwt = await mintDevToken(claims, { base, signal });
+      setDevForgeOk(true);
       adminTokenRef.current = jwt;
       adminTokenExpRef.current = decodeClaims(jwt).expMs;
       return jwt;
     } catch {
+      setDevForgeOk(false);
       return null;
     }
   }, []);
@@ -869,6 +932,28 @@ export function useGatewayLive(): GatewayLive {
     return true;
   }, []);
 
+  /**
+   * Pin (or clear) an operator-supplied bearer. Cached forge-minted tokens are
+   * dropped so the next read uses the new identity immediately.
+   */
+  const setOperatorToken = useCallback((token: string | null): void => {
+    const normalized = token && token.trim() ? token.trim() : null;
+    try {
+      if (normalized === null) {
+        localStorage.removeItem(OPERATOR_TOKEN_KEY);
+      } else {
+        localStorage.setItem(OPERATOR_TOKEN_KEY, normalized);
+      }
+    } catch {
+      /* private mode / storage disabled — session-only pin still works */
+    }
+    tokenRef.current = null;
+    tokenExpRef.current = null;
+    adminTokenRef.current = null;
+    adminTokenExpRef.current = null;
+    setOperatorTokenState(normalized);
+  }, []);
+
   /** Unpin the endpoint and drop to offline / auto-detect. */
   const disconnect = useCallback((): void => {
     try {
@@ -968,6 +1053,19 @@ export function useGatewayLive(): GatewayLive {
 
   const apiHost = useMemo(() => hostOf(apiBase), [apiBase]);
 
+  /** Identity provenance, derived from real observations only (never guessed). */
+  const identitySource: GatewayLive['identitySource'] = operatorToken
+    ? 'operator-token'
+    : devForgeOk === true
+      ? 'sandbox-forge'
+      : 'none';
+  /**
+   * A production gateway is connected (the forge answered 404) and no operator
+   * token is pinned — so the live panels cannot populate. The UI shows this as a
+   * prompt for a token instead of an unexplained empty console.
+   */
+  const needsOperatorToken = devForgeOk === false && operatorToken === null;
+
   if (mode === 'live') {
     return {
       mode,
@@ -1001,6 +1099,9 @@ export function useGatewayLive(): GatewayLive {
       configuredBase,
       connect,
       disconnect,
+      identitySource,
+      setOperatorToken,
+      needsOperatorToken,
     };
   }
 
@@ -1039,5 +1140,8 @@ export function useGatewayLive(): GatewayLive {
     configuredBase,
     connect,
     disconnect,
+    identitySource,
+    setOperatorToken,
+    needsOperatorToken,
   };
 }
