@@ -10,7 +10,7 @@ metadata:
     {{- include "mcpip.labels" . | nindent 4 }}
     app.kubernetes.io/component: redis
 data:
-  deploy/redis.conf: |
+  redis.conf: |
     appendonly yes
     appendfsync always
     save ""

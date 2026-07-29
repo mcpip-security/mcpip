@@ -65,10 +65,24 @@ class TestCanonicalTarget:
             "the same URL differently"
         )
 
-    def test_query_parameter_order_is_not_identity(self) -> None:
-        a = "https://h/x?b=2&a=1"
-        b = "https://h/x?a=1&b=2"
-        assert _canonical_target(a) == _canonical_target(b)
+    def test_the_query_string_is_dropped_entirely(self) -> None:
+        """Not sorted and kept — DROPPED, like the fragment.
+
+        Sorting folded parameter ORDER while leaving PRESENCE alone, so
+        ``…/x?a=1`` was its own canonical form, passed the fixed-point grammar, and
+        subsumed against nothing (``_target_subsumes`` splits on "/", so the query
+        rides inside the final segment). That reopened the very bypass this module
+        exists to pin — with ``?x=1`` listed first in ``_canonical_target``'s own
+        catalogue of evasions.
+        """
+        base = "https://h/x"
+        for variant in ("https://h/x?a=1", "https://h/x?b=2&a=1", "https://h/x?a=2"):
+            assert _canonical_target(variant) == base
+
+    def test_a_query_string_target_is_refused_at_registration(self) -> None:
+        from app.main import _overlay_skill_invalid
+
+        assert _overlay_skill_invalid("a.b", "https://h/x?a=1", "auto", "unclassified")
 
     @pytest.mark.parametrize(
         "a,b",
@@ -77,7 +91,6 @@ class TestCanonicalTarget:
             # locks operators out of registering legitimate neighbours
             ("https://api.cloudflare.com/v4/d1/query", "https://api.cloudflare.com/v4/d1/list"),
             ("https://api.cloudflare.com/v4/d1/query", "https://api.github.com/v4/d1/query"),
-            ("https://h/x?a=1", "https://h/x?a=2"),
             ("http://h/x", "https://h/x"),
             # a placeholder segment is not the same as a literal one
             ("https://h/accounts/{id}/q", "https://h/accounts/literal/q"),

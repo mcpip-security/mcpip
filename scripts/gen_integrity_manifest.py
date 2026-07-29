@@ -43,14 +43,30 @@ if TYPE_CHECKING:
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _CHUNK = 1024 * 1024
 
-# The scope lives in PRODUCT code (core/integrity.py) and is imported here, so the
-# file set that gets SIGNED and the set the boot gate REQUIRES COVERED are one
-# definition. Two copies of the same rule is how a coverage gap opens silently.
-sys.path.insert(0, str(_REPO_ROOT))
-from core.integrity import MANIFEST_EXTRA_FILES, MANIFEST_PACKAGE_DIRS  # noqa: E402
-
-_PACKAGE_DIRS = MANIFEST_PACKAGE_DIRS
-_EXTRA_FILES = MANIFEST_EXTRA_FILES
+# The scope is DUPLICATED from core/integrity.py (MANIFEST_PACKAGE_DIRS /
+# MANIFEST_EXTRA_FILES) rather than imported, and that is deliberate.
+#
+# This module — and check_integrity_manifest_drift.py, which imports it — MUST stay
+# importable on a bare interpreter: the change-integrity CI job installs no
+# dependencies. Importing core.integrity triggers core/__init__.py, which pulls in
+# core.config and therefore pydantic, and the job dies with ModuleNotFoundError before
+# it can report any drift. An import that makes the gate crash is worse than a copy.
+#
+# The copy is kept honest by tests/test_integrity_manifest_coverage.py, which asserts
+# these two tuples are identical — so a divergence fails the suite instead of silently
+# signing a different file set than the boot gate requires covered.
+_PACKAGE_DIRS = (
+    "app",
+    "core",
+    "auth",
+    "audit",
+    "bridge",
+    "services",
+    "models",
+    "obfuscator",
+    "mcpip_verify",
+)
+_EXTRA_FILES = ("interfaces.py", "main.py", "VERSION")
 
 
 def _utc_now_iso() -> str:

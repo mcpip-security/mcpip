@@ -9,6 +9,82 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The Redis WORM durability ConfigMap was rejected by the API server (deployment
+  defect).** A repository-wide path sweep rewrote the ConfigMap data key from
+  `redis.conf` to `deploy/redis.conf` — the file had moved and the key looked like a
+  path. It is not a path; it is the filename the key is projected as, `/` is not legal
+  in a ConfigMap key, and the container starts `redis-server /etc/redis/redis.conf`.
+  Both `deploy/k8s/redis-configmap.yaml` and `deploy/chart/templates/redis-configmap.yaml`
+  carried it, so every install path was affected: the object was refused and the Redis
+  tier — and therefore the WORM ledger the gateway refuses to boot without — never
+  started. `kubeconform -strict` passes on the broken manifest (verified): the OpenAPI
+  schema types `data` as `additionalProperties: string` and models neither the key
+  charset nor what the key is for. New gate: `tests/test_deploy_manifests.py` enforces
+  the key charset, that every path a container reads out of a mounted ConfigMap/Secret
+  exists as a key in it, and that the chart and the raw manifests do not drift — each
+  of which independently catches this bug. CI additionally gained a `manifests` job
+  (`kubeconform -strict` over `deploy/k8s/`, `helm lint` + `helm template` piped
+  through kubeconform for both values files) for the schema errors those rules cannot see.
+
+- **A query string re-opened the target posture floor (authorization defect).**
+  `_canonical_target` sorted the query rather than dropping it, which folded parameter
+  *order* but left *presence* alone: `…/db` and `…/db?x=1` canonicalized differently,
+  so a `pin_required`/`restricted` alias and an `auto`/`unclassified` one could coexist
+  on the same endpoint and the weaker door was reachable. The query is now dropped
+  during canonicalization, which makes the registration grammar itself refuse the
+  evasion. Pinned by `tests/test_target_posture_floor.py`.
+
+- **The posture floor was unwired-testable (test defect).** Replacing the entire
+  conflict check with `return False, None` left the suite fully green — every property
+  the floor exists for was unprotected, because the existing tests exercised
+  canonicalization and subsumption as pure functions and never issued a request. New
+  `tests/test_target_posture_floor_routes.py` drives the registration route directly;
+  each test pins a mutation that previously survived, including the fail-closed
+  `except` branch (a floor that admits on a storage error is a floor an attacker opens
+  by breaking Redis).
+
+- **Verified boot reported success over source files it never hashed (integrity
+  defect).** `verify_boot_integrity` proved every manifest-*listed* file was unmodified
+  and said nothing about a file the manifest omits — and an unlisted executable file is
+  simply unverified, so a manifest covering two thirds of the tree passed exactly like
+  one covering all of it. The shipped `release/integrity_manifest.json` has that shape:
+  it lists 51 files where 85 are in scope, leaving 34 unhashed, among them
+  `services/secret_vault.py`, `services/revocation.py`, `services/policy_engine.py` and
+  `services/forensic_store.py`. Boot now enumerates the in-scope set
+  (`MANIFEST_PACKAGE_DIRS` + `MANIFEST_EXTRA_FILES`) and refuses to start if the manifest
+  omits any of it, with no tolerance threshold. The generator keeps a deliberate second
+  copy of that scope — it must stay importable on a bare interpreter, because the
+  change-integrity CI job installs no dependencies and importing `core.integrity` pulls
+  in pydantic and kills the drift gate before it can report anything — and
+  `tests/test_integrity_manifest_coverage.py` asserts the two copies are identical and
+  that the generator acquires no eagerly-imported non-stdlib dependency.
+
+- **The public-distribution build could not run, so `PACKAGE_MANIFEST.json` could not
+  be regenerated (release-path defect).** `scripts/build_production_package.py` carried
+  a rewrite pass that converted the private working tree into the public one — declared
+  line edits, section drops, citation substitution. That conversion ran once, at
+  publication. Keeping its rules afterwards preserved nothing: every anchor named prose
+  the rewrite had itself already replaced, so the first `--check` after publication died
+  on `.github/SUPPORT.md: anchor … matched 0 lines` and every build after it did too.
+  Because writing the manifest is what the build does, the shipped per-file hashes could
+  not be refreshed by the tool that claims to produce them. The spent transformation half
+  is retired; the verification half — allowlist, no reference into withheld material,
+  link resolution, determinism, key-material pruning — stays and is now exercised by
+  `tests/test_production_package.py`. Copying is byte-exact, so `PACKAGE_MANIFEST.json`
+  describes the repository as well as the archive and `sha256sum` against a checkout is a
+  valid audit; a new `--manifest` mode refreshes the committed manifest in place.
+
+- **The package allowlist had silently stopped covering product code (packaging
+  defect).** `load/` — the k6 suite behind the throughput numbers in
+  `docs/evidence/LOAD_AT_SCALE.md` — was tracked, referenced by shipped documentation,
+  and absent from `INCLUDE_DIRS`, so the build reported success over a distribution
+  missing it. "Allowlist, not denylist" prevents the wrong thing shipping and says
+  nothing about the right thing being dropped; the allowlist is now pinned against
+  `git ls-files` in both directions, so a tracked product file must be shipped or
+  explicitly withheld, and an untracked file can never ride along. `load/` ships, and
+  the load-test skill ships from `.claude/skills/mcpip-load-test/` as a named exception
+  to the withheld `.claude/` tree (a Claude Code skill is only discoverable there).
+
 - **`mcpip export-audit --verify` now verifies the whole signed chain, not just the
   Merkle roots (audit-integrity defect).** The offline exporter — which
   `docs/operate/OPERATIONS.md` names as THE continuous tamper check for

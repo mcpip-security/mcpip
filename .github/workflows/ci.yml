@@ -77,6 +77,39 @@ jobs:
           bandit -q -ll -r app core auth audit bridge services obfuscator models \
             interfaces.py main.py || true
 
+  manifests:
+    name: Deploy manifests (kubeconform + helm)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Schema validation of the raw manifests. `-strict` rejects unknown fields,
+      # which is the half that matters: a typo'd key is otherwise accepted and
+      # silently ignored by the API server. CRDs (PrometheusRule) have no schema
+      # in the default store, hence --ignore-missing-schemas; the summary line
+      # reports how many were skipped so that stays visible rather than implied.
+      #
+      # Scope note: kubeconform validates SHAPE. It does NOT model ConfigMap/Secret
+      # key charset, nor whether a mounted key is the one a container actually
+      # reads — a path-shaped ConfigMap key passes here and is rejected by the API
+      # server. Those rules live in tests/test_deploy_manifests.py.
+      - name: kubeconform (deploy/k8s)
+        run: |
+          curl -sSL -o kubeconform.tar.gz \
+            https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz
+          tar xzf kubeconform.tar.gz kubeconform
+          ./kubeconform -strict -summary -ignore-missing-schemas deploy/k8s/
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.16.3
+      - name: helm lint + render + validate (deploy/chart)
+        run: |
+          helm lint deploy/chart
+          for values in values.yaml values-compliance.yaml; do
+            echo "── rendering with $values"
+            helm template mcpip deploy/chart -f "deploy/chart/$values" \
+              | ./kubeconform -strict -summary -ignore-missing-schemas -
+          done
+
   clients:
     name: Console + TS SDK builds
     runs-on: ubuntu-latest

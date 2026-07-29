@@ -330,32 +330,49 @@ every package it produces. The public cut is produced by that builder, never by
 hand:
 
 ```bash
-python scripts/build_production_package.py            # -> dist/mcpip-<version>-production.zip + sha256
-python scripts/build_production_package.py --check    # verify only, writes nothing
-python scripts/build_production_package.py --keep-tree  # leave dist/mcpip-<version>/ to inspect
+python scripts/build_production_package.py             # -> dist/mcpip-<version>-production.zip + sha256
+python scripts/build_production_package.py --check     # verify only, writes nothing
+python scripts/build_production_package.py --manifest  # refresh PACKAGE_MANIFEST.json in place
+python scripts/build_production_package.py --keep-tree # leave dist/mcpip-<version>/ to inspect
 ```
 
-**What it does.** Stages an *allowlisted* copy of the tree (product source, tests,
-SDKs, console, deploy manifests, operator/security/compliance docs, the policy
-set, `release/` with its public verification keys), holds back the internal
-material, rewrites every citation of a held-back document into plain prose, drops
-the declared pointer lines and sections, normalizes the repository slug to
-`mcpip-security/mcpip`, and writes `PACKAGE_MANIFEST.json` (per-file SHA-256,
-source commit, and the exclusion list stated openly).
+**What it does.** Stages an *allowlisted, byte-exact* copy of the tree (product
+source, tests, SDKs, console, deploy manifests, operator/security/compliance
+docs, the policy set, the `load/` k6 suite, `release/` with its public
+verification keys), holds back the internal material, and writes
+`PACKAGE_MANIFEST.json` (per-file SHA-256, source commit, and the exclusion list
+stated openly).
+
+Nothing is transformed on the way out. The conversion from the private working
+tree to the public one — citation rewriting, pointer-line drops, slug
+normalization — happened once, at publication, and the rules were retired
+afterwards rather than left in place: their anchors named prose the conversion
+had already replaced, so every subsequent build failed on
+`anchor ... matched 0 lines` and the manifest could not be regenerated at all.
+What remains is verification, which does have a standing job.
+
+Because the copy is byte-exact, `PACKAGE_MANIFEST.json` describes the repository
+as well as the archive — `sha256sum` against a checkout is a valid audit, and
+`--manifest` may therefore refresh the committed manifest without staging a tree.
+Run it whenever the shipped file set changes.
 
 **What it guarantees, by failing rather than degrading.**
 
 | Guarantee | Failure mode it prevents |
 |---|---|
 | Allowlist, not denylist | A new top-level file silently shipping because an ignore rule was not updated. It is held back and printed as `NOT ALLOWLISTED`. |
+| The allowlist agrees with `git ls-files` | The inverse, and the one that actually bit: `load/` was tracked product code the allowlist never named, so the build reported success over a package missing it. Pinned by `tests/test_production_package.py`. |
 | Zero mentions of held-back material | A public document citing a file the reader cannot open. |
 | Every relative Markdown link resolves in-package | Broken navigation in the published docs. |
-| Each declared rewrite anchor matches exactly one line | A half-edited sentence shipping after upstream prose moved. The build stops and names the anchor. |
+| Byte-exact copy | A manifest whose digests describe the archive but not the repository, leaving a checkout unverifiable. |
 | Deterministic archive (sorted order, fixed timestamps) | An unreviewable package hash. The same tree always produces the same ZIP. |
 | Private key material pruned; `release/keys/*.pub.pem` deliberately kept | Shipping a `.pem`/`.key` that should never leave the signer. |
 
-**The working tree is never mutated** — the builder stages a copy. A red build
-means "update the rewrite table in the script", not "the packager is broken".
+**The working tree is never mutated** by a package build — the builder stages a
+copy. (`--manifest` is the one deliberate exception, and writes exactly one file.)
+A red build means "the allowlist or the tree needs attention", not "the packager
+is broken" — and `tests/test_production_package.py` runs the packager in CI so
+that claim stays true.
 
 This step is independent of the signing ceremony above: package *after* the
 release artifacts are signed, so the public cut carries the current signed

@@ -5745,8 +5745,22 @@ def _canonical_target(target: str) -> str:
             continue
         resolved.append(seg)
     path = "/" + "/".join(resolved) if resolved else ""
-    query = "&".join(sorted(p for p in parsed.query.split("&") if p))
-    return f"{scheme}://{netloc}{path}" + (f"?{query}" if query else "")
+    # The QUERY IS DROPPED, exactly like the fragment — not sorted and kept.
+    #
+    # Sorting folded parameter ORDER and left parameter PRESENCE alone, so
+    # ``…/query?x=1`` was its own canonical form, passed the fixed-point grammar, and
+    # did not subsume against ``…/query`` (``_target_subsumes`` splits on "/", so the
+    # query rode inside the final segment). That registered a second alias at
+    # ``auto/unclassified`` beside a ``pin_required/restricted`` binding on the same
+    # endpoint — the original bypass, reopened through a parameter nobody had to
+    # smuggle anywhere. ``?x=1`` was listed FIRST among the observed evasions in this
+    # docstring while the code below still admitted it.
+    #
+    # Dropping it is both safer and more honest: an operator target that differs only
+    # by a query string is the same resource for posture purposes, and a target that
+    # genuinely needs one now fails the grammar loudly at registration instead of
+    # silently opening a second, weaker door. No shipped catalog target carries one.
+    return f"{scheme}://{netloc}{path}"
 
 
 def _target_subsumes(broad: str, narrow: str) -> bool:
