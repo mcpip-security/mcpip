@@ -88,7 +88,16 @@ Watch for the shape, not the peak:
 - `mcpip_latency_operator` climbing faster than `mcpip_latency_agent` means the
   admin plane is contending with the hot path — worth reporting.
 - `http_req_failed` rising is the harness failing to ask the question; that is not
-  a deny and must not be counted as one.
+  a deny and must not be counted as one. **503 is not a failure either** — it is the
+  designed load shedder (`MCPIP_MAX_IN_FLIGHT`, opaque 503 + `Retry-After`). Counting
+  it as breakage once made this suite report a gateway shedding exactly as specified
+  as a gateway falling over. `mcpip_shed_503` tracks it separately; rising sheds mean
+  back-pressure is engaging, which is correct behaviour, not an incident.
+- **Watch the auditor against everything else.** `/v1/audit/attestation` runs a full
+  `verify_chain` and shares a worker with the hot path: four concurrent readers were
+  measured inflating authorize p50 by 32× (8.2 ms → 260 ms). If you are diagnosing
+  "the gateway got slow", ask what is polling attestation before you look anywhere
+  else.
 - any `{kind:invariant}` check below `1.0` is a correctness finding: stop, and
   report it as such rather than re-running until it passes.
 

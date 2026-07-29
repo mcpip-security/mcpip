@@ -27,17 +27,30 @@ import { BASE, TOKENS, ALIASES, authHeaders, THRESHOLDS } from './lib/config.js'
 import { mcpToolCall, mcpNative, authzenDecision } from './lib/envelopes.js';
 
 /**
- * A DENY IS A CORRECT ANSWER, NOT A FAILED REQUEST.
+ * A DENY IS A CORRECT ANSWER, AND SO IS A SHED — NEITHER IS A FAILED REQUEST.
  *
  * By default k6 counts any non-2xx as `http_req_failed`, which for an authorization
  * gateway is exactly backwards: most of this suite deliberately asks questions whose
  * right answer is 403 (unregistered alias) or 202 (staged for step-up). Left alone,
  * `http_req_failed` measures how much policy the gateway enforced and reports it as
- * breakage. Widening the expected set restores the distinction that matters — a
- * transport error means the harness never got to ask the question, and only that
- * should count as failure.
+ * breakage.
+ *
+ * 503 belongs in this set too, and omitting it produced a materially wrong result the
+ * first time this suite ran. MCPIP has a DESIGNED load shedder: past
+ * `MCPIP_MAX_IN_FLIGHT` a new arrival gets an opaque 503 + Retry-After, and the limiter
+ * "only ever REJECTS or TIMES OUT — it never lets a request skip a gate"
+ * (app/main.py:2457-2464). Counting that as failure reported a gateway shedding load
+ * exactly as specified as a gateway falling over. Measured directly at 250 concurrent
+ * clients against max_in_flight=64: 98.5% allowed, 1.5% shed with 503 + Retry-After: 1,
+ * ZERO timeouts, ZERO refused connections.
+ *
+ * What is left in `http_req_failed` is what should be there: the harness never got an
+ * answer at all.
  */
-http.setResponseCallback(http.expectedStatuses(200, 202, 403, 409));
+http.setResponseCallback(http.expectedStatuses(200, 202, 403, 409, 503));
+
+/** Shed responses, counted separately so "correctly shed" never hides inside "failed". */
+const shedCounter = new Counter('mcpip_shed_503');
 
 /** Per-client-type latency, so one slow surface cannot hide inside the aggregate. */
 const lat = {
@@ -110,6 +123,14 @@ export function agentClient() {
     tags: { client_type: 'agent', expect },
   });
   lat.agent.add(res.timings.duration);
+
+  // A shed is the limiter working, not a decision. Count it and stop: asserting a
+  // decision outcome on a request the gateway deliberately never evaluated would
+  // score correct back-pressure as a policy failure.
+  if (res.status === 503) {
+    shedCounter.add(1);
+    return;
+  }
 
   if (expect === 'allow') {
     decisions.add(1);
