@@ -61,6 +61,7 @@ reproduced from an actual execution, including what each run did *not* prove.
 |---|---|
 | [E2E_WALKTHROUGH.md](evidence/E2E_WALKTHROUGH.md) | One production cycle end to end: key ceremony · signed license · the four gates that refuse a production boot · governed Cloudflare and GitHub calls with full request/response · the five developer integration paths · the persona capability matrix · the PIN step-up cycle including replay denial · WORM trace and tamper detection · period SOC 2 reporting. |
 | [ORGANIZATION_AT_SCALE.md](evidence/ORGANIZATION_AT_SCALE.md) | A whole org on the gateway: concurrent multi-agent traffic from separate client hosts, the non-hierarchical capability matrix (no super-admin), and a live revocation mid-traffic. |
+| [LOAD_AT_SCALE.md](evidence/LOAD_AT_SCALE.md) | k6 load results by client type — which surface degrades first (the auditor's `verify_chain`), and the direction of failure past the knee: at 62% transport failure not one safety invariant broke, so it sheds load by denying, never by allowing. |
 
 ---
 
