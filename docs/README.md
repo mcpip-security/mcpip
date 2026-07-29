@@ -57,11 +57,27 @@ docs/
 Real runs against a real gateway — every command, input, output and screenshot
 reproduced from an actual execution, including what each run did *not* prove.
 
+Split two ways — start at [`evidence/README.md`](evidence/README.md).
+
+**By client type** — one file per caller: its surface, the capabilities it holds *and
+is refused*, its measured latency, what a call costs it.
+
+| Client | Holds | Reading it tells you |
+|---|---|---|
+| [agent](evidence/clients/agent.md) | *(none)* | ~97 tokens per governed call; the only type on the fsync write-before-execute path |
+| [developer](evidence/clients/developer.md) | *(none)* | five integration paths, and why the identity that would most benefit cannot register an alias |
+| [PDP consumer](evidence/clients/pdp.md) | *(none)* | the cheapest surface — 5 output tokens — and that you own enforcement |
+| [operator](evidence/clients/operator.md) | `CAP_DIRECTORY_ADMIN` | the most expensive surface (~2,683 tokens), and the two routes the operator is refused |
+| [auditor](evidence/clients/auditor.md) | `CAP_FORENSIC_READ` | the starvation finding: `verify_chain` degrades every other client type |
+| [reviewer](evidence/clients/reviewer.md) | `CAP_CATALOG_REVIEWER` | that no super-admin exists — it holds the one route the operator cannot reach |
+
+**By scenario** — does the whole thing work?
+
 | Doc | What's inside |
 |---|---|
 | [E2E_WALKTHROUGH.md](evidence/E2E_WALKTHROUGH.md) | One production cycle end to end: key ceremony · signed license · the four gates that refuse a production boot · governed Cloudflare and GitHub calls with full request/response · the five developer integration paths · the persona capability matrix · the PIN step-up cycle including replay denial · WORM trace and tamper detection · period SOC 2 reporting. |
 | [ORGANIZATION_AT_SCALE.md](evidence/ORGANIZATION_AT_SCALE.md) | A whole org on the gateway: concurrent multi-agent traffic from separate client hosts, the non-hierarchical capability matrix (no super-admin), and a live revocation mid-traffic. |
-| [LOAD_AT_SCALE.md](evidence/LOAD_AT_SCALE.md) | k6 load results by client type — which surface degrades first (the auditor's `verify_chain`), and the direction of failure past the knee: at 62% transport failure not one safety invariant broke, so it sheds load by denying, never by allowing. |
+| [LOAD_AT_SCALE.md](evidence/LOAD_AT_SCALE.md) | The cross-type comparison under load — which surface degrades first (the auditor's `verify_chain`), and the direction of failure past the knee: at 62% transport failure not one safety invariant broke, so it sheds load by denying, never by allowing. |
 
 ---
 

@@ -105,7 +105,9 @@ Watch for the shape, not the peak:
 
 Write results **by client type**, never as one aggregate — the whole point is
 which surface degrades first. For each type report p50/p95/p99, the decision mix,
-and the invariant results. Update `docs/evidence/LOAD_AT_SCALE.md`.
+and the invariant results. Update `docs/evidence/LOAD_AT_SCALE.md` (the cross-type ranking) AND the affected
+per-caller sheets under `docs/evidence/clients/` — a latency table lives in both
+places by design, so a run that changes one must change the other.
 
 State the environment honestly: single worker vs `--workers N`, local vs network
 Redis, loopback vs real RTT. A loopback single-worker number is a *shape*, not a

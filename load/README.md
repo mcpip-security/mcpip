@@ -44,7 +44,9 @@ the payload-capture route instead.
 ## Results
 
 Measured runs, the failure direction under saturation, and the honest limits are in
-[`docs/evidence/LOAD_AT_SCALE.md`](../docs/evidence/LOAD_AT_SCALE.md).
+[`docs/evidence/LOAD_AT_SCALE.md`](../docs/evidence/LOAD_AT_SCALE.md) for the
+cross-type comparison, and one detail sheet per caller under
+[`docs/evidence/clients/`](../docs/evidence/clients/).
 
 ## The driving skill
 

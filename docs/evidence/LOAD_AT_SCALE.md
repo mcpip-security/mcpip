@@ -1,9 +1,16 @@
-# Load at scale — by client type
+# Load at scale — the cross-type comparison
 
 Companion to [`E2E_WALKTHROUGH.md`](E2E_WALKTHROUGH.md) (one call, end to end) and
 [`ORGANIZATION_AT_SCALE.md`](ORGANIZATION_AT_SCALE.md) (a whole org, concurrently).
 This one pushes until something gives, and asks **what gives, and in which
 direction**.
+
+**Looking for one client type?** Each has its own detail sheet —
+[agent](clients/agent.md) · [developer](clients/developer.md) ·
+[PDP](clients/pdp.md) · [operator](clients/operator.md) ·
+[auditor](clients/auditor.md) · [reviewer](clients/reviewer.md) — carrying that
+caller's capabilities, latency and per-step cost. This document keeps the part that
+only works side by side: the **ranking**, and which surface degrades first.
 
 Every figure came from k6 and a direct concurrency harness against a real
 production-posture `3.0.0` gateway (`MCPIP_SANDBOX_MODE=false`, license verified,
@@ -22,11 +29,11 @@ thing worth knowing: which surface degrades first.
 
 | client type | surface | share of load |
 |---|---|---|
-| agent | `POST /v1/authorize` (MCP JSON-RPC `tools/call`) | 1× (base rate) |
-| developer | `POST /v1/authorize` + `POST /v1/mcp` | ÷2 |
-| pdp | `POST /v1/authz/decision` (AuthZEN; executes nothing) | ÷5 |
-| operator | `GET /v1/admin/decisions/recent`, `/v1/admin/stats` | ÷10 |
-| auditor | `GET /v1/audit/attestation` | ÷20 |
+| [agent](clients/agent.md) | `POST /v1/authorize` (MCP JSON-RPC `tools/call`) | 1× (base rate) |
+| [developer](clients/developer.md) | `POST /v1/authorize` + `POST /v1/mcp` | ÷2 |
+| [pdp](clients/pdp.md) | `POST /v1/authz/decision` (AuthZEN; executes nothing) | ÷5 |
+| [operator](clients/operator.md) | `GET /v1/admin/decisions/recent`, `/v1/admin/stats` | ÷10 |
+| [auditor](clients/auditor.md) | `GET /v1/audit/attestation` | ÷20 |
 
 ## Correctness is a wall, latency is a budget
 
