@@ -5664,6 +5664,13 @@ def _overlay_skill_invalid(alias: str, target: str, risk_tier: str, classificati
         or not (1 <= len(target) <= _MAX_TARGET_LEN)
         or "\n" in target
         or (classification == "restricted" and risk_tier != "pin_required")
+        # The target must ALREADY be its own canonical form. This is what makes the
+        # posture floor structural rather than best-effort: the registrable set becomes
+        # the fixed point of ``_canonical_target``, so two accepted targets are equal
+        # iff their canonical forms are, and a fold this codebase has not thought of can
+        # only reject a legal spelling (loud, reported) instead of silently admitting a
+        # weaker duplicate (quiet, exploitable). See _canonical_target.
+        or target.strip() != _canonical_target(target)
     )
 
 
@@ -5676,18 +5683,40 @@ _CLASSIFICATION_RANK: Final[dict[str, int]] = {"unclassified": 0, "restricted": 
 
 def _canonical_target(target: str) -> str:
     """
-    Canonical form of a target, for POSTURE-COLLISION comparison only.
+    Canonical form of a target — a REGISTRATION GRAMMAR, not merely a comparator.
 
-    Never used to route or to build a request — only to decide whether two alias
-    registrations denote the SAME underlying resource. It therefore normalizes the
-    ways two operators can write one URL without changing what it addresses:
-    scheme/host case, the default port, a trailing slash, percent-encoding case, and
-    ``{placeholder}`` path segments (``/{account_id}/`` and ``/{acct}/`` address the
-    same operation with a different template variable name).
+    The distinction is the whole security property, and getting it the other way round
+    was a live bug. Used only to COMPARE, a canonicalizer is a losing game: the space of
+    ways to spell one URL is unbounded, and every spelling it fails to fold silently
+    PERMITS a duplicate at a weaker posture. Measured against the shipped comparator,
+    nine of ten hand-written variants of one Cloudflare endpoint produced a different key
+    — ``?x=1``, ``/db/../db/query``, ``/db/./query``, ``//accounts``, trailing-dot host,
+    ``;v=1``, ``%7Baccount_id%7D``, a literal id in place of ``{account_id}``, and path
+    case. Each was another ``cf.d1.quick``.
 
-    Deliberately conservative: when the shape is not recognizable as a URL the raw
-    string is returned casefolded, so an unparseable target still collides with an
-    identical unparseable target rather than silently comparing unequal.
+    So this is instead enforced as a FIXED POINT: ``_overlay_skill_invalid`` refuses any
+    target that is not already equal to its own canonical form. The failure mode inverts
+    — a fold this function misses can now only REJECT A LEGAL SPELLING, which an operator
+    notices and reports, never silently admit a bypass. Comparison downstream is then
+    exact equality over a normalized set, and the comparator can no longer disagree with
+    what was stored.
+
+    Folds applied (each an observed evasion):
+      * scheme and host case, the default port, a trailing dot on the host (DNS-equal);
+      * ``.``/``..`` path segments, empty segments from ``//``, a trailing slash;
+      * percent-decoding BEFORE the ``{placeholder}`` test — decoding after it let
+        ``%7Baccount_id%7D`` survive as a literal and miss the sentinel entirely;
+      * ``;`` path parameters, dropped;
+      * query parameters sorted; the fragment dropped (never sent to an origin).
+
+    Path CASE is deliberately NOT folded: RFC 3986 paths are case-sensitive, so
+    ``/Query`` and ``/query`` may be different resources and folding them would
+    over-match, refusing legitimate neighbours. That leaves a residual gap where an
+    origin treats them alike — see ``_target_subsumes`` for the class this cannot cover.
+
+    Deliberately conservative on shapes that are not URLs (the ``rest.ops.notify.send``
+    style targets the legacy transports use): the raw string is returned casefolded, so
+    identical non-URL targets still collide rather than silently comparing unequal.
     """
     raw = target.strip()
     try:
@@ -5697,20 +5726,70 @@ def _canonical_target(target: str) -> str:
     if not parsed.scheme or not parsed.netloc:
         return raw.casefold()
     scheme = parsed.scheme.lower()
-    host = parsed.hostname or ""
+    host = (parsed.hostname or "").lower().rstrip(".")  # trailing dot is DNS-equal
     port = parsed.port
     if (scheme == "https" and port == 443) or (scheme == "http" and port == 80):
         port = None
-    netloc = host.lower() + (f":{port}" if port else "")
-    # Collapse every {placeholder} segment to a single sentinel: the variable's NAME is
-    # the operator's choice, not part of the resource's identity.
-    segments = [
-        "{}" if (seg.startswith("{") and seg.endswith("}")) else urllib.parse.unquote(seg)
-        for seg in parsed.path.split("/")
-    ]
-    path = "/".join(segments).rstrip("/")
+    netloc = host + (f":{port}" if port else "")
+
+    resolved: list[str] = []
+    for seg in parsed.path.split("/"):
+        # Percent-decode FIRST: a placeholder written %7Bx%7D must reach the {} test.
+        seg = urllib.parse.unquote(seg)
+        seg = seg.split(";", 1)[0]  # drop legacy path parameters
+        if seg in ("", "."):
+            continue  # empty segments come from "//"; "." addresses the same place
+        if seg == "..":
+            if resolved:
+                resolved.pop()
+            continue
+        resolved.append(seg)
+    path = "/" + "/".join(resolved) if resolved else ""
     query = "&".join(sorted(p for p in parsed.query.split("&") if p))
     return f"{scheme}://{netloc}{path}" + (f"?{query}" if query else "")
+
+
+def _target_subsumes(broad: str, narrow: str) -> bool:
+    """
+    True when ``broad`` covers every resource ``narrow`` addresses.
+
+    Canonicalization folds SPELLINGS of one string; it cannot relate two genuinely
+    different strings that address the same endpoint at call time. The live case:
+    ``/accounts/{account_id}/d1/database/query`` and
+    ``/accounts/12345/d1/database/query`` are distinct canonical targets, but the
+    template covers the literal — so registering the literal at ``auto`` downgrades
+    account 12345 out from under a template bound ``pin_required``. Segment-wise
+    subsumption closes it: the ``{}`` sentinel matches any single segment, every other
+    segment must match exactly, and lengths must agree.
+
+    Directional on purpose. The floor asks "does anything ALREADY-REGISTERED cover what
+    is now being registered", so a narrow new binding is measured against a broad
+    existing one — and, because the reverse is equally exploitable (register the broad
+    template weakly AFTER a strict literal), the caller checks both directions.
+    """
+    if broad == narrow:
+        return True
+    if "://" not in broad or "://" not in narrow:
+        return False
+    b_head, _, b_rest = broad.partition("://")
+    n_head, _, n_rest = narrow.partition("://")
+    if b_head != n_head:
+        return False
+    b_parts = b_rest.split("/")
+    n_parts = n_rest.split("/")
+    if len(b_parts) != len(n_parts):
+        return False
+
+    def _is_placeholder(seg: str) -> bool:
+        return seg.startswith("{") and seg.endswith("}") and len(seg) >= 2
+
+    # A placeholder segment matches ANY single segment, including a differently-NAMED
+    # placeholder: {account_id} and {acct} are one operator's choice of variable name for
+    # the same position, so they must not be registrable as two postures for one resource.
+    return all(
+        _is_placeholder(b) or _is_placeholder(n) or b == n
+        for b, n in zip(b_parts, n_parts)
+    )
 
 
 async def _target_posture_conflict(
@@ -5759,7 +5838,11 @@ async def _target_posture_conflict(
 
     # Config-shipped + live-registered bindings held in memory on this worker.
     for entry in _components.registry.entries_for_tenant(tenant_id):
-        if _canonical_target(entry.target) != canon:
+        existing = _canonical_target(entry.target)
+        # Both directions: a template already bound strictly must cover a narrow literal
+        # registered now, AND a broad template registered now must not undercut a strict
+        # literal already bound.
+        if not (_target_subsumes(existing, canon) or _target_subsumes(canon, existing)):
             continue
         if _weaker_than(entry.risk_tier, entry.classification or "unclassified"):
             # Disclose the name only for a tenant-wide alias (see docstring).
@@ -5773,7 +5856,12 @@ async def _target_posture_conflict(
         return True, None
     for alias, fields in overlay.items():
         stored = fields.get("target")
-        if not isinstance(stored, str) or _canonical_target(stored) != canon:
+        if not isinstance(stored, str):
+            continue
+        stored_canon = _canonical_target(stored)
+        if not (
+            _target_subsumes(stored_canon, canon) or _target_subsumes(canon, stored_canon)
+        ):
             continue
         if _weaker_than(
             str(fields.get("risk_tier", "auto")),

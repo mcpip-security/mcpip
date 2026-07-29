@@ -54,9 +54,6 @@ class TestCanonicalTarget:
             "https://api.cloudflare.com:443/client/v4/accounts/{account_id}/d1/database/query",
             # scheme case
             "HTTPS://api.cloudflare.com/client/v4/accounts/{account_id}/d1/database/query",
-            # a different NAME for the same template variable — the variable's name is the
-            # operator's choice, not part of the resource's identity
-            "https://api.cloudflare.com/client/v4/accounts/{acct}/d1/database/query",
             # percent-encoded path segment
             "https://api.cloudflare.com/client/v4/accounts/{account_id}/d1/data%62ase/query",
         ],
@@ -89,6 +86,27 @@ class TestCanonicalTarget:
     def test_distinct_resources_stay_distinct(self, a: str, b: str) -> None:
         assert _canonical_target(a) != _canonical_target(b)
 
+    def test_placeholder_names_are_preserved_not_collapsed(self) -> None:
+        """A differently-NAMED placeholder is NOT folded here — deliberately.
+
+        Folding ``{account_id}`` to a ``{}`` sentinel made the canonical form unreadable,
+        and since the grammar requires a target to already BE canonical, that would have
+        forced operators to write ``{}`` and lose the variable name's documentation value.
+        The equivalence is real and still enforced — it moved to ``_target_subsumes``,
+        which treats any placeholder segment as matching any other (see
+        ``TestSubsumptionCoversWhatSpellingCannot``).
+        """
+        a = "https://h/accounts/{account_id}/q"
+        b = "https://h/accounts/{acct}/q"
+        assert _canonical_target(a) == a, "the readable form must be its own canonical form"
+        assert _canonical_target(a) != _canonical_target(b)
+
+        from app.main import _target_subsumes
+
+        assert _target_subsumes(_canonical_target(a), _canonical_target(b)), (
+            "the equivalence must still be enforced — just at the overlap predicate"
+        )
+
     def test_unparseable_target_is_conservative_not_permissive(self) -> None:
         """No scheme/host ⇒ compare the raw casefolded string.
 
@@ -97,6 +115,103 @@ class TestCanonicalTarget:
         """
         assert _canonical_target("not a url") == _canonical_target("NOT A URL")
         assert _canonical_target("not a url") != _canonical_target("other junk")
+
+
+class TestCanonicalFormIsAGrammarNotAComparator:
+    """The inversion that makes the floor structural.
+
+    Used only to COMPARE, a canonicalizer is a losing game: the ways to spell one URL
+    are unbounded, and every fold it misses silently ADMITS a weaker duplicate. Measured
+    against the first implementation, nine of ten hand-written variants of one endpoint
+    produced a different key — each one was the bypass again.
+
+    Enforced as a REGISTRATION GRAMMAR (``_overlay_skill_invalid`` refuses a target that
+    is not already its own canonical form), a missed fold can only REJECT A LEGAL
+    SPELLING — loud, reported, fixed — never admit a bypass. These tests pin that
+    direction, because a future change that relaxes the grammar back into a comparator
+    would silently restore the bug.
+    """
+
+    BASE = "https://api.cloudflare.com/client/v4/accounts/{account_id}/d1/database/query"
+
+    @pytest.mark.parametrize(
+        "label,variant",
+        [
+            ("dot-dot traversal", "https://api.cloudflare.com/client/v4/accounts/{account_id}/d1/database/../database/query"),
+            ("single-dot segment", "https://api.cloudflare.com/client/v4/accounts/{account_id}/d1/database/./query"),
+            ("double slash", "https://api.cloudflare.com//client/v4/accounts/{account_id}/d1/database/query"),
+            ("trailing-dot host", "https://api.cloudflare.com./client/v4/accounts/{account_id}/d1/database/query"),
+            ("path parameters", "https://api.cloudflare.com/client/v4/accounts/{account_id}/d1/database/query;v=1"),
+            ("percent-encoded braces", "https://api.cloudflare.com/client/v4/accounts/%7Baccount_id%7D/d1/database/query"),
+            ("fragment", BASE + "#frag"),
+            ("trailing slash", BASE + "/"),
+            ("host case", "https://API.CLOUDFLARE.COM/client/v4/accounts/{account_id}/d1/database/query"),
+            ("explicit default port", "https://api.cloudflare.com:443/client/v4/accounts/{account_id}/d1/database/query"),
+        ],
+    )
+    def test_non_canonical_spellings_are_refused_at_registration(
+        self, label: str, variant: str
+    ) -> None:
+        from app.main import _overlay_skill_invalid
+
+        assert _overlay_skill_invalid("some.alias", variant, "auto", "unclassified"), (
+            f"{label}: a non-canonical spelling must be REFUSED, not admitted — admitting "
+            "it is the posture-downgrade bypass"
+        )
+
+    def test_the_readable_form_operators_actually_write_is_registrable(self) -> None:
+        """A canonical form nobody can read is a canonical form nobody will write.
+
+        The placeholder NAME is preserved (it is documentation); placeholder EQUIVALENCE
+        lives in the overlap predicate instead, where it belongs.
+        """
+        assert _canonical_target(self.BASE) == self.BASE
+        from app.main import _overlay_skill_invalid
+
+        assert not _overlay_skill_invalid("cf.d1.query", self.BASE, "pin_required", "restricted")
+
+    def test_non_url_targets_still_register(self) -> None:
+        """The legacy transports use dotted targets, not URLs; they must stay usable."""
+        from app.main import _overlay_skill_invalid
+
+        assert not _overlay_skill_invalid("a.b", "rest.ops.notify.send", "auto", "unclassified")
+
+
+class TestSubsumptionCoversWhatSpellingCannot:
+    """Two DIFFERENT canonical strings can still address one resource."""
+
+    TEMPLATE = "https://api.cloudflare.com/client/v4/accounts/{account_id}/d1/database/query"
+    LITERAL = "https://api.cloudflare.com/client/v4/accounts/12345/d1/database/query"
+    ALT_NAME = "https://api.cloudflare.com/client/v4/accounts/{acct}/d1/database/query"
+
+    def test_template_covers_a_literal_substitution(self) -> None:
+        """Registering the literal at auto would downgrade account 12345 out from under
+        a template bound pin_required. Canonicalization cannot see this; subsumption can."""
+        from app.main import _target_subsumes
+
+        assert _target_subsumes(self.TEMPLATE, self.LITERAL)
+
+    def test_differently_named_placeholders_are_the_same_position(self) -> None:
+        from app.main import _target_subsumes
+
+        assert _target_subsumes(self.TEMPLATE, self.ALT_NAME)
+        assert _target_subsumes(self.ALT_NAME, self.TEMPLATE)
+
+    @pytest.mark.parametrize(
+        "other",
+        [
+            "https://api.cloudflare.com/client/v4/accounts/{account_id}/d1/database/list",
+            "https://api.github.com/client/v4/accounts/{account_id}/d1/database/query",
+            "https://api.cloudflare.com/client/v4/accounts/{account_id}/d1/database/query/sub",
+        ],
+    )
+    def test_genuinely_different_resources_do_not_overlap(self, other: str) -> None:
+        """Over-matching would lock operators out of registering legitimate neighbours."""
+        from app.main import _target_subsumes
+
+        assert not (
+            _target_subsumes(self.TEMPLATE, other) or _target_subsumes(other, self.TEMPLATE)
+        )
 
 
 class TestConflictDisclosureIsNotAnOracle:
