@@ -1,5 +1,5 @@
 """
-MCPIP — opt-in WORM synchronous-replication quorum (SOC2_READINESS.md #31, A1.2).
+MCPIP — opt-in WORM synchronous-replication quorum (SOC 2 A1.2).
 
     ◐ "Write-before-execute, extended across a replica — or the request denies."
 

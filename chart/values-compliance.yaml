@@ -3,9 +3,9 @@
 #   helm install mcpip ./chart -n mcpip -f chart/values.yaml -f chart/values-compliance.yaml
 #
 # This turns ON every opt-in SOC 2 control that ships default-OFF, converting the
-# design-level controls into ones that actually RUN in the deployment (see
-# docs/SOC2_READINESS.md — the opt-in posture is why a default install scores lower than
-# the control design). It is additive over values.yaml; enable it consciously.
+# design-level controls into ones that actually RUN in the deployment (a default
+# install leaves them off, so it exercises fewer controls than the design
+# describes). It is additive over values.yaml; enable it consciously.
 #
 # PREREQUISITES the operator MUST provide (the gateway fails closed at boot otherwise):
 #   1. Two 32-byte random keys added to the keys Secret (secrets.existingSecret), mounted

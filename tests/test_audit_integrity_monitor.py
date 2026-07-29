@@ -1,5 +1,5 @@
 """
-MCPIP — off-hot-path audit-integrity monitor (SOC2_READINESS.md #8, CC7.3/CC4.1).
+MCPIP — off-hot-path audit-integrity monitor (SOC 2 CC7.3/CC4.1).
 
     ◐ "verify_chain shouldn't only run when a human asks."
 

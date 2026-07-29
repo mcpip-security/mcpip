@@ -1,9 +1,9 @@
 # Code ownership → review routing for the invariant-critical paths.
 #
-# Closes SOC2_READINESS.md #27 (no CODEOWNERS / review routing). This file only
+# Review routing for the change-management control (SOC 2 CC8.1). This file only
 # ROUTES review requests; it becomes an ENFORCED control once branch protection
-# on `main` requires CODEOWNER review (an organizational GitHub setting — see
-# docs/SOC2_READINESS.md §5 "Cannot be fixed in code"). Owning the security core
+# on `main` requires CODEOWNER review (an organizational GitHub setting, not
+# something this repository can enforce on its own). Owning the security core
 # means a change to identity, canonicalization, the payload lock, the WORM
 # ledger, the connector registry, or the boot/integrity/license gates cannot
 # merge without an owner's review.

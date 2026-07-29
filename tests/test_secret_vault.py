@@ -186,7 +186,7 @@ class _RecordingWorm:
 
 def test_broker_audits_secret_access_read() -> None:
     """A vault-tier vend emits a WORM ``secret_access`` record — tenant + secret_id + a
-    keyed-HMAC fingerprint, NEVER the material (SOC2_READINESS #4, CC6.7)."""
+    keyed-HMAC fingerprint, NEVER the material (SOC 2 CC6.7)."""
     async def scenario() -> None:
         vault, client = await _fresh_vault()
         try:

@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **`mcpip export-audit --verify` now verifies the whole signed chain, not just the
   Merkle roots (audit-integrity defect).** The offline exporter — which
-  `docs/OPERATIONS.md` / `docs/SOC2_READINESS.md` name as THE continuous tamper check for
+  `docs/OPERATIONS.md` names as THE continuous tamper check for
   production, because `/v1/audit/verify` is sandbox-gated — recomputed per-epoch Merkle
   roots ONLY: it checked no Ed25519 epoch signature, no `prev_epoch_hash` linkage, no
   `epoch_hash`, and no rollback watermark, so a rolled-back ledger and a ledger with a

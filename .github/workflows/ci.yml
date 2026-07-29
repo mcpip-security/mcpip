@@ -55,13 +55,13 @@ jobs:
       # Change-integrity: the committed signed integrity manifest must track the
       # source tree. WARN-only today (the 3.0.0 owner re-sign is pending); flip to
       # `--strict` once the manifest is re-signed at the current VERSION so any
-      # future drift is a hard PR failure. See docs/SOC2_READINESS.md #23.
+      # future drift is a hard PR failure.
       - name: Integrity-manifest drift check (warn)
         run: python scripts/check_integrity_manifest_drift.py
       # Dependency CVE scan. Advisory for now (a new upstream CVE should surface
       # here, not silently block the merge gate before triage). Make it blocking
       # by removing `continue-on-error` once the dependency set is on a hashed
-      # lock. See docs/SOC2_READINESS.md #24.
+      # lock.
       - name: pip-audit (advisory)
         continue-on-error: true
         run: |
@@ -70,7 +70,6 @@ jobs:
       # Static application security testing. Runner-local (no GitHub Advanced
       # Security / SARIF upload needed, so it works on a private repo). Advisory:
       # findings surface in the log for triage without blocking the merge gate.
-      # See docs/SOC2_READINESS.md #28.
       - name: bandit SAST (advisory)
         continue-on-error: true
         run: |

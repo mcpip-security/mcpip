@@ -1,6 +1,6 @@
 # Dependency vulnerability monitoring & update automation.
 #
-# Closes SOC2_READINESS.md #24 (no automated dependency/CVE scanning): Dependabot
+# Automated dependency/CVE scanning (SOC 2 CC7.1): Dependabot
 # opens PRs for known-vulnerable and out-of-date dependencies across every
 # ecosystem the repo ships, so a new CVE in a pinned dependency is surfaced as a
 # reviewable PR instead of waiting on a manual offline `grype`/`trivy` run.

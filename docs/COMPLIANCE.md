@@ -89,7 +89,7 @@ permanent audit ledger records tool-call *metadata + a payload hash*, **not requ
 | P1 | Notice & communication | Partial / Org | This section is the product-side notice of what MCPIP does/does not collect; the data-subject-facing notice is the controller's. |
 | P2 | Choice & consent | Out-of-scope-by-design / Org | Data subjects never interact with MCPIP. Vendor telemetry is the model consent pattern: opt-in, default-OFF, loud (`docs/TELEMETRY.md`); data-subject consent for downstream processing is the controller's. |
 | P3 | Collection limited to necessary | **Met (structural)** | The permanent ledger stores a `payload_hash`, not arguments; metrics carry closed-set labels; telemetry is aggregate-only. Full-content collection occurs *only* in forensic capture (default-OFF in prod, 1 h, encrypted). |
-| P4 | Use, retention & disposal | Partial | Transient stores auto-dispose via TTL; the WORM ledger is retained indefinitely for audit-integrity (legal-obligation basis below). Retention windows are bounded (`WORM_HOT_EPOCHS`/`WORM_CHECKPOINT_EPOCHS`; being promoted to `MCPIP_*` settings — see `docs/SOC2_READINESS.md` §4.2). |
+| P4 | Use, retention & disposal | Partial | Transient stores auto-dispose via TTL; the WORM ledger is retained indefinitely for audit-integrity (legal-obligation basis below). Retention windows are bounded (`WORM_HOT_EPOCHS`/`WORM_CHECKPOINT_EPOCHS`; being promoted to `MCPIP_*` settings). |
 | P5 | Access (data-subject) | Gap / Org | No product mechanism enumerates "all records about natural person X" (DSAR); `query_decisions` (by agent/time) + forensic reconstruction are partial evidence sources. Records are metadata+hash, limiting exposure. |
 | P6 | Disclosure & breach notification | Partial / Org | Strong breach-**detection** substrate (`verify_chain`/`first_bad_epoch`/anchor/forensic); the notification **process** (GDPR 33/34, HIPAA §164.410) is the controller's. See `docs/OPERATIONS.md` § 9. |
 | P7 | Quality (accuracy) | Met-by-design | MCPIP is not a system of record for personal data; canonical-JSON + payload-lock guarantee the recorded `payload_hash` matches the executed payload. |
@@ -109,15 +109,14 @@ control). MCPIP reconciles this with erasure obligations at three layers:
    `delegation_chain` entry (which can name a human delegator) are recorded as a stable
    keyed-HMAC pseudonym under a dedicated crypto-shreddable key (`MCPIP_PSEUDONYM_KEY_PATH`)
    — destroy the key to sever the natural-person link, without breaking `verify_chain`. Left
-   OFF the raw identifiers are recorded (better forensic readability). See
-   `docs/SOC2_READINESS.md` §4.7.
+   OFF the raw identifiers are recorded (better forensic readability).
 
 The signed roots + machine identifiers that remain fall under the **legal-obligation retention
 exemption** (GDPR Art. 17(3)(b)/(e); SEC 17a-4, DORA Art. 9, HIPAA §164.530) and Recital-65
 integrity grounds — a defensible basis that the deploying organization documents in its RoPA. A
 full per-tenant crypto-shred of the audit ledger (envelope-encrypting WORM event bodies under a
-deletable tenant key, preserving `verify_chain` over ciphertext) is a larger design option tracked
-in `docs/SOC2_READINESS.md` §4.3/§6.
+deletable tenant key, preserving `verify_chain` over ciphertext) is a larger design option
+that the gateway does not implement today.
 
 ## 3. FedRAMP mapping (NIST SP 800-53 rev. 5 families)
 
@@ -163,8 +162,7 @@ decisions provable at that instant.
 **What this means for a deployment.** If your control objective requires per-event proofs
 over a period longer than the window, the operator must either export proofs inside the
 window or widen retention. The long-term record of retention is the **export archive**,
-not the in-system buffer — see `docs/SOC2_READINESS.md` §4.2 item 7, which tracks this as
-an open gap rather than a solved one.
+not the in-system buffer — an open gap rather than a solved one.
 
 ---
 
@@ -312,8 +310,7 @@ attestation of conformity — those are external third-party processes (see §6.
 > check. So these rows provide evidence for the
 > *non-rewritable, tamper-evident, integrity* clauses; the *retention-duration* clause is
 > satisfied by the operator's export archive, whose cadence and immutable custody are the
-> deploying organization's controls. See `docs/OPERATIONS.md` § "Verify & export" and
-> `docs/SOC2_READINESS.md` §4.2.
+> deploying organization's controls. See `docs/OPERATIONS.md` § "Verify & export".
 
 ### 6.1 Portable evidence export — `GET /v1/admin/compliance/evidence`
 

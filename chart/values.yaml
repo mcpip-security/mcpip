@@ -122,7 +122,7 @@ hpa:
   maxReplicas: 10
   targetCPUUtilizationPercentage: 70
 
-# Gateway PodDisruptionBudget (SOC2_READINESS.md #32). Keeps >=1 gateway serving
+# Gateway PodDisruptionBudget (SOC 2 A1.2). Keeps >=1 gateway serving
 # through a voluntary disruption (node drain / upgrade) — important because MCPIP
 # fails closed, so losing every gateway denies all agent actions. maxUnavailable: 1
 # pairs with the hpa.minReplicas: 2 floor.
@@ -130,7 +130,7 @@ pdb:
   enabled: true
   maxUnavailable: 1
 
-# WORM durability posture (SOC2_READINESS.md #31, A1.2). waitReplicas > 0 turns on the
+# WORM durability posture (SOC 2 A1.2). waitReplicas > 0 turns on the
 # synchronous-replication quorum: every audit event must be acked by that many Redis
 # replicas before the authorize proceeds, so promoting a synced replica after a master
 # loss never drops an acked record. 0 (default) = single-node, no WAIT. To use it, run
@@ -141,7 +141,7 @@ durability:
   waitReplicas: 0
   waitTimeoutMs: 2000
 
-# Reference Prometheus alerting rules (SOC2_READINESS.md #9). OFF by default — it
+# Reference Prometheus alerting rules (SOC 2 CC7.2). OFF by default — it
 # requires the Prometheus Operator CRD (monitoring.coreos.com/v1). Enable it (and
 # set additionalLabels to match your Prometheus ruleSelector, e.g. release:
 # prometheus) to ship the starter availability + audit-integrity alerts.

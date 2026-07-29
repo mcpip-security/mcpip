@@ -1,4 +1,4 @@
-# Reference alerting rules (SOC2_READINESS.md #9, CC7.2/CC4.1).
+# Reference alerting rules (SOC 2 CC7.2/CC4.1).
 #
 # The product emits the metrics; it deliberately ships no opinion on your SLA.
 # These are STARTER alerts an operator can adopt/tune. Requires the Prometheus

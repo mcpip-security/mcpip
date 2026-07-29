@@ -139,6 +139,7 @@ EXCLUDED_DOCS: dict[str, str] = {
     "the project's narrative deck": "the project's narrative deck",
     "the internal developer-experience review": "the internal developer-experience review",
     "the internal managed-cloud design note": "the internal managed-cloud design note",
+    "SOC2_READINESS.md": "the internal SOC 2 self-assessment",
 }
 
 EXCLUDED_DOC_PATHS: frozenset[str] = frozenset(f"docs/{name}" for name in EXCLUDED_DOCS)
@@ -290,11 +291,6 @@ LINE_EDITS: dict[str, tuple[LineEdit, ...]] = {
         LineEdit(".claude/skills/semantic-context-lake/references/invariants.md).", None),
         LineEdit("## Docs & context-lake", "## Docs"),
         LineEdit("- [ ] Updated `.claude/skills/semantic-context-lake/references/`", None),
-    ),
-    "docs/SOC2_READINESS.md": (
-        # A doc-accuracy action item about the maintainers' internal context map.
-        LineEdit("- `.claude/skills/semantic-context-lake/references/invariants.md` states", None),
-        LineEdit("  plain-JWT-gated; the code is `CAP_DIRECTORY_ADMIN`-gated — the map is stale.", None),
     ),
     "docs/IMPLEMENTATION_WEB.md": (
         LineEdit(

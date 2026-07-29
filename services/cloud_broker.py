@@ -232,7 +232,7 @@ class CloudBroker:
         material = await self._vault.get_material(tenant_id, env.vault_secret_id)
         if material is None:
             raise LockError("vault broker credential unresolvable for this environment")
-        # Operator audit of the secret READ (SOC2_READINESS.md #4, CC6.7): record that this
+        # Operator audit of the secret READ (SOC 2 CC6.7): record that this
         # vault broker credential was spent — tenant + secret_id + a keyed-HMAC fingerprint,
         # NEVER the material. WORM-only (never agent-facing, so the vend fingerprint's
         # tier-opacity is untouched). Emit-before-use + fail-closed: a credential is never

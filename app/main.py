@@ -568,15 +568,13 @@ def _assert_secure_key_file(path: str, *, sandbox_mode: bool, label: str) -> Non
     if mode & 0o022:
         raise RuntimeError(
             f"{label} key file {path} is group/world-writable (mode {oct(mode)}); "
-            "production refuses a swappable key/secret — chmod 600 "
-            "(docs/SOC2_READINESS.md #18)."
+            "production refuses a swappable key/secret — chmod 600."
         )
     if (mode & 0o044) or st.st_uid != os.getuid():
         print(
             f"MCPIP WARNING: {label} key file {path} is group/world-readable or not "
             f"owned by the runtime user (mode {oct(mode)}, uid {st.st_uid}); tighten "
-            "to 0600/0400 or set the k8s secret volume defaultMode "
-            "(docs/SOC2_READINESS.md #18).",
+            "to 0600/0400 or set the k8s secret volume defaultMode.",
             file=sys.stderr,
             flush=True,
         )
@@ -1066,7 +1064,7 @@ def _load_worm_content_key(settings: Settings) -> Optional[bytes]:
 
 def _load_worm_content_key_fallbacks(settings: Settings) -> tuple[bytes, ...]:
     """
-    Resolve the RETIRED WORM content keys retained across a rotation (SOC2_READINESS #14).
+    Resolve the RETIRED WORM content keys retained across a rotation (SOC 2 C1.1).
 
     OFF, or no ``worm_content_key_fallback_paths`` ⇒ empty tuple (single-key behavior). The
     active ``worm_content_key_path`` always seals new events; each retained key here (an
@@ -1869,7 +1867,7 @@ def _enforce_production_config(settings: Settings) -> None:
         buffer, and the rate counters cross it unencrypted + unauthenticated.
         Internal-only network isolation is a valid documented control (T14), so this
         is a loud recommendation to move to ``rediss://`` + AUTH/ACL — not a boot
-        refusal that would break an isolated deployment. (SC-8, docs/SOC2_READINESS.md #15)
+        refusal that would break an isolated deployment. (SC-8)
     """
     if settings.sandbox_mode:
         return
@@ -1887,8 +1885,7 @@ def _enforce_production_config(settings: Settings) -> None:
             "MCPIP WARNING: MCPIP_REDIS_URL is plaintext (redis://) in production — "
             "the payload-lock hashes, WORM buffer, and rate counters cross it "
             "unencrypted and unauthenticated. Use rediss:// with a CA + AUTH/ACL, or "
-            "ensure the Redis link is on an isolated internal-only network "
-            "(docs/SOC2_READINESS.md #15).",
+            "ensure the Redis link is on an isolated internal-only network.",
             file=sys.stderr,
             flush=True,
         )
@@ -1921,7 +1918,7 @@ def _build_components(settings: Settings) -> Components:
     # Identity/transport config lint — runs AFTER the more-fundamental integrity/
     # license gates so those structural boot refusals fire first: refuse the demo
     # jwt issuer/audience defaults in production; warn on a plaintext Redis
-    # backplane. (docs/SOC2_READINESS.md #3/#15)
+    # backplane.
     _enforce_production_config(settings)
 
     public_pem, demo_idp = _load_verifying_pem(settings)
@@ -2158,7 +2155,7 @@ async def _lifespan(_: FastAPI) -> AsyncIterator[None]:
     epoch_gauge_task = asyncio.create_task(_epoch_gauge_daemon())
     # Always-on audit-integrity monitor: periodic verify_chain → mcpip_audit_integrity_total
     # + CRITICAL mcpip.audit on tamper. A core integrity control (not opt-in), off the hot
-    # path and swallow-only like the epoch-gauge daemon. (SOC2_READINESS.md #8)
+    # path and swallow-only like the epoch-gauge daemon.
     audit_integrity_task = asyncio.create_task(_audit_integrity_daemon())
     # Opt-in vendor-telemetry beacon: ONE off-hot-path interval task, scheduled ONLY when the
     # beacon was constructed (enabled + url + not-sandbox). Modeled on the epoch-gauge daemon
@@ -2228,7 +2225,7 @@ async def _epoch_gauge_daemon() -> None:
 
 
 async def _audit_integrity_daemon() -> None:
-    """Off-hot-path audit-chain integrity monitor (SOC2_READINESS.md #8, CC7.3/CC4.1).
+    """Off-hot-path audit-chain integrity monitor (SOC 2 CC7.3/CC4.1).
 
     Periodically runs a FRESH ``verify_chain`` over the signed epoch chain — the SAME
     read ``GET /v1/audit/attestation`` performs — and turns the result into a continuous,

@@ -83,8 +83,8 @@ helm upgrade --install mcpip ./chart -n mcpip \
 
 Enable it consciously — the overlay documents its prerequisites (two 32-byte keys added to
 the keys Secret, an HA Redis with ≥2 synced replicas, a Prometheus Operator). Flag-on with a
-missing key is a fail-closed boot error, by design. See `docs/SOC2_READINESS.md` for why a
-default install scores below the control design.
+missing key is a fail-closed boot error, by design. A default install leaves these
+controls off, so it exercises fewer controls than the design describes.
 
 ### Redis in the cloud tier — who supplies it, and the managed-Redis trap
 

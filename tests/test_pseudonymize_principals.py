@@ -1,5 +1,5 @@
 """
-MCPIP — opt-in principal pseudonymization (SOC2_READINESS.md #40b / Phase E; GDPR Art. 17).
+MCPIP — opt-in principal pseudonymization (GDPR Art. 17).
 
     ◐ "The immutable ledger stays intact; the natural-person link becomes shreddable."
 

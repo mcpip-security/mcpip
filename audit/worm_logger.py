@@ -611,7 +611,7 @@ def _hash_epoch_leaves(records: list[str]) -> tuple[list[bytes], bytes]:
 
 
 # ---------------------------------------------------------------------------
-# Opt-in at-rest CONFIDENTIALITY for the WORM event body (SOC2_READINESS.md #14).
+# Opt-in at-rest CONFIDENTIALITY for the WORM event body (SOC 2 C1.1).
 #
 # The chain is INTEGRITY-protected (Merkle/Ed25519) but the event body — the resolved
 # real target, the alias, and identifiers — is otherwise cleartext in Redis + AOF. With a
@@ -722,7 +722,7 @@ class WormLogger:
         # tail-truncation / rollback that ALSO rewrites the in-Redis counters is caught
         # (finding: anchorless verify + counters in the tamper domain).
         self._anchor = anchor
-        # Opt-in synchronous-replication quorum (SOC2_READINESS.md #31, A1.2): with
+        # Opt-in synchronous-replication quorum (SOC 2 A1.2): with
         # ``wait_replicas`` > 0, every emit additionally requires that many Redis
         # replicas acknowledge the write (WAIT) BEFORE the authorize proceeds — the
         # write-before-execute durability contract extended across a replica, so a
@@ -734,7 +734,7 @@ class WormLogger:
         # lost, so extending WAIT to them would buy latency, not safety.
         self._wait_replicas = wait_replicas
         self._wait_timeout_ms = wait_timeout_ms
-        # Opt-in at-rest confidentiality for the event body (SOC2_READINESS.md #14). None
+        # Opt-in at-rest confidentiality for the event body (SOC 2 C1.1). None
         # (default) ⇒ the body is the plaintext dict, byte-identical to today. Set ⇒ the
         # ``event`` payload is AES-256-GCM-wrapped before it enters ``record_core``, so the
         # Merkle leaf (over the whole record) and verify_chain are UNAFFECTED and the chain
@@ -1132,7 +1132,7 @@ class WormLogger:
                 # do it silently: surface it to stderr so a tamper that stalls compaction
                 # is visible even before the off-hot-path integrity monitor's next
                 # verify_chain pass (which raises mcpip_audit_integrity_total{tamper_detected}
-                # + a CRITICAL mcpip.audit log). See docs/SOC2_READINESS.md #8.
+                # + a CRITICAL mcpip.audit log).
                 print(
                     "MCPIP AUDIT: compaction declined — the epoch prefix is NOT intact "
                     f"(first_bad_epoch={_bad}); investigate possible tamper",

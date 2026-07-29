@@ -1,5 +1,5 @@
 <!--
-Change-management record (SOC2_READINESS.md #27, CC8.1). Fill every section.
+Change-management record (SOC 2 CC8.1). Fill every section.
 Keep it factual; describe the diff, not intentions. Do NOT paste secrets,
 tokens, env values, or internal hostnames.
 -->

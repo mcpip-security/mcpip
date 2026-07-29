@@ -1,5 +1,5 @@
 """
-MCPIP — opt-in WORM event-body at-rest encryption (SOC2_READINESS.md #14, C1.1/SC-28).
+MCPIP — opt-in WORM event-body at-rest encryption (SOC 2 C1.1/SC-28).
 
     ◐ "Integrity stays publicly verifiable; the body needs the key."
 
