@@ -118,6 +118,51 @@ def sha256_stream(path: Path) -> str:
     return digest.hexdigest()
 
 
+#: The integrity manifest's SCOPE — every ``*.py`` under these package directories,
+#: plus the extra files below. Defined HERE, in product code, and imported by
+#: ``scripts/gen_integrity_manifest.py``, so the set that gets SIGNED and the set that
+#: gets VERIFIED are one definition rather than two that can drift apart. (A generator
+#: and a checker holding separate copies of the same rule is exactly how a coverage
+#: gap opens silently — the same failure shape as a canonicalizer that disagrees with
+#: the dispatcher it is supposed to describe.)
+MANIFEST_PACKAGE_DIRS: tuple[str, ...] = (
+    "app",
+    "core",
+    "auth",
+    "audit",
+    "bridge",
+    "services",
+    "models",
+    "obfuscator",
+    "mcpip_verify",
+)
+MANIFEST_EXTRA_FILES: tuple[str, ...] = ("interfaces.py", "main.py", "VERSION")
+
+
+def _in_scope_files(base_dir: Path) -> set[str]:
+    """Every file the manifest is REQUIRED to cover, as base-relative posix paths.
+
+    Mirrors ``_collect_files`` in the generator by construction (both read the
+    constants above). Missing package directories are tolerated rather than fatal:
+    this runs at boot on a deployed tree, where a trimmed install is a legitimate
+    shape, and the listed-file loop already fails closed on anything absent that the
+    manifest DOES claim.
+    """
+    found: set[str] = set()
+    for pkg in MANIFEST_PACKAGE_DIRS:
+        pkg_dir = base_dir / pkg
+        if not pkg_dir.is_dir():
+            continue
+        for path in pkg_dir.rglob("*.py"):
+            if "__pycache__" in path.parts:
+                continue
+            found.add(path.relative_to(base_dir).as_posix())
+    for name in MANIFEST_EXTRA_FILES:
+        if (base_dir / name).is_file():
+            found.add(name)
+    return found
+
+
 def _fail(cause: str) -> NoReturn:
     """CRITICAL-log the specific cause, then raise the OPAQUE boot error."""
     _log.critical("startup integrity self-check failed: %s", cause)
@@ -159,6 +204,7 @@ def verify_boot_integrity(
     if not isinstance(files, list) or not files:
         _fail("manifest file list missing or empty")
 
+    listed: set[str] = set()
     for entry in files:
         if not isinstance(entry, dict):
             _fail("manifest file entry is not an object")
@@ -175,3 +221,28 @@ def verify_boot_integrity(
             _fail(f"listed file missing or unreadable: {rel_path}")
         if not hmac.compare_digest(actual, expected.lower()):
             _fail(f"hash mismatch: {rel_path}")
+        listed.add(posix.as_posix())
+
+    # COVERAGE. Everything above proves the LISTED files are unmodified. It proves
+    # nothing about a file the manifest does not list — and an unlisted executable
+    # file is simply unverified, so a manifest that omits code is silently weaker
+    # than one that covers it, with no signal that anything is wrong.
+    #
+    # That is not hypothetical here. The shipped release/integrity_manifest.json lags
+    # at 2.0.0 while VERSION is 3.0.0, and the drift checker reports 34 files ADDED
+    # since it was signed — among them services/secret_vault.py, revocation.py,
+    # policy_engine.py and forensic_store.py. Booting against it would verify two
+    # thirds of the tree and report success, leaving the rest tamperable.
+    #
+    # The manifest's scope is deterministic (every *.py under MANIFEST_PACKAGE_DIRS
+    # plus MANIFEST_EXTRA_FILES), so it can be re-derived here and compared. An
+    # in-scope file that is not listed now fails the boot, which turns "this manifest
+    # is stale" from an invisible weakening into a loud refusal. Fail-closed, like
+    # every other gate: a manifest that does not cover the code is not a manifest.
+    unlisted = sorted(p for p in _in_scope_files(base_dir) if p not in listed)
+    if unlisted:
+        shown = ", ".join(unlisted[:5]) + (f" (+{len(unlisted) - 5} more)" if len(unlisted) > 5 else "")
+        _fail(
+            f"manifest does not cover {len(unlisted)} in-scope source file(s) — "
+            f"they would boot UNVERIFIED: {shown}"
+        )

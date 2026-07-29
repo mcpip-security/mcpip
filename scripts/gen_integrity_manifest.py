@@ -43,18 +43,14 @@ if TYPE_CHECKING:
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _CHUNK = 1024 * 1024
 
-_PACKAGE_DIRS = (
-    "app",
-    "core",
-    "auth",
-    "audit",
-    "bridge",
-    "services",
-    "models",
-    "obfuscator",
-    "mcpip_verify",
-)
-_EXTRA_FILES = ("interfaces.py", "main.py", "VERSION")
+# The scope lives in PRODUCT code (core/integrity.py) and is imported here, so the
+# file set that gets SIGNED and the set the boot gate REQUIRES COVERED are one
+# definition. Two copies of the same rule is how a coverage gap opens silently.
+sys.path.insert(0, str(_REPO_ROOT))
+from core.integrity import MANIFEST_EXTRA_FILES, MANIFEST_PACKAGE_DIRS  # noqa: E402
+
+_PACKAGE_DIRS = MANIFEST_PACKAGE_DIRS
+_EXTRA_FILES = MANIFEST_EXTRA_FILES
 
 
 def _utc_now_iso() -> str:
