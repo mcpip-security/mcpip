@@ -294,7 +294,7 @@ export interface MetricsSnapshot {
    hash-pin flow serves both kinds, routed by `kind`. GATES (Phase 2) ship as
    schema + a deny-only seam only; the CEL parse/evaluate runtime is DEFERRED, so
    a gate is stored PENDING but can NEVER be approved/enforced until an engine is
-   registered (docs/build/EXTENSIBILITY.md §8) — the projection's `approvable` says so
+   registered (docs/integrate/EXTENSIBILITY.md §8) — the projection's `approvable` says so
    honestly. These shapes mirror `services/extension_manifest.py` +
    `app/main.py` verbatim (and the @mcpip/sdk types) so a real submit/review
    round-trips without reshaping.

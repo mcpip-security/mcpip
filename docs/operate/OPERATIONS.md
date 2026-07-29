@@ -12,7 +12,7 @@ identity-aware proxy, the operator console and its desktop packaging, and multi-
 topology with data residency. Every command below is copy-paste runnable from the repository
 root (substitute your checkout path) and references only files that ship in this repository.
 Deeper, still-authoritative references are linked where they stay separate:
-[`ARCHITECTURE.md`](../build/ARCHITECTURE.md) (components, invariants, SPIFFE / workload-identity model,
+[`ARCHITECTURE.md`](../integrate/ARCHITECTURE.md) (components, invariants, SPIFFE / workload-identity model,
 OAuth resource-server surface), [`TELEMETRY.md`](TELEMETRY.md) (opt-in telemetry + privacy
 boundary), the internal strategy notes (positioning, GA readiness), the internal roadmap,
 [`COMPLIANCE.md`](COMPLIANCE.md) (auditor / attestation), and [`GETTING_STARTED.md`](../start/GETTING_STARTED.md)
@@ -383,7 +383,7 @@ python scripts/mint_principal.py --idp-key <idp_private> \
 Keep TTLs short; for fleets, mint sender-constrained tokens (`--cnf-jkt`) over ephemeral
 per-session keys instead of long-lived bearers (the SPIFFE / workload-identity provisioning
 model — runtime attestation → RFC 8693 exchange → ephemeral per-session keys — is in
-[`ARCHITECTURE.md`](../build/ARCHITECTURE.md)). The whole ceremony → mint → verify → tamper cycle is
+[`ARCHITECTURE.md`](../integrate/ARCHITECTURE.md)). The whole ceremony → mint → verify → tamper cycle is
 regression-gated by `tests/test_provisioning.py`. Secret injection into the running system is
 `scripts/deploy_hero.sh` + `.env.production.example`
 (see [CI/CD secret injection](#cicd-secret-injection--the-hero-deploy-script)).
@@ -1078,7 +1078,7 @@ primitive than most network-capture competitors.
 *The reference-architecture half of [Network Enforcement](#network-enforcement--non-bypassability)
 (the egress-lockdown + "MCPIP is the only accepted client" moves). Companion to
 `k8s/agent-egress-lockdown.networkpolicy.yaml` (the agent-side egress half) and the SPIFFE /
-sender-constraint model in [`ARCHITECTURE.md`](../build/ARCHITECTURE.md).*
+sender-constraint model in [`ARCHITECTURE.md`](../integrate/ARCHITECTURE.md).*
 
 ### Lead claim: "no standing key" first, mesh second
 
@@ -1112,7 +1112,7 @@ Two independent teeth, deployed together, make "every action goes through the ga
 
 ### The SPIFFE identity — reuse the workload-identity model, don't reinvent
 
-MCPIP already **verifies** SPIFFE ([`ARCHITECTURE.md`](../build/ARCHITECTURE.md) describes the agent
+MCPIP already **verifies** SPIFFE ([`ARCHITECTURE.md`](../integrate/ARCHITECTURE.md) describes the agent
 presenting a SPIFFE SVID, among other attestations, to the org STS, which mints a short-lived
 MCPIP-audience JWT whose `cnf.jkt` binds the agent's ephemeral key). This guide adds the **other
 direction**: making MCPIP's *own* SPIFFE identity the **only** client identity the downstream
@@ -1307,7 +1307,7 @@ BOTH teeth — either alone leaves a lane open:
    mistake can't turn into a bypass, because the target rejects a non-MCPIP principal.
 3. **Sender-constrained tokens** so a leaked agent token can't be replayed off-path — already
    shipped (`auth/pop.py`, `require_sender_constraint`, boot-lint; provisioning in
-   [`ARCHITECTURE.md`](../build/ARCHITECTURE.md)).
+   [`ARCHITECTURE.md`](../integrate/ARCHITECTURE.md)).
 4. **The WORM log as the evidence** that the path wasn't skipped — 100% of calls appear in the
    tamper-evident ledger, which is true precisely *because* of teeth 1+2.
 
@@ -1563,7 +1563,7 @@ exactly as the internal roadmap claims.
 
 #### Why tenant-prefixed keys are the whole argument
 
-The invariant "every Redis key stays tenant-prefixed" (see [`ARCHITECTURE.md`](../build/ARCHITECTURE.md))
+The invariant "every Redis key stays tenant-prefixed" (see [`ARCHITECTURE.md`](../integrate/ARCHITECTURE.md))
 is what makes this trivial. A region holds a *partition of tenants*, and the partition is
 expressed purely by which Redis the cell points at. Concretely, the tenant-scoped key families
 are:

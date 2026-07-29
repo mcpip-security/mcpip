@@ -292,7 +292,7 @@ LINE_EDITS: dict[str, tuple[LineEdit, ...]] = {
         LineEdit("## Docs & context-lake", "## Docs"),
         LineEdit("- [ ] Updated `.claude/skills/semantic-context-lake/references/`", None),
     ),
-    "docs/build/IMPLEMENTATION_WEB.md": (
+    "docs/integrate/IMPLEMENTATION_WEB.md": (
         LineEdit(
             "## 13. Quickstart (identical across `README.md`, `IMPLEMENTATION_WEB.md`, the project's narrative deck)",
             "## 13. Quickstart (identical across `README.md` and `IMPLEMENTATION_WEB.md`)",

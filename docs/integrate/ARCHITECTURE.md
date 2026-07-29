@@ -12,7 +12,7 @@ are not redundant — they are separate concerns, each preserved here in full:
 exact invariants, envelopes, diagrams, tables, benchmarks, and pseudocode are
 unchanged from their originating design memos. Sibling references: operational
 and deployment concerns live in [docs/operate/OPERATIONS.md](../operate/OPERATIONS.md), connector
-and dialect extension in [docs/build/EXTENSIBILITY.md](EXTENSIBILITY.md), and
+and dialect extension in [docs/integrate/EXTENSIBILITY.md](EXTENSIBILITY.md), and
 future-wave sequencing in the internal roadmap.
 
 ---

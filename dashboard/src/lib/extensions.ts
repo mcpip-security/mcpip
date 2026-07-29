@@ -2,7 +2,7 @@
    Community extensions — the console side of the author-your-own-skill/gate flow.
 
    Two actors, two distinct identities (separation of duties, mirrored from
-   docs/build/EXTENSIBILITY.md §3):
+   docs/integrate/EXTENSIBILITY.md §3):
      • Contributor — ANY authenticated principal, NO capability. Submits a
        manifest via POST /v1/extensions/submit (deliberately OFF /v1/admin/*).
      • Reviewer    — the DISTINCT CAP_CATALOG_REVIEWER. Reads the pending queue

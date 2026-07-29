@@ -135,7 +135,7 @@ surfaces, and the A2A choke-point connector) behind one release version.
   `GET /.well-known/oauth-protected-resource` (RFC 9728; `resource` + `authorization_servers`
   only, no scopes/secret/topology), and an optional SEP-2352 `iss_binding` claim honored AFTER
   full verification. RFC 8707 audience binding and the `{EdDSA, RS256}` alg gate are unchanged.
-  `docs/build/INTEGRATIONS.md`.
+  `docs/integrate/INTEGRATIONS.md`.
 - **RFC 8693 full delegation chain + ID-JAG recognition (N3, audit-only)** — `project_act_chain`
   walks the nested `act` chain (fail-closed at every hop, bounded by `MAX_DELEGATION_CHAIN`) into
   a new audit-only `Identity.act_chain`; `is_id_jag` recognizes the ID-JAG token-type marker. Both
@@ -152,7 +152,7 @@ surfaces, and the A2A choke-point connector) behind one release version.
   declared A2A `message.metadata` is recorded-not-trusted into the non-locked `a2a_context` (WORM
   only, never merged into arguments, never crossed to the agent wire). Adds `Vendor.A2A` + the a2a
   binding as the 7th `SOURCE_FORMAT`, re-pinning the hash-pinned connector registry
-  (`REGISTRY_VERSION` 2→3, `_PINNED_REGISTRY_SHA256` recomputed). `docs/build/ARCHITECTURE.md`.
+  (`REGISTRY_VERSION` 2→3, `_PINNED_REGISTRY_SHA256` recomputed). `docs/integrate/ARCHITECTURE.md`.
 - **Author-your-own community SKILLS with reviewer approval (Phase 1, shipped for real)** —
   customers and the community can now author their own skills instead of MCPIP hand-building
   every connector. A community skill is inert declarative data — one additive `alias → target`
@@ -211,7 +211,7 @@ surfaces, and the A2A choke-point connector) behind one release version.
   prover that ships bundled with a CEL engine, so `approve_extension` refuses a `kind='gate'` manifest while
   no engine is registered. Enabling the runtime later is purely additive — a single
   `register_community_gate_engine(...)` supplies both the hot-path provider and the approve-time prover.
-  Design + deferred-footprint rationale in `docs/build/EXTENSIBILITY.md §8`.
+  Design + deferred-footprint rationale in `docs/integrate/EXTENSIBILITY.md §8`.
 - **ReBAC relation-tuple projection — the operator Knowledge-Graph made real (strictly additive)** — a
   Zanzibar-style relation-tuple layer (`services/relation_store.py`, `RelationTupleStore` + `RelationEdge`)
   that is a best-effort, Redis-auto-expiring **projection** of committed compartment grants, NOT a second
@@ -284,7 +284,7 @@ surfaces, and the A2A choke-point connector) behind one release version.
   `read_persistence_posture` probe. It **measures, never fabricates** (it says so and reports only what it
   could measure if a managed Redis refuses `CONFIG SET`), isolates onto a dedicated logical DB, flushes
   only WORM keys, and restores the server's original AOF config on exit (behavior-neutral). Backs the
-  benchmark half of `docs/build/ARCHITECTURE.md`.
+  benchmark half of `docs/integrate/ARCHITECTURE.md`.
 - **Behavior-neutral `MCPIP_REGION` observability tag** — a new optional `region` setting
   (`core/config.py`) surfaced read-only on `/healthz` and `/v1/version` for console/SDK display and log
   correlation. It is **purely an observability annotation**: it changes NOTHING about routing,
@@ -294,7 +294,7 @@ surfaces, and the A2A choke-point connector) behind one release version.
   absent (boot is byte-for-byte unchanged when unset). Design in `docs/operate/OPERATIONS.md`.
 - **Three FUTURE-wave design docs (designs + decisions, no substrate rewrite)** — the roadmap's FUTURE
   items are now addressed as rigorous design work, explicitly NOT as built substrate changes:
-  - `docs/build/ARCHITECTURE.md` — the group-commit WORM throughput ceiling: the REAL benchmark above plus
+  - `docs/integrate/ARCHITECTURE.md` — the group-commit WORM throughput ceiling: the REAL benchmark above plus
     the app-managed-WAL group-commit design that would raise it (batch N emits → ONE fsync → each waiter
     returns only post-fsync, so durable-before-authorize is PRESERVED), crash-safety + tamper-evidence +
     migration story. Raising the ceiling is a substrate rewrite of the tamper-evidence core — an explicit
@@ -303,7 +303,7 @@ surfaces, and the A2A choke-point connector) behind one release version.
     region), per-region WORM ledger + anchor + signing key with NO cross-region chain, residency-by-
     partition posture. Ships only the behavior-neutral `MCPIP_REGION` tag; a cross-region control plane
     stays deferred.
-  - `docs/build/ARCHITECTURE.md` — a decision memo on the single most consequential product call: whether
+  - `docs/integrate/ARCHITECTURE.md` — a decision memo on the single most consequential product call: whether
     MCPIP should ever enter the model's prompt/content path (the "oracle inversion" / taint-tracking
     data-plane pillars), which contradicts today's "interceptor, not a proxy" positioning. Recommendation:
     hold the line; the call is an explicit **owner decision, pending**. Writes NO data-plane code and
@@ -608,7 +608,7 @@ surfaces, and the A2A choke-point connector) behind one release version.
   the gate (an EC key in the JWKS still cannot smuggle an `ES256` identity
   token). Deliberately not network-fetching — the JWKS is supplied at boot, so
   the auth hot path takes no synchronous JWKS round-trip. New
-  `docs/build/INTEGRATIONS.md` specifies the fleet-scale provisioning story
+  `docs/integrate/INTEGRATIONS.md` specifies the fleet-scale provisioning story
   (runtime attestation → RFC 8693 token-exchange → ephemeral per-session keys)
   and the MCPIP-vs-platform boundary. Gate: `tests/test_jwks_provider.py`.
 - Multi-issuer trust + attesting-issuer scoping — closes the weak-issuer

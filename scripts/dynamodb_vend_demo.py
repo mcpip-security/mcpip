@@ -7,7 +7,7 @@ sandbox gateway. NO cloud account and NO AWS credentials are needed: in sandbox 
 broker returns a clearly-marked FAKE credential envelope, so the whole per-call vend
 flow — authorize → step-up → vend → receipt — is demonstrable end-to-end. The
 run-locally counterpart that drives the SAME pipeline against a real DynamoDB table
-with a least-privilege role lives in ``docs/build/INTEGRATIONS.md``.
+with a least-privilege role lives in ``docs/integrate/INTEGRATIONS.md``.
 
 What this proves (all four MCPIP controls, in order):
 
@@ -149,7 +149,7 @@ def main() -> int:
     base = args.base.rstrip("/")
 
     # Liveness. (The demo needs SANDBOX mode; /v1/dev/token 404s in production, so mint()
-    # fails with a clear message there. For a real-account run see docs/build/INTEGRATIONS.md.)
+    # fails with a clear message there. For a real-account run see docs/integrate/INTEGRATIONS.md.)
     status, health = _get(base, "/healthz")
     if status != 200:
         print(f"{RED}No gateway answered at {base}/healthz — start it first:{RESET}")
@@ -243,7 +243,7 @@ def main() -> int:
         print(f"{DIM}The agent never held a standing AWS key; it proved its MCPIP license, completed a payload-bound")
         print(f"step-up, and received a short-lived credential scoped to exactly the DynamoDB-write role. Every")
         print(f"decision is WORM-logged before dispatch; the vended secret never entered the log.{RESET}")
-        print(f"{DIM}Next: run it against a REAL table with a least-privilege role — docs/build/INTEGRATIONS.md{RESET}")
+        print(f"{DIM}Next: run it against a REAL table with a least-privilege role — docs/integrate/INTEGRATIONS.md{RESET}")
         return 0
     print(f"{RED}{BOLD}‼ {len(failures)} expectation(s) did not hold.{RESET}")
     return 1

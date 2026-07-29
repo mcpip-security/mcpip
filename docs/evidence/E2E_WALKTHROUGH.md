@@ -716,3 +716,11 @@ an auditor's determination, not software's. See
   produced by the signed release ceremony in `RELEASE.md`.
 - **Real R2.** `r2_buckets_list` returned `Please enable R2 through the Cloudflare
   Dashboard`, so the Cloudflare execution in §8 used D1 instead.
+
+---
+
+**Measuring your own flow.** `scripts/e2e_flow_timing.py` is a timing harness for
+the same paths this document walks — as an app (MCP), the SDK and the CLI, as
+both a plain user and an admin, including token issuance and forensic
+reconstruction. Every segment is a real wall-clock measurement against a running
+sandbox gateway; nothing is estimated. Run instructions are in its docstring.

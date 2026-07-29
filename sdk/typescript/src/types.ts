@@ -1007,7 +1007,7 @@ export interface PolicyDocument {
 // submit/review/WORM/hash-pin flow serves both kinds, routed by `kind`. GATES
 // (Phase 2) ship as schema + a deny-only seam; the CEL parse/evaluate runtime is
 // DEFERRED, so a gate is stored PENDING but can never be approved/enforced until
-// an engine is registered (docs/build/EXTENSIBILITY.md §8). Mirrors app/main.py verbatim.
+// an engine is registered (docs/integrate/EXTENSIBILITY.md §8). Mirrors app/main.py verbatim.
 // ---------------------------------------------------------------------------
 
 /** The two extension kinds the submit/review flow routes on (manifest `kind`). */

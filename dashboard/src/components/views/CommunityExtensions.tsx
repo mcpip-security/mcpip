@@ -15,7 +15,7 @@
    Community SKILLS are shipped fully. Community GATES are Phase 2: the schema +
    the deny-only seam ship, but the CEL parse/evaluate RUNTIME is DEFERRED — a gate
    can be submitted + stored PENDING but can NEVER be approved/enforced until a CEL
-   engine is registered (docs/build/EXTENSIBILITY.md §8). The queue's `approvable` flag
+   engine is registered (docs/integrate/EXTENSIBILITY.md §8). The queue's `approvable` flag
    says so honestly, and the gate approve action is disabled with that reason.
 
    NOTHING is mocked. Offline → the standard connect state. A gateway with no

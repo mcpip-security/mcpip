@@ -66,7 +66,7 @@ export const CAP_CATALOG_REVIEWER = '7a1f9c34-2e58-4b6d-9f01-3c7a5e2b8d46';
  * `max_cost` must satisfy (1..MAX_GATE_COST). The console pre-validates against it so
  * an over-budget gate is caught before the fail-closed submit; the gateway remains
  * authoritative. The STATIC cost prover that would confirm the real AST cost is part
- * of the DEFERRED CEL runtime (docs/build/EXTENSIBILITY.md §8).
+ * of the DEFERRED CEL runtime (docs/integrate/EXTENSIBILITY.md §8).
  */
 export const MAX_GATE_COST = 1_000_000;
 

@@ -222,7 +222,7 @@ RELATION_KEY_PREFIX: Final[str] = "mcpip:rel"
 # CPU/timing oracle on the hot path. Mirrors the Kubernetes ValidatingAdmissionPolicy
 # per-expression CEL cost budget. It is validated as pure DATA at submit/approve
 # (``max_cost <= MAX_GATE_COST``); the actual cost PROVER needs the DEFERRED CEL runtime
-# (docs/build/EXTENSIBILITY.md §8), so no gate can be APPROVED until an engine is registered
+# (docs/integrate/EXTENSIBILITY.md §8), so no gate can be APPROVED until an engine is registered
 # (no approve-without-proof). Kept here because hard limits live in ONE place.
 MAX_GATE_COST: Final[int] = 1_000_000
 
@@ -1258,7 +1258,7 @@ class PolicyProvider(ABC):
 # §1.5d  Community-gate seam — a DENY-ONLY author-your-own gate step (Phase 2).
 # ---------------------------------------------------------------------------
 #
-# Phase 2 of the author-your-own extensibility feature (docs/build/EXTENSIBILITY.md §8): a
+# Phase 2 of the author-your-own extensibility feature (docs/integrate/EXTENSIBILITY.md §8): a
 # community-authored declarative gate evaluated at pipeline step 4c′ — right after the
 # mandate gate and adjacent to the G3 policy overlay. Like every base gate it is
 # DENY-ONLY / monotonic: the ONLY actionable outcome is ``deny`` (raised as
@@ -1268,7 +1268,7 @@ class PolicyProvider(ABC):
 #
 # The CEL parse/lint/evaluate RUNTIME is deliberately DEFERRED — an owner dependency
 # decision (cel-python pulls a native-extension chain, google-re2[native]+pendulum, into
-# the fail-closed authorizer; see docs/build/EXTENSIBILITY.md §8). So this module ships ONLY the
+# the fail-closed authorizer; see docs/integrate/EXTENSIBILITY.md §8). So this module ships ONLY the
 # seam CONTRACT: the whitelisted context, the deny-only decision, and the provider ABC.
 # The default provider (``services/community_gate.py``) is a strict NO-OP that always
 # ``continue``s — the honest "no community gate engine configured" state, never a

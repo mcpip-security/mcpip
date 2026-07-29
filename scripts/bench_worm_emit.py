@@ -30,7 +30,7 @@ For each posture it runs:
   * a CONCURRENCY SWEEP (fire batches with ``asyncio.gather``) → the aggregate emits/sec as
     in-flight concurrency rises. Under ``appendfsync always`` this plateaus at the single
     -fsync ceiling because Redis has no application-triggered group fsync (each write is
-    fsync'd independently) — the exact architectural limit ``docs/build/ARCHITECTURE.md``
+    fsync'd independently) — the exact architectural limit ``docs/integrate/ARCHITECTURE.md``
     analyses. Under ``everysec`` it keeps climbing because no per-write fsync gates it.
 
 Everything measured is a REAL ``WormLogger.emit`` — the same code the pipeline calls, the

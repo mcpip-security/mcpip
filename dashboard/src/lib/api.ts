@@ -449,68 +449,8 @@ export async function complianceEvidence(
 /** The schema tag every verified-publisher allow-list document carries. */
 export const PUBLISHERS_SCHEMA = 'mcpip-registry-publishers/1' as const;
 
-/** GET/PUT /v1/admin/extensions/publishers — the pinned publisher-namespace allow-list. */
-export interface VerifiedPublishers {
-  schema: typeof PUBLISHERS_SCHEMA;
-  namespaces: string[];
-}
 
-/**
- * GET /v1/admin/extensions/publishers — the tenant's verified-publisher allow-list.
- * CAP_CATALOG_REVIEWER-gated (DISTINCT from CAP_DIRECTORY_ADMIN). The gateway ALWAYS
- * answers with a document: when nothing is pinned it returns the honest empty
- * `{ schema, namespaces: [] }` (nothing registry-sourced can be approved), so an
- * empty list means "no pinned publishers", never a failed read. Fails soft: returns
- * null on any network error, non-2xx (opaque 403), 404 (pre-endpoint gateway), or
- * malformed body.
- */
-export async function verifiedPublishers(
-  token: string,
-  opts: GatewayClientOptions = {},
-): Promise<VerifiedPublishers | null> {
-  try {
-    const init: RequestInit = { method: 'GET', headers: authHeaders(token) };
-    if (opts.signal) init.signal = opts.signal;
-    const res = await fetch(`${baseOf(opts)}/v1/admin/extensions/publishers`, init);
-    if (!res.ok) return null;
-    const body = (await res.json()) as { publishers?: unknown };
-    const doc = body.publishers;
-    if (typeof doc !== 'object' || doc === null) return null;
-    const ns = (doc as { namespaces?: unknown }).namespaces;
-    return {
-      schema: PUBLISHERS_SCHEMA,
-      namespaces: Array.isArray(ns) ? ns.filter((n): n is string => typeof n === 'string') : [],
-    };
-  } catch {
-    return null;
-  }
-}
 
-/**
- * PUT /v1/admin/extensions/publishers — replace the tenant's verified-publisher
- * allow-list with `namespaces`. CAP_CATALOG_REVIEWER-gated; strict-validated
- * server-side (<= 256 charset-safe / identity-safe / de-duplicated namespaces) and a
- * malformed list is the same opaque 403. WORM-logged emit-before-mutate. Returns
- * true on 200. Never throws.
- */
-export async function putVerifiedPublishers(
-  token: string,
-  namespaces: string[],
-  opts: GatewayClientOptions = {},
-): Promise<boolean> {
-  try {
-    const init: RequestInit = {
-      method: 'PUT',
-      headers: authHeaders(token),
-      body: JSON.stringify({ schema: PUBLISHERS_SCHEMA, namespaces }),
-    };
-    if (opts.signal) init.signal = opts.signal;
-    const res = await fetch(`${baseOf(opts)}/v1/admin/extensions/publishers`, init);
-    return res.status === 200;
-  } catch {
-    return false;
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Operator/team USER MANAGEMENT — the admin-managed, email-keyed console roster.
@@ -846,49 +786,6 @@ export interface AuthzenDecision {
   obligations: AuthzenObligation[];
 }
 
-/**
- * POST /v1/authz/decision — the OpenID-AuthZEN / COAZ decision surface (MCPIP as
- * a PDP). Asks for a PRE-EXECUTION verdict on a hypothetical call; DECISION-ONLY
- * (nothing executes, vends, stages/consumes a PIN, or mutates a grant). `alias` is
- * the opaque AuthZEN `resource.id`; `args` the `action.properties`. Identity comes
- * solely from the Bearer JWT — the AuthZEN subject is advisory/echo only. A permit
- * is `{ decision: true }` optionally carrying obligations; a deny is the bare opaque
- * `{ decision: false }` (no reason/target/topology). JWT-gated: an invalid/absent
- * token is an opaque 403 → null here, distinct from an answered `decision: false`.
- * Fails soft: returns null on any error.
- */
-export async function authzDecision(
-  token: string,
-  alias: string,
-  args: Record<string, unknown> = {},
-  opts: GatewayClientOptions = {},
-): Promise<AuthzenDecision | null> {
-  try {
-    const init: RequestInit = {
-      method: 'POST',
-      headers: authHeaders(token),
-      body: JSON.stringify({
-        subject: {},
-        resource: { id: alias, type: 'mcpip.tool' },
-        action: { name: 'invoke', properties: args },
-      }),
-    };
-    if (opts.signal) init.signal = opts.signal;
-    const res = await fetch(`${baseOf(opts)}/v1/authz/decision`, init);
-    if (!res.ok) return null;
-    const b = (await res.json()) as { decision?: unknown; obligations?: unknown };
-    if (typeof b.decision !== 'boolean') return null;
-    const obligations = Array.isArray(b.obligations)
-      ? b.obligations.filter(
-          (o): o is AuthzenObligation =>
-            typeof o === 'object' && o !== null && typeof (o as { id?: unknown }).id === 'string',
-        )
-      : [];
-    return { decision: b.decision, obligations };
-  } catch {
-    return null;
-  }
-}
 
 /** GET /v1/version — running release, signed provenance, and update posture. */
 export interface ReleaseProvenance {
@@ -1299,64 +1196,9 @@ export interface WorkspacePlan {
   skills: PlanSkill[];
 }
 
-export interface PlanValidation {
-  ok: boolean;
-  errors: string[];
-  warnings: string[];
-  summary: { org_units: number; teams: number; skills: number };
-}
 
-/** POST /v1/admin/workspace/draft — deterministic brief → plan proposal. */
-export async function draftWorkspace(
-  token: string,
-  body: { brief: string; company: string; tenant: string },
-  opts: GatewayClientOptions = {},
-): Promise<WorkspacePlan | null> {
-  try {
-    const init: RequestInit = { method: 'POST', headers: authHeaders(token), body: JSON.stringify(body) };
-    if (opts.signal) init.signal = opts.signal;
-    const res = await fetch(`${baseOf(opts)}/v1/admin/workspace/draft`, init);
-    if (!res.ok) return null;
-    const data = (await res.json()) as { plan?: WorkspacePlan };
-    return data.plan ?? null;
-  } catch {
-    return null;
-  }
-}
 
-/** POST /v1/admin/workspace/plan/validate — dry-run validation (no mutation). */
-export async function validateWorkspacePlan(
-  token: string,
-  plan: WorkspacePlan,
-  opts: GatewayClientOptions = {},
-): Promise<PlanValidation | null> {
-  try {
-    const init: RequestInit = { method: 'POST', headers: authHeaders(token), body: JSON.stringify({ plan }) };
-    if (opts.signal) init.signal = opts.signal;
-    const res = await fetch(`${baseOf(opts)}/v1/admin/workspace/plan/validate`, init);
-    if (!res.ok) return null;
-    return (await res.json()) as PlanValidation;
-  } catch {
-    return null;
-  }
-}
 
-/** POST /v1/admin/workspace/plan/apply — apply a reviewed plan via the hardened endpoints. */
-export async function applyWorkspacePlan(
-  token: string,
-  plan: WorkspacePlan,
-  opts: GatewayClientOptions = {},
-): Promise<{ applied: boolean; created: string[]; skipped: string[] } | null> {
-  try {
-    const init: RequestInit = { method: 'POST', headers: authHeaders(token), body: JSON.stringify({ plan }) };
-    if (opts.signal) init.signal = opts.signal;
-    const res = await fetch(`${baseOf(opts)}/v1/admin/workspace/plan/apply`, init);
-    if (res.status !== 200) return null;
-    return (await res.json()) as { applied: boolean; created: string[]; skipped: string[] };
-  } catch {
-    return null;
-  }
-}
 
 /** GET /v1/admin/skills/disabled — alias names disabled in the caller's tenant. */
 export async function listDisabledSkills(
@@ -2307,7 +2149,7 @@ export async function authenticatorOtp(
    four are opaque-deny + WORM-audited (every mutation logs BEFORE it takes
    effect). The declared `target` on a pending skill is a reviewer-only surface —
    it never crosses the agent wire. GATE approval is refused until the deferred
-   CEL engine is registered (no approve-without-proof, docs/build/EXTENSIBILITY.md §8).
+   CEL engine is registered (no approve-without-proof, docs/integrate/EXTENSIBILITY.md §8).
 --------------------------------------------------------------------------- */
 
 /**

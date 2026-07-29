@@ -1,16 +1,29 @@
 # Specializing the Workspace-Generate model
 
+> **None of this is required.** The gateway is inference-free by invariant — it ships
+> no weights and never calls a model. The optional drafting path talks to *any*
+> OpenAI-compatible endpoint you run, so you can point it at whatever model you
+> already have and skip this directory entirely. See
+> [`docs/integrate/LOCAL_MODEL.md`](../docs/integrate/LOCAL_MODEL.md) for the (two-setting)
+> contract.
+>
+> This file is for the case where a stock model isn't clearing your quality bar and
+> you want to specialize one. The Qwen2.5 + QLoRA recipe below is **one worked
+> example**, not a recommendation for your situation.
+
 Make a **slim, local, open-source** model good at one narrow job: turn a company brief into
 a governed `WorkspacePlan`. Everything here is local and air-gapped — the brief never
 leaves the perimeter — and every draft still passes through the gateway's authoritative
 validation + human review, so the model only has to be *good*, never *trusted*.
 
-Climb this ladder only as far as you need:
+Climb this ladder only as far as you need — most people stop at Tier 0:
 
 ## Tier 0 — nothing (try first)
-The wired local-model path already works with a stock base + our system prompt, and
-`normalizePlan` + the gateway re-validate every draft. Point the console at
-`qwen2.5:1.5b` and see if quality is fine. Often it is.
+The local-model path already works with a stock base + our system prompt, and
+`normalizePlan` + the gateway re-validate every draft. Point the console at any small
+instruct model you already run — `qwen2.5:1.5b`, `llama3.2:1b`, `phi3:mini`, or a model
+served by llama.cpp / vLLM / LM Studio — and see if quality is fine. Often it is, and
+you are done.
 
 ## Tier 1 — prompt + few-shot (minutes, no GPU)
 Bake the system prompt + a couple of exemplars into a custom Ollama model:

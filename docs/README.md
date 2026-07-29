@@ -14,7 +14,7 @@ The documentation is organized into the hubs below — each is a folder. Start w
 docs/
 ├── start/       first contact — quickstart, SDKs, CLI
 ├── operate/     running it — day-2, compliance, telemetry, incident response
-├── build/       integrating and extending — architecture, connectors, skills
+├── integrate/   integrating and extending — architecture, connectors, skills, models
 ├── background/  the whitepaper
 └── evidence/    real end-to-end runs, with the transcripts and screenshots
 ```
@@ -39,11 +39,12 @@ docs/
 
 | Doc | What's inside |
 |---|---|
-| [ARCHITECTURE.md](build/ARCHITECTURE.md) | The design references: the A2A side-effect choke point, the data-plane-fork owner memo, and the WORM group-commit throughput design. |
-| [INTEGRATIONS.md](build/INTEGRATIONS.md) | Cloud/identity integration patterns: workload identity (SPIFFE), the OAuth 2.1 resource-server metadata, the governed-alias pattern, and the DynamoDB cloud-IAM live-fire walkthrough. |
-| [EXTENSIBILITY.md](build/EXTENSIBILITY.md) | Author-your-own community **skills** (implemented) and **gates** (CEL runtime deferred) — reviewer-approval + WORM record + hash-pin. |
-| [WORKSPACE_GENERATE.md](build/WORKSPACE_GENERATE.md) | Brief → governed workspace scaffold: the draft/validate/apply endpoints, inference-free core with an optional local-first LLM toolchain. |
-| [IMPLEMENTATION_WEB.md](build/IMPLEMENTATION_WEB.md) | The web/console implementation reference. |
+| [ARCHITECTURE.md](integrate/ARCHITECTURE.md) | The design references: the A2A side-effect choke point, the data-plane-fork owner memo, and the WORM group-commit throughput design. |
+| [INTEGRATIONS.md](integrate/INTEGRATIONS.md) | Cloud/identity integration patterns: workload identity (SPIFFE), the OAuth 2.1 resource-server metadata, the governed-alias pattern, and the DynamoDB cloud-IAM live-fire walkthrough. |
+| [EXTENSIBILITY.md](integrate/EXTENSIBILITY.md) | Author-your-own community **skills** (implemented) and **gates** (CEL runtime deferred) — reviewer-approval + WORM record + hash-pin. |
+| [WORKSPACE_GENERATE.md](integrate/WORKSPACE_GENERATE.md) | Brief → governed workspace scaffold: the draft/validate/apply endpoints, inference-free core with an optional local-first LLM toolchain. |
+| [LOCAL_MODEL.md](integrate/LOCAL_MODEL.md) | Bring your own model — the gateway is inference-free and never calls one; the optional drafting path takes any OpenAI-compatible endpoint (Ollama, llama.cpp, vLLM, LM Studio, your own). Two settings, no bundled weights. |
+| [IMPLEMENTATION_WEB.md](integrate/IMPLEMENTATION_WEB.md) | The web/console implementation reference. |
 
 ## Background
 

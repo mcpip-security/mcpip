@@ -140,7 +140,7 @@ spec:
     # NO OTHER EGRESS RULE. Deliberately absent (each would reopen the bypass):
     #   * no 0.0.0.0/0 internet egress,
     #   * no 169.254.169.254 cloud-metadata reach (an SSRF-to-IMDS lane that
-    #     could forge a workload attestation — see docs/build/INTEGRATIONS.md §6),
+    #     could forge a workload attestation — see docs/integrate/INTEGRATIONS.md §6),
     #   * no direct database / SaaS / mainframe egress (those are the proxy
     #     targets MCPIP fronts — reaching them directly is exactly the bypass).
     # Adding any broad allow here voids the "every action goes through the gate"
