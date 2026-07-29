@@ -515,7 +515,7 @@ production — a missing one fails boot closed):
     MCPIP_REDIS_URL=redis://mcpip-redis.internal:6379/0
     MCPIP_REDIS_MAX_CONNECTIONS=64
     MCPIP_JWT_ISSUER=<your-idp>                 # must equal the token iss
-    MCPIP_JWT_AUDIENCE=mcpip-gateway            # must equal the token aud
+    MCPIP_JWT_AUDIENCE=<your-gateway-aud>       # must equal the token aud
     MCPIP_JWT_PUBLIC_KEY_PATH=…                 # * (4b)
     MCPIP_WORM_PATH=/var/lib/mcpip/mcpip_worm.jsonl
     MCPIP_WORM_ANCHOR_PATH=/var/lib/mcpip/mcpip_worm.jsonl.anchor

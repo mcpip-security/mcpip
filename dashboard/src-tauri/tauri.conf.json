@@ -48,8 +48,8 @@
     "category": "Utility",
     "shortDescription": "MCPIP zero-trust operator console",
     "longDescription": "Native desktop shell for the \u25d0 MCPIP operator console \u2014 WORM audit ledger, IAM principal directory, execution-policy knowledge graph, and live decision stream. Talks to the MCPIP gateway over HTTPS/WSS with the same token/mTLS standards as the web portal.",
-    "copyright": "\u00a9 MCPIP",
-    "publisher": "MCPIP",
+    "copyright": "\u00a9 2026 MCPIP Security",
+    "publisher": "MCPIP Security",
     "macOS": {
       "minimumSystemVersion": "10.15"
     },

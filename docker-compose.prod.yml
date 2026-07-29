@@ -27,8 +27,12 @@
 #     ./secrets/release_root_ed25519.pub.pem    <- release/keys/release_root_ed25519.pub.pem
 #     ./secrets/license_root_ed25519.pub.pem    <- release/keys/license_root_ed25519.pub.pem
 #
-#   And set your IdP issuer (must match the `iss` of your minted principal tokens),
-#   e.g. in a `.env` file beside this compose file:  MCPIP_JWT_ISSUER=prod-idp.example
+#   And set your IdP issuer and gateway audience (must match the `iss`/`aud` of your
+#   minted principal tokens), e.g. in a `.env` file beside this compose file:
+#     MCPIP_JWT_ISSUER=prod-idp.example
+#     MCPIP_JWT_AUDIENCE=mcpip-gw.example
+#   Neither may be left on the shipped demo pair (`mcpip-demo-idp` / `mcpip-gateway`);
+#   production boot refuses both, so each is a required variable here.
 #
 # File permissions: the gateway runs as uid/gid 10001 (non-root). Every file in
 # ./secrets must be READABLE by that uid — the three .pub.pem / manifest / license
@@ -107,10 +111,11 @@ services:
       MCPIP_SANDBOX_MODE: "false"
 
       # Identity sovereignty — MUST match the iss/aud of your minted principal tokens.
-      # Set MCPIP_JWT_ISSUER (e.g. in a .env file beside this compose file); boot is
-      # refused if it is unset, on purpose.
+      # Set BOTH (e.g. in a .env file beside this compose file); boot is refused if
+      # either is unset, on purpose. Neither may be left on the demo pair
+      # (`mcpip-demo-idp` / `mcpip-gateway`) — production refuses those too.
       MCPIP_JWT_ISSUER: "${MCPIP_JWT_ISSUER:?set MCPIP_JWT_ISSUER to your IdP issuer (e.g. in a .env file beside this compose file)}"
-      MCPIP_JWT_AUDIENCE: "${MCPIP_JWT_AUDIENCE:-mcpip-gateway}"
+      MCPIP_JWT_AUDIENCE: "${MCPIP_JWT_AUDIENCE:?set MCPIP_JWT_AUDIENCE to your gateway audience (e.g. in a .env file beside this compose file)}"
 
       # --- The startup-gate key/license/integrity paths (all under the ./secrets
       #     bind mount at /etc/mcpip). Every one must resolve to a present, valid
