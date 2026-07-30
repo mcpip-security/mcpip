@@ -4,7 +4,7 @@
 # Starlette's TestClient (httpx, shipped transitively by fastapi) and pytest.
 -r requirements.txt
 pytest>=8.3,<9
-mypy==1.13.0
+mypy==2.3.0
 # Release tooling (build-time only — NEVER in requirements.txt or the image):
 build>=1.2,<2
 cyclonedx-bom>=4.6,<6
