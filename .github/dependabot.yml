@@ -1,12 +1,27 @@
 # Dependency vulnerability monitoring & update automation.
 #
-# Automated dependency/CVE scanning (SOC 2 CC7.1): Dependabot
-# opens PRs for known-vulnerable and out-of-date dependencies across every
-# ecosystem the repo ships, so a new CVE in a pinned dependency is surfaced as a
-# reviewable PR instead of waiting on a manual offline `grype`/`trivy` run.
+# Automated dependency/CVE scanning (SOC 2 CC7.1): Dependabot opens PRs for
+# known-vulnerable and out-of-date dependencies across every ecosystem the repo
+# ships, so a new CVE in a pinned dependency is surfaced as a reviewable PR
+# instead of waiting on a manual offline `grype`/`trivy` run.
 #
-# Grouped, weekly, low-noise. Security updates are ungrouped so a CVE fix lands
-# on its own reviewable PR immediately.
+# TWO groups per ecosystem, and that split is the point.
+#
+# The previous config grouped only ["minor","patch"], so every MAJOR bump escaped
+# its group and opened a PR of its own — and `github-actions` had no group at all.
+# That produced 14 simultaneous open PRs (5 npm + 5 pip + 4 actions), which is
+# both unreadable and actively harmful: a wall of PRs is a wall nobody reads, and
+# the CVE fix this automation exists to surface gets lost in it.
+#
+# Majors are still proposed — never silently dropped, because a major can carry
+# the security fix — but they arrive batched and labelled `major` so they are
+# obviously a human decision rather than a rubber stamp. They earned that
+# treatment: every breaking change found when the 14 were evaluated was a major
+# (react-dom 19 against react 18, tailwind 3->4, typescript 5->7, redis 5->8 and
+# pytest 8->9, which together hung the test suite past 10 minutes).
+#
+# Minor/patch stay in their own group so the safe set remains independently
+# mergeable without waiting on a breaking-change review.
 version: 2
 updates:
   # --- Python runtime + dev deps (root requirements*.txt). --------------------
@@ -14,11 +29,14 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 3
     groups:
       python-deps:
         patterns: ["*"]
         update-types: ["minor", "patch"]
+      python-deps-major:
+        patterns: ["*"]
+        update-types: ["major"]
     labels: ["dependencies", "supply-chain"]
 
   # --- Operator console (Vite/React). ----------------------------------------
@@ -26,17 +44,28 @@ updates:
     directory: "/dashboard"
     schedule:
       interval: "weekly"
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 3
     groups:
       console-deps:
         patterns: ["*"]
         update-types: ["minor", "patch"]
+      console-deps-major:
+        patterns: ["*"]
+        update-types: ["major"]
     labels: ["dependencies", "supply-chain", "console"]
 
   # --- CI workflow actions (pin bumps + security). ---------------------------
+  # Grouped now. Ungrouped, four routine action bumps became four PRs.
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 2
+    groups:
+      ci-actions:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+      ci-actions-major:
+        patterns: ["*"]
+        update-types: ["major"]
     labels: ["dependencies", "supply-chain", "ci"]

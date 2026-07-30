@@ -27,7 +27,7 @@
     ".github/CODE_OF_CONDUCT.md": "4671ca3e7519cca0aeebad035e0277251ccb2a117bc33edab9da7a283e1e9a1b",
     ".github/CONTRIBUTING.md": "0b964dac7f8d6039a23e4f87433d6902cf694a319c41156ca847ae46da3d925f",
     ".github/SUPPORT.md": "faf18a36336eb72b3b45892e98f8de21266d1f96b1d6ddc35b85d1712201934a",
-    ".github/dependabot.yml": "bfee7fa04f7a7b27bf08a544665fc9153d3469ecfb68e0298492860b0d6eefd0",
+    ".github/dependabot.yml": "f5af7da3997dbf3644d37554d5df42c39bd1f442b2e3e532530b3996142f3975",
     ".github/pull_request_template.md": "8b313e948923ff51b854237e7ecff0e73848d4cc442d001c8efd290df04ffd88",
     ".github/workflows/ci.yml": "4757d0d899c49f5c1860cc4ee4061e841968e9f9f543725a47c7ccaa66135c63",
     ".github/workflows/desktop-release.yml": "72b736a5cc978385e29afd09386f95de44ec7ce15a66594d056aa8eb5b63d333",
@@ -459,7 +459,7 @@
   "package": "mcpip",
   "source": {
     "branch": "claude/new-session-6g22zk",
-    "commit": "305b745a41f0314ecee0109cdc3b32ce8ddb7f6f",
+    "commit": "2a595119560074aeccc2f38fa038d9c5e41b2ebb",
     "note": "HEAD at generation time; the commit that records this manifest is its child",
     "repository": "https://github.com/mcpip-security/mcpip"
   },
