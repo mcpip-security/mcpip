@@ -155,7 +155,7 @@
     "dashboard/src/lib/extensions.ts": "ba93c39c767cb7384984452eae6f30e10aa2a730a494f150c7766d16a476f75d",
     "dashboard/src/lib/format.ts": "91cb9ebf8886cfd7278ace080e5ce56ead9f671a1369d73de1a32c94e8bed411",
     "dashboard/src/lib/grantCeremony.ts": "669ac2d73140e24e533a7abad2420c7c31577f0acefa7fdf970d0078c8330d52",
-    "dashboard/src/lib/ledger.ts": "145304c48341138c063d4868bc8ce1d574ee394511cdd30a78fdfbacb3d5ee3b",
+    "dashboard/src/lib/ledger.ts": "4d5b21a500b00251f2c1b5ccfdf30428c42d0eebbe5bfb39a67c2390fe8581fc",
     "dashboard/src/lib/localModel.ts": "2d94fa4e738649b24b5fc316eb49c10e7eb0898d95327c0e24a85443ec5e2ded",
     "dashboard/src/lib/metricsClient.ts": "e85eb7747b6e86f59cba534ddb4df1733aa91c42b36747cf2c6ccd3b0290f755",
     "dashboard/src/lib/nav.ts": "d3accadea2fea8d88e31b5c9219fa6f9406e638a86b542b755aa754cd999b342",
@@ -460,8 +460,8 @@
   },
   "package": "mcpip",
   "source": {
-    "branch": "try-merge-16",
-    "commit": "ad7ef305b2e5bf5f7f2a5e678b9d4265e48501dd",
+    "branch": "claude/new-session-6g22zk",
+    "commit": "fd8f36a3952b42e99c3fea24cf27e3b49bf6e58f",
     "note": "HEAD at generation time; the commit that records this manifest is its child",
     "repository": "https://github.com/mcpip-security/mcpip"
   },

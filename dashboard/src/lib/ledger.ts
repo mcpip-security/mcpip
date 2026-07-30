@@ -455,7 +455,14 @@ function bytesToHex(bytes: Uint8Array): string {
 }
 
 async function sha256(bytes: Uint8Array): Promise<Uint8Array> {
-  return new Uint8Array(await crypto.subtle.digest('SHA-256', bytes));
+  // `Uint8Array.from` rather than passing `bytes` straight through: TypeScript 5.7
+  // made Uint8Array generic over its backing buffer, so an unconstrained
+  // `Uint8Array` widens to `Uint8Array<ArrayBufferLike>` — which may be backed by a
+  // SharedArrayBuffer and therefore is not a `BufferSource`. `from` always copies
+  // into a fresh ArrayBuffer-backed view, which satisfies the digest signature on
+  // both the old and new lib definitions. The copy is a few dozen bytes per Merkle
+  // node; correctness of the proof check is not worth trading for it.
+  return new Uint8Array(await crypto.subtle.digest('SHA-256', Uint8Array.from(bytes)));
 }
 
 export interface LocalProofCheck {
