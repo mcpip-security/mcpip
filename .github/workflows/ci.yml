@@ -31,8 +31,8 @@ jobs:
           --health-timeout 3s
           --health-retries 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: pip
@@ -47,8 +47,8 @@ jobs:
     name: Supply-chain (CVE scan + manifest drift)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: pip
@@ -81,7 +81,7 @@ jobs:
     name: Deploy manifests (kubeconform + helm)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # Schema validation of the raw manifests. `-strict` rejects unknown fields,
       # which is the half that matters: a typo'd key is otherwise accepted and
       # silently ignored by the API server. CRDs (PrometheusRule) have no schema
@@ -98,7 +98,7 @@ jobs:
             https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz
           tar xzf kubeconform.tar.gz kubeconform
           ./kubeconform -strict -summary -ignore-missing-schemas deploy/k8s/
-      - uses: azure/setup-helm@v4
+      - uses: azure/setup-helm@v5
         with:
           version: v3.16.3
       - name: helm lint + render + validate (deploy/chart)
@@ -114,8 +114,8 @@ jobs:
     name: Console + TS SDK builds
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 20
           cache: npm
