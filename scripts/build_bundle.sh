@@ -57,7 +57,20 @@ if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
     exit 1
 fi
 
+# Prefer the repo venv, but do not REQUIRE it. The air-gap tab documents this as
+# the first command an Administer-track reader runs, and that reader has not been
+# told to create a venv — hardcoding the path made the script die on a clean
+# clone with a bare "no such file or directory" that named neither cause nor fix.
 PY="$REPO_ROOT/.venv/bin/python"
+if [[ ! -x "$PY" ]]; then
+    PY="$(command -v python3 || command -v python || true)"
+    if [[ -z "$PY" ]]; then
+        echo "no python found — install Python 3.10+, or create the repo venv:" >&2
+        echo "  python3 -m venv .venv && ./.venv/bin/pip install -r requirements.txt" >&2
+        exit 1
+    fi
+    echo "note: $REPO_ROOT/.venv not found — using $PY" >&2
+fi
 MANIFEST="$REPO_ROOT/release/manifest.json"
 SIG="$REPO_ROOT/release/manifest.sig"
 PUBKEY="$REPO_ROOT/release/keys/release_root_ed25519.pub.pem"

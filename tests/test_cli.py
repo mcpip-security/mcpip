@@ -606,7 +606,7 @@ def test_up_print_only_plans_without_booting(capsys: Any) -> None:
     """`mcpip up --print-only` finds the checkout and prints the plan, exit 0."""
     code, out, _ = _run(["up", "--print-only", "--repo", str(_REPO_ROOT)], capsys)
     assert code == ExitCode.OK
-    assert "quickstart_demo.sh" in out
+    assert "quickstart.sh" in out
     assert str(_REPO_ROOT) in out
 
 
@@ -615,7 +615,7 @@ def test_up_autodetects_checkout_from_subdir(monkeypatch: Any, capsys: Any) -> N
     monkeypatch.chdir(_REPO_ROOT / "tests")
     code, out, _ = _run(["up", "--print-only"], capsys)
     assert code == ExitCode.OK
-    assert "quickstart_demo.sh" in out
+    assert "quickstart.sh" in out
 
 
 def test_up_outside_checkout_fails_with_clone_hint(tmp_path: Any, capsys: Any) -> None:

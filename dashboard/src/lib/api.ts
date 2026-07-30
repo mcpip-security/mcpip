@@ -261,7 +261,8 @@ export interface AuditAttestation {
 
 /**
  * GET /v1/audit/attestation — the portable, signed attestation of the current audit
- * state. Plain-JWT-gated (like /v1/version) rather than admin-gated, and — unlike the
+ * state. CAP_DIRECTORY_ADMIN-gated (app.main enforces _require_directory_admin: the
+ * bundle commits to the GLOBAL WORM head, not one tenant's slice), and — unlike the
  * sandbox-only /v1/audit/verify and /v1/audit/proof — available in production, because a
  * portable, externally-checkable attestation is a production artifact. Fails soft: returns
  * null when unreachable, unsupported (a pre-endpoint gateway), or malformed.
@@ -1375,6 +1376,16 @@ export interface DecisionPage {
   next_cursor: string | null;
   scanned: number;
   exhausted: boolean;
+  /**
+   * Oldest decision still held, in epoch ms — null when the server does not
+   * report one. With `window_precedes_retention` these exist so an empty page
+   * cannot lie: without them a caller cannot tell "nothing happened in this
+   * window" from "this window is older than anything I still hold", and for an
+   * audit product those two answers are opposites.
+   */
+  retention_floor_ms: number | null;
+  /** True when the requested window starts before `retention_floor_ms`. */
+  window_precedes_retention: boolean;
 }
 
 /**
@@ -1408,6 +1419,8 @@ export async function queryDecisions(
       next_cursor?: unknown;
       scanned?: unknown;
       exhausted?: unknown;
+      retention_floor_ms?: unknown;
+      window_precedes_retention?: unknown;
     };
     if (!Array.isArray(body.decisions)) return null;
     return {
@@ -1417,6 +1430,9 @@ export async function queryDecisions(
       next_cursor: typeof body.next_cursor === 'string' ? body.next_cursor : null,
       scanned: typeof body.scanned === 'number' ? body.scanned : 0,
       exhausted: body.exhausted === true,
+      retention_floor_ms:
+        typeof body.retention_floor_ms === 'number' ? body.retention_floor_ms : null,
+      window_precedes_retention: body.window_precedes_retention === true,
     };
   } catch {
     return null;

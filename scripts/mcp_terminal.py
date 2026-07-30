@@ -193,7 +193,7 @@ def main() -> int:
     session = McpSession(args.base)
     server = session.initialize()
     if server is None:
-        print(f"{RED}no MCP server answered at {session.base}/v1/mcp{RESET} — start one: ./scripts/quickstart_demo.sh")
+        print(f"{RED}no MCP server answered at {session.base}/v1/mcp{RESET} — start one: ./scripts/quickstart.sh")
         return 2
     info = server.get("serverInfo") or {}
     print(f"{BOLD}◐ connected{RESET} — {info.get('name', '?')} v{info.get('version', '?')} · MCP {server.get('protocolVersion', '?')} · {session.base}")

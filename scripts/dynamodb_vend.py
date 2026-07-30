@@ -26,15 +26,15 @@ MCPIP authorizes + vends + audits. It does NOT proxy or content-inspect the down
 DynamoDB call — the vended credential's least-privilege policy is the blast-radius
 control (see the doc).
 
-Prereqs — a sandbox gateway on :8080 (or run ``./scripts/quickstart_demo.sh`` first):
+Prereqs — a sandbox gateway on :8080 (or run ``./scripts/quickstart.sh`` first):
 
     MCPIP_SANDBOX_MODE=true MCPIP_REDIS_URL=redis://localhost:63790/0 \
         python -m uvicorn app.main:app --port 8080 &
 
 Then:
 
-    python scripts/dynamodb_vend_demo.py                 # against http://localhost:8080
-    python scripts/dynamodb_vend_demo.py --base http://host:8080
+    python scripts/dynamodb_vend.py                 # against http://localhost:8080
+    python scripts/dynamodb_vend.py --base http://host:8080
 
 Exit code is non-zero if any expectation is violated, so this doubles as a smoke test.
 """
@@ -110,7 +110,7 @@ def mint(base: str, agent_id: str, compartment: Optional[str]) -> str:
     if status != 200 or not token:
         sys.exit(
             f"{RED}Could not mint a demo token (status {status}).{RESET} "
-            "Is the gateway running in SANDBOX mode? (./scripts/quickstart_demo.sh)"
+            "Is the gateway running in SANDBOX mode? (./scripts/quickstart.sh)"
         )
     return str(token)
 
@@ -153,7 +153,7 @@ def main() -> int:
     status, health = _get(base, "/healthz")
     if status != 200:
         print(f"{RED}No gateway answered at {base}/healthz — start it first:{RESET}")
-        print(f"    {BOLD}./scripts/quickstart_demo.sh{RESET}")
+        print(f"    {BOLD}./scripts/quickstart.sh{RESET}")
         return 2
 
     print(f"{BOLD}MCPIP — DynamoDB-write vend demo{RESET}  {DIM}{health.get('glyph', '')} {base} · v{health.get('version', '?')}{RESET}")

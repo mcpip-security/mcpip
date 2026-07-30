@@ -293,7 +293,7 @@ boundary — and exactly what that does and does not buy you.*
 
 Status: reference deployment pattern. Built entirely on shipped mechanisms — no new engine, no
 payload-lock change. Drivable end to end against the sandbox gateway
-(`tests/test_governed_alias_pattern.py`, `scripts/dynamodb_vend_demo.py`).
+(`tests/test_governed_alias_pattern.py`, `scripts/dynamodb_vend.py`).
 
 ### 1. The gap: interceptor, not proxy
 
@@ -349,7 +349,7 @@ read binding can never satisfy a write skill (distinct `env_id`, distinct role).
 
 - **Shipped reference:** `skill_aws_dynamodb` (`obfuscator/tenant_catalog.py`) — `cloud_iam`,
   `PIN_REQUIRED`, `team-engineering`, backed by a write-scoped `CloudEnvironment`. Drivable in
-  sandbox via `scripts/dynamodb_vend_demo.py`; against a real table with a least-privilege role via
+  sandbox via `scripts/dynamodb_vend.py`; against a real table with a least-privilege role via
   [Cloud IAM Live-Fire (DynamoDB)](#cloud-iam-live-fire-dynamodb).
 
 ### 3. The threat it closes
@@ -427,7 +427,7 @@ without out-of-band human approval — regardless of the upstream injection.
   is `PAYLOAD_MISMATCH`-denied; the PIN-gated egress completes only with the out-of-band OTP and is
   exactly-once; and the operator runtime-registration route (`POST /v1/admin/skills/register`)
   enforces the identical guarantees. Every deny is asserted opaque.
-- `scripts/dynamodb_vend_demo.py` + [Cloud IAM Live-Fire (DynamoDB)](#cloud-iam-live-fire-dynamodb) — Route B end to end
+- `scripts/dynamodb_vend.py` + [Cloud IAM Live-Fire (DynamoDB)](#cloud-iam-live-fire-dynamodb) — Route B end to end
   (entitlement → step-up → vend → audit).
 
 ---
@@ -452,7 +452,7 @@ to prove it in two runnable pieces:
 
 | Half | Script | Needs AWS? | Proves |
 |------|--------|-----------|--------|
-| authorize + step-up + **audit** | `scripts/dynamodb_vend_demo.py` | **No** | entitlement deny, payload-bound PIN, WORM-before-vend, a vend scoped to the write role (sandbox = fake credential, real *flow*) |
+| authorize + step-up + **audit** | `scripts/dynamodb_vend.py` | **No** | entitlement deny, payload-bound PIN, WORM-before-vend, a vend scoped to the write role (sandbox = fake credential, real *flow*) |
 | **vend** (real STS) + least-privilege | `scripts/dynamodb_live_fire.py` | **Yes (your account)** | MCPIP's real broker assumes the role via STS and vends a credential that can write one row to one table — and nothing else |
 
 `dynamodb_live_fire.py run` can also drive the gateway ceremony first (via `--gateway`),
@@ -491,7 +491,7 @@ From the repo root, with your credentials exported:
 
 ```bash
 # 0) (optional) a sandbox gateway, so `run` can drive the real authorize+audit half
-./scripts/quickstart_demo.sh
+./scripts/quickstart.sh
 
 # 1) provision: one on-demand table + a role whose ONLY permission is
 #    dynamodb:PutItem on that one table

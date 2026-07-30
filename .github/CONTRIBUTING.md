@@ -41,7 +41,7 @@ pip install -r requirements-dev.txt        # includes the runtime deps
 
 # Fastest way to see the whole thing running (Redis + sandbox gateway + a live
 # governed walkthrough, idempotent, macOS/Linux):
-./scripts/quickstart_demo.sh
+./scripts/quickstart.sh
 ```
 
 The test suite expects Redis on **`localhost:63790`** (the quickstart starts one

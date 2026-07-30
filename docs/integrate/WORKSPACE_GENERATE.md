@@ -98,7 +98,7 @@ domains (finance/hr/security/legal) mark their mutations `restricted` (and, bein
 ## Try it (sandbox)
 
 ```bash
-./scripts/quickstart_demo.sh          # gateway on :8080
+./scripts/quickstart.sh          # gateway on :8080
 # in the console: run first-run setup → "Describe your company" → type a brief →
 #                 Design my workspace → review/remove tools → Enter console (provisions)
 # or from a terminal, with an admin token:

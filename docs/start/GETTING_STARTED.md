@@ -55,7 +55,7 @@ The fastest path also runs the walkthrough. **Just run this — it does everythi
 sandbox gateway, and runs the `mcpip-inc` walkthrough):
 
 ```bash
-./scripts/quickstart_demo.sh     # or, with the mcpip CLI installed:  mcpip up
+./scripts/quickstart.sh     # or, with the mcpip CLI installed:  mcpip up
 ```
 
 Both run the same script (the CLI verb just finds your checkout and executes it), are
@@ -766,13 +766,13 @@ enumerate another team's tools.
 
 ### Launch and run the scripted walkthrough
 
-Launch the gateway with `./scripts/quickstart_demo.sh` (see [Quickstart](#quickstart--run-it-now)),
+Launch the gateway with `./scripts/quickstart.sh` (see [Quickstart](#quickstart--run-it-now)),
 then run the scripted walkthrough — it doubles as a smoke test (exit `0` when every
 decision matches policy):
 
 ```bash
-python scripts/demo_company.py
-python scripts/demo_company.py --base http://host:8080
+python scripts/live_company.py
+python scripts/live_company.py --base http://host:8080
 ```
 
 Expected output:
@@ -794,7 +794,7 @@ Scenario 3 — Company agent, no team
     DENY   skill_engineering_roadmap         ✓
 ```
 
-> Run the demo from `quickstart_demo.sh`, not the raw `python3 scripts/demo_company.py` on
+> Run the demo from `quickstart.sh`, not the raw `python3 scripts/live_company.py` on
 > its own — the latter only works once a gateway is already up. You can also hold the MCP
 > session yourself with `scripts/mcp_terminal.py` (see
 > [Drive the MCP connector live from your terminal](#drive-the-mcp-connector-live-from-your-terminal)).

@@ -689,13 +689,18 @@ export function useGatewayLive(): GatewayLive {
       if (base === null) {
         return null;
       }
-      const token = await ensureToken(signal);
+      // CAP_DIRECTORY_ADMIN, same as complianceEvidence below — the attestation
+      // commits to the GLOBAL WORM head, so it is admin-gated. Using the plain
+      // identity token here made every read 403 and left the panel showing
+      // "Attestation unavailable" directly above the identical signed object
+      // that the compliance bundle renders.
+      const token = await ensureAdminToken(signal);
       if (!token) {
         return null;
       }
       return auditAttestation(token, { base, signal });
     },
-    [ensureToken],
+    [ensureAdminToken],
   );
 
   /** Portable compliance-evidence bundle (CAP_DIRECTORY_ADMIN; evidence, never a cert). Fails soft. */
