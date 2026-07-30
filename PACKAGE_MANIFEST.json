@@ -91,8 +91,8 @@
     "dashboard/.env.staging": "84e7b00d4a6e552cce35a46977a6538da78e5767efe5cc4a29227ad56d53d643",
     "dashboard/.gitignore": "0e064822c82e49c02c278a53139739224cd8d7a81bb60b025366e67b80b051ca",
     "dashboard/index.html": "e71ef2eb84aa67bce19adb32b0b6727917c2a15bd63a15bb270342acc359cdb3",
-    "dashboard/package-lock.json": "fab5fb8ba83ce10fd2d50f812987441b891506907c8019e9e57877c7b897d2a9",
-    "dashboard/package.json": "d5a0620c3e110926bece5782156e2ac23c9c81a2fceec3cc97c515754d24836c",
+    "dashboard/package-lock.json": "744879b5b5a0e16b370b369351be06cc33e08da4d4aa024e415b52da3ef8d48f",
+    "dashboard/package.json": "667f0356556e0c91b2c4cb440b77a111002e6d3850aa0f12024fe73efbd778ff",
     "dashboard/postcss.config.js": "e32657baf631d7c5f4dc67b4b2ee0ec8e7d5b3c41860e09cddce7c0377cd80bc",
     "dashboard/public/icon-maskable.svg": "aeb15e72581966847b0966681575e4894aedb91a027cc9e597592b21db6f8a7c",
     "dashboard/public/icon.svg": "449207c651c3b59405d70296c8b26ebe6947118002aa6673862cd3888406bafa",
@@ -460,8 +460,8 @@
   },
   "package": "mcpip",
   "source": {
-    "branch": "claude/new-session-6g22zk",
-    "commit": "4e704bc86ad1ff383a5c0cdf440f3f2c61787bbe",
+    "branch": "try-merge-16",
+    "commit": "ad7ef305b2e5bf5f7f2a5e678b9d4265e48501dd",
     "note": "HEAD at generation time; the commit that records this manifest is its child",
     "repository": "https://github.com/mcpip-security/mcpip"
   },
