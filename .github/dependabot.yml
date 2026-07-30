@@ -22,6 +22,17 @@
 #
 # Minor/patch stay in their own group so the safe set remains independently
 # mergeable without waiting on a breaking-change review.
+#
+# The five packages below are IGNORED at major, individually and with a reason
+# each. Grouping cut 14 PRs to 5, but a major group still reopens every week
+# carrying the same changes that were already evaluated and rejected — a standing
+# red PR nobody can action is noise that trains people to ignore the queue.
+#
+# This does NOT blind the repo to CVEs. Dependabot's alerting is unchanged, and
+# `pip-audit` runs in CI on every PR and push (.github/workflows/ci.yml,
+# supply-chain job) against requirements.txt directly. The ignores suppress
+# *version* churn, not vulnerability reporting. Drop an entry when someone does
+# that migration deliberately.
 version: 2
 updates:
   # --- Python runtime + dev deps (root requirements*.txt). --------------------
@@ -38,6 +49,14 @@ updates:
         patterns: ["*"]
         update-types: ["major"]
     labels: ["dependencies", "supply-chain"]
+    ignore:
+      # Verified: redis 8 + pytest 9 together hung the suite past 10 minutes
+      # (it normally completes in ~40s). Not diagnosed further — a WORM ledger
+      # on an untested Redis major is not a change to wave through.
+      - dependency-name: "redis"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "pytest"
+        update-types: ["version-update:semver-major"]
 
   # --- Operator console (Vite/React). ----------------------------------------
   - package-ecosystem: "npm"
@@ -53,6 +72,17 @@ updates:
         patterns: ["*"]
         update-types: ["major"]
     labels: ["dependencies", "supply-chain", "console"]
+    ignore:
+      # react-dom 19 was proposed against react pinned at 18 — a mismatched pair
+      # that breaks at render. Bump react and react-dom together, deliberately.
+      - dependency-name: "react-dom"
+        update-types: ["version-update:semver-major"]
+      # tailwind 3 -> 4 is a CSS-first config rewrite, not a version bump.
+      - dependency-name: "tailwindcss"
+        update-types: ["version-update:semver-major"]
+      # typescript 5 -> 7 spans two majors; needs a real typecheck pass.
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
 
   # --- CI workflow actions (pin bumps + security). ---------------------------
   # Grouped now. Ungrouped, four routine action bumps became four PRs.
