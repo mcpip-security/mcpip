@@ -31,7 +31,7 @@ slide deck.
 
 ```bash
 git clone https://github.com/mcpip-security/mcpip && cd mcpip
-./scripts/quickstart_demo.sh     # sandbox gateway + live walkthrough, one command
+./scripts/quickstart.sh     # sandbox gateway + live walkthrough, one command
 ```
 
 Then [`docs/start/GETTING_STARTED.md`](../docs/start/GETTING_STARTED.md) (connect an agent in

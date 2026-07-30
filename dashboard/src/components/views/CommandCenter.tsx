@@ -68,7 +68,7 @@ export function CommandCenter({
           lives here in master-detail mode: click a row to pin its WORM
           projection in the inspector. */}
       <div className="min-h-0 flex-1">
-        <StreamPanel events={gateway.stream} live inspect />
+        <StreamPanel events={gateway.stream} live inspect tenant={gateway.tenant} />
       </div>
     </div>
   );

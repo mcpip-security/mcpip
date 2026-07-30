@@ -26,7 +26,7 @@ SENTINEL = "5e470000-0000-4000-8000-0000005e4715"  # aegis-dynamics / project-se
 
 # --- Demo company compartments (mcpip-inc) — the runnable A→Z walkthrough. ---------
 # A single small company whose teams are separated by compartment. Used by
-# scripts/demo_company.py and docs/start/GETTING_STARTED.md to show team-scoped ALLOW vs
+# scripts/live_company.py and docs/start/GETTING_STARTED.md to show team-scoped ALLOW vs
 # cross-team DENY over the real MCP endpoint (an Engineering agent reads the company
 # overview but is denied the Finance wage sheet; a Finance agent reads it).
 MCPIP_ENGINEERING = "e0900000-0000-4000-8000-e0900000e090"  # mcpip-inc / team-engineering

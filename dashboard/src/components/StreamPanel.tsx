@@ -223,9 +223,21 @@ interface StreamPanelProps {
   live: boolean;
   /** Master-detail mode: row selection + the right-hand inspector pane. */
   inspect?: boolean;
+  /**
+   * tenant_id this console is connected as. The feed is tenant-scoped, so an
+   * empty stream is ambiguous without it: traffic may exist on the gateway
+   * under a DIFFERENT tenant and correctly not be shown here. Naming the
+   * tenant turns "nothing happened" into "nothing happened for this tenant".
+   */
+  tenant?: string | null;
 }
 
-export function StreamPanel({ events, live, inspect = false }: StreamPanelProps): JSX.Element {
+export function StreamPanel({
+  events,
+  live,
+  inspect = false,
+  tenant = null,
+}: StreamPanelProps): JSX.Element {
   const [selected, setSelected] = useState<StreamEvent | null>(null);
 
   const list = (
@@ -253,8 +265,12 @@ export function StreamPanel({ events, live, inspect = false }: StreamPanelProps)
           live ? (
             <EmptyState
               icon={Radio}
-              title="No decisions yet"
-              detail="This is the gateway's own /v1/admin/decisions/recent feed — every agent's traffic for your tenant lands here as it is decided. Fire the Authorize Probe to watch one arrive."
+              title={tenant ? `No decisions yet for ${tenant}` : 'No decisions yet'}
+              detail={
+                tenant
+                  ? `This is the gateway's own /v1/admin/decisions/recent feed, scoped to tenant ${tenant} — every agent's traffic for THAT tenant lands here as it is decided. Traffic authorized under a different tenant is deliberately not visible here, so if you ran the live walkthrough or the CLI under another tenant its decisions will not appear. Fire the Authorize Probe to watch one arrive.`
+                  : "This is the gateway's own /v1/admin/decisions/recent feed — every agent's traffic for your tenant lands here as it is decided. Fire the Authorize Probe to watch one arrive."
+              }
               action={
                 <button
                   type="button"

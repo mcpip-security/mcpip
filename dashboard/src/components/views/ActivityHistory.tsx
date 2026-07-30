@@ -500,7 +500,11 @@ export function ActivityHistory({ gateway }: { gateway: GatewayLive }): JSX.Elem
           <EmptyState
             icon={Inbox}
             title="No decisions in this window"
-            detail="No allow/deny decisions match the current date range and filters. Widen the window or clear a facet."
+            detail={
+              gateway.tenant
+                ? `No allow/deny decisions for tenant ${gateway.tenant} match the current date range and filters. This history is tenant-scoped: decisions authorized under a different tenant are deliberately not shown, so traffic from the live walkthrough or the CLI running as another tenant will not appear here. Widen the window or clear a facet.`
+                : 'No allow/deny decisions match the current date range and filters. Widen the window or clear a facet.'
+            }
           />
         ) : (
           <table className="w-full border-collapse text-[12px]">

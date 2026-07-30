@@ -3,7 +3,7 @@ mcpip_sdk.cli.commands.up — the one blessed front door for a local sandbox.
 
 ``mcpip up`` boots the complete local stack — prerequisite checks, Redis
 (:63790), a SANDBOX gateway (:8080), and the live company walkthrough — by
-running the repo's canonical ``scripts/quickstart_demo.sh``. One source of
+running the repo's canonical ``scripts/quickstart.sh``. One source of
 truth: the CLI never re-implements the boot steps, so the script and the verb
 can never drift. Idempotent (anything already running is reused), sandbox-only
 (the script exports ``MCPIP_SANDBOX_MODE=true``; production stays fail-closed
@@ -48,7 +48,7 @@ from mcpip_sdk.cli.errors import CLIConfigError, ExitCode
 
 # Both must exist for a directory to count as an MCPIP checkout — the script
 # alone could be a stray copy; interfaces.py anchors the actual gateway source.
-_MARKERS = ("scripts/quickstart_demo.sh", "interfaces.py")
+_MARKERS = ("scripts/quickstart.sh", "interfaces.py")
 
 _CLONE_HINT = (
     "mcpip up boots the sandbox gateway from an MCPIP source checkout, and none was "
@@ -230,7 +230,7 @@ def cmd_up(rt: Runtime, args: argparse.Namespace) -> int:
     root = find_repo_root(args.repo)
     if root is None:
         raise CLIConfigError(_CLONE_HINT)
-    script = root / "scripts" / "quickstart_demo.sh"
+    script = root / "scripts" / "quickstart.sh"
     if args.print_only:
         # Plan only — nothing starts. Used by tests and the cautious.
         print(f"mcpip up · checkout: {root}")

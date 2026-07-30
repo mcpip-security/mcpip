@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-MCPIP — live company demo (``mcpip-inc``).
+MCPIP — live company walkthrough (``mcpip-inc``).
 
 A real, end-to-end walkthrough against a RUNNING gateway. No mock data: every line
 below is an actual ``POST /v1/mcp`` round-trip through the zero-trust pipeline,
@@ -19,7 +19,7 @@ The story (the compartment == the team):
   * A Finance agent reads the wage sheet.
   * A company agent with no team reads only the company-wide overview.
 
-Prereqs — a sandbox gateway on :8080 (mints demo tokens; production does not):
+Prereqs — a sandbox gateway on :8080 (mints sandbox tokens; production does not):
 
     redis-server --port 63790 &
     MCPIP_SANDBOX_MODE=true MCPIP_REDIS_URL=redis://localhost:63790/0 \
@@ -27,8 +27,8 @@ Prereqs — a sandbox gateway on :8080 (mints demo tokens; production does not):
 
 Then:
 
-    python scripts/demo_company.py                 # against http://localhost:8080
-    python scripts/demo_company.py --base http://host:8080
+    python scripts/live_company.py                 # against http://localhost:8080
+    python scripts/live_company.py --base http://host:8080
 
 Exit code is non-zero if any expectation is violated, so this doubles as a smoke test.
 """
@@ -43,7 +43,7 @@ import urllib.request
 from dataclasses import dataclass
 from typing import Any, Optional
 
-# --- Demo company topology (mirrors obfuscator/tenant_catalog.py mcpip-inc). --------
+# --- Company topology (mirrors obfuscator/tenant_catalog.py mcpip-inc). --------
 TENANT = "mcpip-inc"
 TEAM_ENGINEERING = "e0900000-0000-4000-8000-e0900000e090"
 TEAM_FINANCE = "f1a00000-0000-4000-8000-f1a00000f1a0"
@@ -77,7 +77,7 @@ def _post(base: str, path: str, body: dict[str, Any], token: Optional[str] = Non
 
 
 def mint(base: str, agent_id: str, compartment: Optional[str]) -> str:
-    """Mint a sandbox demo JWT for a company agent (optionally in a team compartment)."""
+    """Mint a sandbox JWT for a company agent (optionally in a team compartment)."""
     claims: dict[str, Any] = {"tenant_id": TENANT, "agent_id": agent_id}
     if compartment:
         claims["compartment"] = compartment
@@ -85,7 +85,7 @@ def mint(base: str, agent_id: str, compartment: Optional[str]) -> str:
     token = body.get("jwt") or body.get("token")
     if status != 200 or not token:
         sys.exit(
-            f"{RED}Could not mint a demo token (status {status}).{RESET} "
+            f"{RED}Could not mint a sandbox token (status {status}).{RESET} "
             "Is the gateway running in SANDBOX mode? "
             "(MCPIP_SANDBOX_MODE=true uvicorn app.main:app --port 8080)"
         )
@@ -95,7 +95,7 @@ def mint(base: str, agent_id: str, compartment: Optional[str]) -> str:
 def tools_list(base: str, token: str) -> list[str]:
     _, body = _post(base, "/v1/mcp", {"jsonrpc": "2.0", "id": 1, "method": "tools/list"}, token)
     tools = (body.get("result") or {}).get("tools") or []
-    # Hide the deception canaries from the demo listing — they are bait, not real skills.
+    # Hide the deception canaries from the listing — they are bait, not real skills.
     return [t["name"] for t in tools if not str(t["name"]).startswith(("skill_export_all", "skill_disable_audit"))]
 
 
@@ -153,7 +153,7 @@ def compartment_label(compartment: Optional[str]) -> str:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="MCPIP live company demo (mcpip-inc).")
+    parser = argparse.ArgumentParser(description="MCPIP live company walkthrough (mcpip-inc).")
     parser.add_argument("--base", default="http://localhost:8080", help="gateway base URL")
     args = parser.parse_args()
     base = args.base.rstrip("/")
@@ -165,12 +165,12 @@ def main() -> int:
             health = json.loads(resp.read())
     except Exception:  # noqa: BLE001
         print(f"{RED}No gateway answered at {base}/healthz — nothing is running there yet.{RESET}")
-        print(f"{DIM}Start everything (redis + sandbox gateway) and run this demo in one command:{RESET}")
-        print(f"    {BOLD}./scripts/quickstart_demo.sh{RESET}")
+        print(f"{DIM}Start everything (redis + sandbox gateway) and run this walkthrough in one command:{RESET}")
+        print(f"    {BOLD}./scripts/quickstart.sh{RESET}")
         print(f"{DIM}It auto-installs Redis if missing (Homebrew), creates a venv, and boots the gateway.{RESET}")
         return 2
 
-    print(f"{BOLD}MCPIP — live company demo{RESET}  {DIM}{health.get('glyph', '')} {base} · v{health.get('version', '?')}{RESET}")
+    print(f"{BOLD}MCPIP — live company walkthrough{RESET}  {DIM}{health.get('glyph', '')} {base} · v{health.get('version', '?')}{RESET}")
     print(f"{DIM}Every line below is a real /v1/mcp round-trip through the zero-trust pipeline.{RESET}")
     print(f"\n{CYAN}Company{RESET} {TENANT}   {CYAN}Teams{RESET} team-engineering · team-finance")
 

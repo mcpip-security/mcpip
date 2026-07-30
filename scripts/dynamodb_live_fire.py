@@ -2,7 +2,7 @@
 """
 MCPIP — DynamoDB WRITE live-fire (RUN THIS ON YOUR OWN MACHINE, WITH YOUR OWN AWS CREDS).
 
-This is the real-account counterpart to ``scripts/dynamodb_vend_demo.py`` (which proves
+This is the real-account counterpart to ``scripts/dynamodb_vend.py`` (which proves
 the authorize + step-up + audit half against a real pipeline with a *fake* credential).
 Here we exercise the OTHER half — MCPIP's real ``CloudBroker`` vend against a *real*
 AWS account — and prove the property that actually bounds an agent's blast radius:
@@ -42,7 +42,7 @@ USAGE (from the repo root, with your creds exported):
 
     python scripts/dynamodb_live_fire.py provision      # create table + least-priv role
     # (optional) start a sandbox gateway so `run` drives the REAL authorize+audit half:
-    #   ./scripts/quickstart_demo.sh
+    #   ./scripts/quickstart.sh
     python scripts/dynamodb_live_fire.py run             # authorize → vend(real STS) → prove
     python scripts/dynamodb_live_fire.py teardown        # delete everything it created
 
@@ -269,11 +269,11 @@ def cmd_run(args: argparse.Namespace) -> int:
         allowed = _authorize_via_gateway(args.gateway.rstrip("/"), plain_item, args.table)
         if not allowed:
             _die("gateway did not authorize the write — refusing to vend (fail closed). "
-                 "Start a sandbox gateway (./scripts/quickstart_demo.sh) or pass --no-gateway.")
+                 "Start a sandbox gateway (./scripts/quickstart.sh) or pass --no-gateway.")
         print()
     else:
         _warn("skipping the gateway authorize+audit half (--no-gateway) — vending directly. "
-              "In production the gateway ALWAYS authorizes first; see dynamodb_vend_demo.py.")
+              "In production the gateway ALWAYS authorizes first; see dynamodb_vend.py.")
 
     # ── The cloud half: MCPIP's REAL broker assumes the role via STS (host identity). ──
     _say("vend — MCPIP's broker mints a short-lived, write-scoped credential (real STS)")

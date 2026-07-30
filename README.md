@@ -14,7 +14,7 @@
 [![JWT](https://img.shields.io/badge/JWT-EdDSA%20%2F%20RS256-000000?logo=jsonwebtokens&logoColor=white)](https://pyjwt.readthedocs.io/)
 [![Audit](https://img.shields.io/badge/WORM-Merkle--epoch%20Ed25519-4B32C3)](docs/background/WHITEPAPER.md)
 [![Posture](https://img.shields.io/badge/posture-fail--closed-0E8A16)](#security-invariants)
-[![Gates](https://img.shields.io/badge/demo-10%2F10%20gates-0E8A16)](#the-10-gate-demo)
+[![Gates](https://img.shields.io/badge/proof-10%2F10%20gates-0E8A16)](#the-10-gate-proof)
 [![CI](https://github.com/mcpip-security/mcpip/actions/workflows/ci.yml/badge.svg)](https://github.com/mcpip-security/mcpip/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/core-BSL%201.1-blue)](#license) [![SDKs](https://img.shields.io/badge/SDKs-Apache--2.0-blue)](#license)
 
@@ -89,7 +89,7 @@ where the edges are than have you find them.
 - Payload-bound one-time step-up; a changed byte is a different request with no approval behind it
 - Ed25519 Merkle WORM written before dispatch, plus offline re-verification (`mcpip export-audit --verify`)
 - Compartment + capability separation, canary tripwires, ReBAC projection, the operator console
-- 1,400+ tests, `mypy --strict`, and a self-verifying 10-gate demo that exits non-zero if any gate fails
+- 1,400+ tests, `mypy --strict`, and a self-verifying 10-gate proof that exits non-zero if any gate fails
 
 **Being wired up**
 
@@ -318,7 +318,7 @@ mcpip-genesis/
 │
 ├── interfaces.py            ◐ Shared primitives: models, enums, limits,
 │                              canonical_json, reject_unsafe_string, ABCs, MCPIPDenied
-├── main.py                  ◐ MCPIPGateway pipeline + the 10-gate demo  (python main.py)
+├── main.py                  ◐ MCPIPGateway pipeline + the 10-gate proof  (python main.py)
 ├── requirements.txt         ◐ Pinned deps: pydantic · redis · PyJWT · cryptography
 │                              · fastapi · uvicorn · pydantic-settings
 │
@@ -397,7 +397,7 @@ tenants, compartments, canaries, editions — can wait until you need it.
 # a live governed walkthrough) and print your zero→first-governed-call time.
 # Self-contained, idempotent, macOS/Linux — nothing to install first.
 git clone https://github.com/mcpip-security/mcpip.git && cd mcpip
-./scripts/quickstart_demo.sh
+./scripts/quickstart.sh
 ```
 
 Prefer a CLI? Install it (`curl -fsSL https://raw.githubusercontent.com/mcpip-security/mcpip/main/install.sh | bash`, or
@@ -418,7 +418,7 @@ Or zero-to-authorized in **three CLI commands**:
 
 ```bash
 mcpip login --gateway http://localhost:8080 --sandbox --context sbx
-mcpip --context sbx sandbox dev-token --agent demo
+mcpip --context sbx sandbox dev-token --agent ops-1
 mcpip --context sbx authorize skill_spend_summary --arg period=2026-Q2
 ```
 
@@ -437,7 +437,7 @@ source .venv/bin/activate
 pip install -r requirements.txt
 
 export MCPIP_REDIS_URL=redis://localhost:63790/0   # default; optional
-python main.py         # runs the 10-gate demo, exits 0 iff all hold
+python main.py         # runs the 10-gate proof, exits 0 iff all hold
 ```
 
 The `docker run ... || docker start ...` idiom **creates** the `mcpip-v2-redis` container the first time and **reuses** it on every subsequent run. `python main.py` exits `0` only if all ten gates hold.
@@ -457,7 +457,7 @@ curl -s http://localhost:8080/healthz   # {"status":"live","glyph":"◐"}
 curl -s http://localhost:8080/readyz    # {"status":"ready","redis":"up"}
 ```
 
-In sandbox mode (`MCPIP_SANDBOX_MODE=true`) the app boots an ephemeral in-process IdP and WORM signing key, so it is runnable end-to-end with no external secrets — see [HTTP API](#http-api) for the full step-up walkthrough. **`sandbox_mode` defaults to `false` (secure-by-default) everywhere** — the bare `uvicorn` process, the shipped Docker image, and Compose: the sandbox helper endpoints stay unmounted and the gateway fails closed at boot unless real PEM paths are supplied. Opt into the demo explicitly with `MCPIP_SANDBOX_MODE=true` (e.g. `MCPIP_SANDBOX_MODE=true docker compose up gateway`); a loud banner is logged whenever the sandbox affordances are mounted. Run sandbox with a **single** uvicorn worker (the in-process demo IdP / WORM keys are per-process); multi-worker deployments must supply shared PEM key files (the production posture).
+In sandbox mode (`MCPIP_SANDBOX_MODE=true`) the app boots an ephemeral in-process IdP and WORM signing key, so it is runnable end-to-end with no external secrets — see [HTTP API](#http-api) for the full step-up walkthrough. **`sandbox_mode` defaults to `false` (secure-by-default) everywhere** — the bare `uvicorn` process, the shipped Docker image, and Compose: the sandbox helper endpoints stay unmounted and the gateway fails closed at boot unless real PEM paths are supplied. Opt into sandbox mode explicitly with `MCPIP_SANDBOX_MODE=true` (e.g. `MCPIP_SANDBOX_MODE=true docker compose up gateway`); a loud banner is logged whenever the sandbox affordances are mounted. Run sandbox with a **single** uvicorn worker (the in-process sandbox IdP / WORM keys are per-process); multi-worker deployments must supply shared PEM key files (the production posture).
 
 ### Run the operator dashboard
 
@@ -493,7 +493,7 @@ mcpip --context sbx authorize skill_spend_summary --arg period=2026-Q2
 
 ---
 
-## The 10-gate demo
+## The 10-gate proof
 
 `python main.py` runs an executable proof: three allow-paths and seven attacks, each printing `PASS` / `FAIL`. The process exits `0` **only if every gate holds**, then re-reads the WORM log and asserts `verify_chain()` is intact.
 
@@ -570,7 +570,7 @@ The gateway exposes the four-stage pipeline over one endpoint, `POST /v1/authori
 | `GET /v1/authenticator/{challenge_id}` | **Sandbox only** — stands in for the enrolled authenticator delivering the OTP. `404` when `MCPIP_SANDBOX_MODE=false`. | `200` · `404` |
 | `GET /v1/audit/verify` | **Sandbox only** — force an epoch close, then `verify_chain()`. Returns `{intact, first_bad_epoch}`. | `200` · `404` |
 | `GET /v1/audit/proof/{event_id}` | **Sandbox only** — O(log n) inclusion proof of a buffered event to its signed epoch root. | `200` · `404` |
-| `POST /v1/dev/token` | **Sandbox only** — mints a demo JWT (optional `compartment` + `capabilities` UUID claims) so the artifact is runnable end-to-end. `404` in production. | `200` · `404` |
+| `POST /v1/dev/token` | **Sandbox only** — mints a sandbox JWT (optional `compartment` + `capabilities` UUID claims) so the artifact is runnable end-to-end. `404` in production. | `200` · `404` |
 
 ### `POST /v1/authorize`
 
@@ -619,7 +619,7 @@ High-risk aliases (`skill_payroll_run`, `skill_ledger_posting`, `skill_wire_tran
 
 How the one-time code reaches the operator is a **pluggable delivery seam**, not part of the lock. `register_lock` still mints the code with `secrets` and still registers the payload-bound scrypt lock **unchanged**; only the *delivery* of the code lives behind a `BaseAuthenticatorChannel` (`interfaces.py` §1.5b → `services/authn_channel.py`) — the channel is strictly downstream of registration and never touches how the OTP is derived or bound.
 
-- **Sandbox** wires `SandboxRedisAuthenticatorChannel` — the runnable-demo stand-in that stashes the code under a tenant-scoped Redis key and reads it back via the sandbox-only `GET /v1/authenticator/{challenge_id}` endpoint (unchanged behavior).
+- **Sandbox** wires `SandboxRedisAuthenticatorChannel` — the sandbox stand-in that stashes the code under a tenant-scoped Redis key and reads it back via the sandbox-only `GET /v1/authenticator/{challenge_id}` endpoint (unchanged behavior).
 - **Production** wires `WebhookAuthenticatorChannel` — the one real channel. It **pushes** the notice (including the raw code) to your tenant-configured authenticator/approver sink over an **SSRF-guarded, HMAC-SHA256-signed HTTPS** request and **persists no OTP anywhere** (the code exists only in flight). The guard is enforced per delivery: https-only; the host is resolved and refused if **any** resolved address is private/loopback/link-local (covers `169.254.169.254` cloud metadata)/reserved/multicast/unspecified; the connection is **pinned to the validated IP** (defeating DNS-rebinding) while the original hostname drives SNI/cert verification; redirects are not followed; the timeout is bounded; a non-2xx is a failure. Activate it by setting **both** `MCPIP_AUTHN_WEBHOOK_URL` and `MCPIP_AUTHN_WEBHOOK_SECRET_PATH` (see [Configuration](#configuration)).
 
 Delivery is **fail-closed**. With no channel configured (an unconfigured production deploy) or a channel whose delivery raises, `register_lock` denies `otp_delivery_failed` **before any `202`/`challenge_id` is produced** — a `pin_required` action can never silently allow or stage a challenge no authenticator can answer. The raw code never enters the `202`, the audit `ctx`, or the WORM log (and `otp` is in the WORM redaction set as defense-in-depth). Setting exactly one of the two webhook settings is a fail-closed **boot** error; an AUTO-only deployment leaves both unset.
@@ -635,7 +635,7 @@ It is **opt-in and honest**: with no policy document for a tenant the engine imp
 ```bash
 API=http://localhost:8080
 
-# 1) Mint a demo JWT (sandbox only).
+# 1) Mint a sandbox JWT (sandbox only).
 JWT=$(curl -s -X POST $API/v1/dev/token \
   -H 'content-type: application/json' \
   -d '{"tenant_id":"tenant-acme","agent_id":"agent-orchestrator-1","role":"ops"}' \
@@ -751,11 +751,11 @@ curl -s http://localhost:8080/healthz   # {"status":"live","glyph":"◐"}
 docker compose logs -f gateway       # watch authorization decisions land
 docker compose down                  # stop; add -v to also drop the WORM volume
 
-# The self-verifying 10-gate demo, on demand (internal network only, exits 0):
+# The self-verifying 10-gate proof, on demand (internal network only, exits 0):
 docker compose --profile demo run --rm gateway-demo
 ```
 
-The image itself is multi-stage: a `python:3.12-slim` **builder** resolves `requirements.txt` into an isolated venv at `/opt/venv`, and a minimal `python:3.12-slim` **runtime** copies only that venv plus the app, runs as a non-root user, sets `PYTHONDONTWRITEBYTECODE`/`PYTHONUNBUFFERED`, `EXPOSE`s `8080`, and carries no secrets. Its default `CMD` is `uvicorn app.main:app`; the demo stays runnable by overriding it (`docker run --rm mcpip-gateway:v2 python main.py`). *(Distroless `python3` ships CPython 3.11, so the 3.12-built venv would be ABI-mismatched there — hence the matching 3.12-slim runtime base.)*
+The image itself is multi-stage: a `python:3.12-slim` **builder** resolves `requirements.txt` into an isolated venv at `/opt/venv`, and a minimal `python:3.12-slim` **runtime** copies only that venv plus the app, runs as a non-root user, sets `PYTHONDONTWRITEBYTECODE`/`PYTHONUNBUFFERED`, `EXPOSE`s `8080`, and carries no secrets. Its default `CMD` is `uvicorn app.main:app`; the proof run stays available by overriding it (`docker run --rm mcpip-gateway:v2 python main.py`). *(Distroless `python3` ships CPython 3.11, so the 3.12-built venv would be ABI-mismatched there — hence the matching 3.12-slim runtime base.)*
 
 ---
 
@@ -945,16 +945,16 @@ The full deploy/rotate/backup/incident procedures live in the
 | `audit/merkle.py` | Audit | Pure, domain-separated Merkle tree: `leaf_digest` / `node_digest` / `merkle_root` / `inclusion_proof` / `verify_inclusion`. |
 | `obfuscator/tenant_catalog.py` | Obfuscator | Multi-industry tenant catalog (finance/healthcare/gov/defense/energy/retail/telecom/pharma) + the compartmented defense tenant's compartments. |
 | `services/grant_store.py` | Services | Redis-backed delegated compartment grants (`GrantStore`/`GrantRecord`); TTL = active-grant test; fail-closed reads. |
-| `services/authn_channel.py` | Services | Out-of-band step-up **OTP delivery** seam (only delivery moves here; derivation/binding stay in `PinValidator`). `SandboxRedisAuthenticatorChannel` (Redis stash + `peek`, the sandbox demo stand-in) and `WebhookAuthenticatorChannel` (the one real prod channel — SSRF-guarded, HMAC-SHA256-signed HTTPS push, persists no OTP); any failure → fail-closed `otp_delivery_failed`. |
+| `services/authn_channel.py` | Services | Out-of-band step-up **OTP delivery** seam (only delivery moves here; derivation/binding stay in `PinValidator`). `SandboxRedisAuthenticatorChannel` (Redis stash + `peek`, the sandbox stand-in) and `WebhookAuthenticatorChannel` (the one real prod channel — SSRF-guarded, HMAC-SHA256-signed HTTPS push, persists no OTP); any failure → fail-closed `otp_delivery_failed`. |
 | `services/policy_engine.py` | Services | The **deny-only** policy overlay: `VelocityAmountPolicyEngine` (fixed-window velocity cap + amount ceiling, all fail-closed) + `PolicyDocStore` for the per-tenant `mcpip-policy/1` document behind `PUT`/`GET /v1/admin/policy`. No document ⇒ no limits (opt-in); Redis error / malformed doc ⇒ `policy_denied`. |
 | `services/extension_manifest.py` | Services | The `mcpip-extension/1` **community-extension** manifest schema (strict Pydantic, `reject_unsafe_string` + identity-fold hard-deny + a `sha256` self-pin via `canonical_manifest_bytes`). `ExtensionManifest` = community-SKILL (`kind='skill'`, `cloud_rest`-only; `parse_manifest`); `GateManifest` = community-GATE (`kind='gate'`, `language='cel'`, `referenced_context_fields ⊆ GATE_CONTEXT_FIELDS`, `max_cost ≤ MAX_GATE_COST` — **DATA validation only, no CEL parse**; `parse_gate_manifest`). `manifest_kind` routes the two, which never share a code path. |
 | `services/extension_submissions.py` | Services | `ExtensionSubmissionStore` — the per-tenant submit/review state: `mcpip:ext:pending:{tenant}` (bounded by `MAX_PENDING_SUBMISSIONS`) + `mcpip:ext:approved:{tenant}` (canonical manifest + pinned `sha256`). Writes fail closed, reads fail soft; tenant comes only from the JWT, so cross-tenant approve is structurally impossible. Backs the submit → review → approve flow and the boot rug-pull re-verify. |
 | `services/community_gate.py` | Services | The Phase-2 **deny-only** community-gate seam. `NoOpCommunityGateProvider` (default; always `continue` — the honest "no engine configured" state) + `register_community_gate_engine` / `active_community_gate_provider` / `community_gate_engine_registered`. **No `celpy` import** — the CEL runtime is a deferred owner decision (`docs/integrate/EXTENSIBILITY.md §8`); registering an engine is the single additive change that turns gates on. |
-| `main.py` | gateway | `MCPIPGateway.authorize_and_execute(...)`; `CloudRESTTransport` + `LegacyMainframeTransport` (EBCDIC cp500 80-byte frame); the 10-gate `__main__` demo with a PASS/FAIL report and `sys.exit`. |
+| `main.py` | gateway | `MCPIPGateway.authorize_and_execute(...)`; `CloudRESTTransport` + `LegacyMainframeTransport` (EBCDIC cp500 80-byte frame); the 10-gate `__main__` proof with a PASS/FAIL report and `sys.exit`. |
 | `app/main.py` | HTTP edge | FastAPI app (`uvicorn app.main:app`); reproduces the pipeline over `POST /v1/authorize` with the staged-challenge branch; `POST /v1/mcp` (the MCP-native edge — same pipeline, JSON-RPC framing, no proxying); `GET /healthz` · `/readyz` · `/v1/catalog`; correlation-id middleware + opaque exception handlers. |
 | `core/` · `models/` · `services/` | HTTP edge | `core/config.py` (`MCPIP_*` settings), `core/security.py` (`map_engine_exception`), `models/schemas.py` (strict request/response), `services/*` (thin `TokenResolver`/`PinValidator`/registry adapters). |
 
-### Tenant-scoped alias registry (demo)
+### Tenant-scoped alias registry (sandbox)
 
 Agents only ever see the left column. Real targets stay invisible.
 
@@ -973,7 +973,7 @@ Agents only ever see the left column. Real targets stay invisible.
 
 ### Multi-industry tenant catalog
 
-Beyond the legacy `tenant-acme` / `tenant-globex` demo rows, the Obfuscator ships a
+Beyond the legacy `tenant-acme` / `tenant-globex` sandbox rows, the Obfuscator ships a
 representative **multi-industry** catalog (`obfuscator/tenant_catalog.py`,
 `seed_industry_catalog`) — eight industry tenants plus one compartmented **defense** tenant.
 The acme/globex rows are seeded first and stay byte-identical, so every existing scenario
@@ -1007,7 +1007,7 @@ and/or an active Redis grant). Two new deny reasons carry this:
 | `compartment_denied` | Caller is not entitled to the alias's compartment (no direct JWT `compartment` match and no active delegated grant), or a grant has expired/been revoked. |
 | `capability_denied` | Caller lacks the required capability UUID for a privileged action (e.g. issuing a compartment grant, or issuing one for a compartment it is not scoped to). |
 
-The compartment story is exercised end-to-end by demo gates **C1–C10b** in `python main.py`
+The compartment story is exercised end-to-end by proof gates **C1–C10b** in `python main.py`
 (the transcript above). The same behaviour is reachable over HTTP — the sandbox `/v1/dev/token`
 minter accepts optional `compartment` + `capabilities` UUID claims, and `GET /v1/catalog`
 filters visibility so a team cannot even *enumerate* another team's classified MCPs:
@@ -1055,7 +1055,7 @@ OFFICER_JWT=$(jwt "{\"tenant_id\":\"aegis-dynamics\",\"agent_id\":\"agent-securi
 
 The officer is **compartment-scoped**: holding `grant_capability_for(FALCON)` lets it grant
 FALCON and *only* FALCON — attempting to grant AEGIS denies `capability_denied` (no
-tenant-wide master key; demo gate C10). The full grant → access → expiry → denied lifecycle
+tenant-wide master key; proof gate C10). The full grant → access → expiry → denied lifecycle
 is proved deterministically by gates **C4/C5/C7** in `python main.py`.
 
 ---
@@ -1068,15 +1068,15 @@ All settings are read by `core/config.py` (`pydantic-settings`, env-prefix `MCPI
 |---|---|---|
 | `MCPIP_REDIS_URL` | `redis://localhost:63790/0` | Redis endpoint for locks + WORM chain state. Compose overrides to `redis://redis:6379/0`. |
 | `MCPIP_WORM_PATH` | `./mcpip_worm.jsonl` | JSONL ledger path used **only** in the legacy `mode="per_event"` migration path. The default hybrid Merkle-epoch model keeps the durable event buffer + signed epoch chain in Redis Streams; production requires Redis AOF with `appendfsync always` so each event's XADD is fsync-durable **before** the action is authorized (write-before-execute). The image/compose set this to `/var/lib/mcpip/mcpip_worm.jsonl`. |
-| `MCPIP_SANDBOX_MODE` | `false` (secure-by-default) | When true, boot an ephemeral in-process IdP + WORM signing key and mount the sandbox helper endpoints (and log a loud banner). Defaults `false` **everywhere** — bare `uvicorn`, image, and Compose — so a misconfigured deployment fails closed at boot rather than exposing the token-minting oracle; opt in explicitly for the demo. |
+| `MCPIP_SANDBOX_MODE` | `false` (secure-by-default) | When true, boot an ephemeral in-process IdP + WORM signing key and mount the sandbox helper endpoints (and log a loud banner). Defaults `false` **everywhere** — bare `uvicorn`, image, and Compose — so a misconfigured deployment fails closed at boot rather than exposing the token-minting oracle; opt in explicitly for sandbox mode. |
 | `MCPIP_JWT_ISSUER` | `mcpip-demo-idp` | Expected JWT `iss`, verified by `TokenResolver`. The default is a **demo** value: with `sandbox_mode=false` the gateway refuses to boot while `iss` is still `mcpip-demo-idp`, because the shipped defaults are published and predictable. |
 | `MCPIP_JWT_AUDIENCE` | `mcpip-gateway` | Expected JWT `aud`, verified by `TokenResolver`. Same demo-default rule as `MCPIP_JWT_ISSUER` — production boot refuses `mcpip-gateway`, so set your own gateway audience. |
-| `MCPIP_JWT_PUBLIC_KEY_PATH` | `None` | PEM public key for verifying JWTs. When unset **and** `sandbox_mode`, the in-process demo IdP is used; unset with `sandbox_mode=false` is a fail-closed boot error. |
+| `MCPIP_JWT_PUBLIC_KEY_PATH` | `None` | PEM public key for verifying JWTs. When unset **and** `sandbox_mode`, the in-process sandbox IdP is used; unset with `sandbox_mode=false` is a fail-closed boot error. |
 | `MCPIP_WORM_SIGNING_KEY_PATH` | `None` | Ed25519 PKCS8 PEM signing key for the WORM log. Unset ⇒ ephemeral key (sandbox); unset with `sandbox_mode=false` refuses to start. |
 | `MCPIP_WORM_ANCHOR_PATH` | `None` | Out-of-tamper-domain append-only anchor file for the Ed25519-signed epoch-head low-watermark (`audit/anchor.py`) that catches rollback/tail-truncation. Must sit on a durable volume **distinct** from the Redis store. Unset ⇒ derived next to `MCPIP_WORM_PATH` (`.anchor`). |
 | `MCPIP_FORENSIC_CAPTURE` | `None` (per-env) | Toggle for the [forensic payload capture](#forensic-payload-reconstruction) side-channel. Tri-state: unset ⇒ **ON in sandbox, OFF in production** (the fail-safe default); an explicit `true`/`false` always wins. Controls capture breadth only — retrieval is always `CAP_FORENSIC_READ`-gated + WORM-audited. In production, `true` additionally REQUIRES `MCPIP_FORENSIC_KEY_PATH`; the flag alone is not enough. |
 | `MCPIP_FORENSIC_KEY_PATH` | `None` | Path to a raw **32-byte** AES-256 master key file, DEDICATED to forensics (never the vault or WORM key), encrypting captures at rest so Redis holds ciphertext only. In production with capture on, an absent key means the feature is **ABSENT** (captures dropped, retrieval `404`s) — fail-closed, never a plaintext fallback. Unset + sandbox ⇒ a persistent dev key auto-provisions under `.keys/`. |
-| `MCPIP_AUTHN_WEBHOOK_URL` | `None` | HTTPS sink the [out-of-band step-up code](#out-of-band-delivery--the-authenticator-channel) is pushed to in production (SSRF-guarded, HMAC-signed; no OTP is ever stored in Redis). Required **together with** the secret path to activate delivery. With **both** unset, every `pin_required` staging fails closed (`otp_delivery_failed`) — an AUTO-only deploy leaves them blank. Setting **exactly one** of the two is a fail-closed **boot** error. The URL must be `https` and must not resolve into a private/loopback/link-local range. Sandbox ignores this (it uses the Redis stash+peek demo channel). |
+| `MCPIP_AUTHN_WEBHOOK_URL` | `None` | HTTPS sink the [out-of-band step-up code](#out-of-band-delivery--the-authenticator-channel) is pushed to in production (SSRF-guarded, HMAC-signed; no OTP is ever stored in Redis). Required **together with** the secret path to activate delivery. With **both** unset, every `pin_required` staging fails closed (`otp_delivery_failed`) — an AUTO-only deploy leaves them blank. Setting **exactly one** of the two is a fail-closed **boot** error. The URL must be `https` and must not resolve into a private/loopback/link-local range. Sandbox ignores this (it uses the Redis stash+peek sandbox channel). |
 | `MCPIP_AUTHN_WEBHOOK_SECRET_PATH` | `None` | Path to the raw **≥32-byte** HMAC-SHA256 signing secret used to sign each pushed notice (`X-MCPIP-Signature`). Loaded as raw bytes; never logged, never a metric label, never in the notice body. A shorter secret is a fail-closed boot error. Unset ⇒ (with the URL also unset) delivery is **absent**. |
 | `MCPIP_AUTHN_WEBHOOK_TIMEOUT_S` | `5.0` | Bounded connect+read wall-clock ceiling for one webhook push, clamped to `[MIN_AUTHN_WEBHOOK_TIMEOUT_S, MAX_AUTHN_WEBHOOK_TIMEOUT_S]` = `[0.5s, 30s]` at construction so a misconfiguration can neither hang a staging request nor set a sub-threshold value that always fails closed. |
 | `MCPIP_REDIS_MAX_CONNECTIONS` | `64` | Redis async connection-pool size (safe-win: pooling on the hot path). |
@@ -1209,7 +1209,7 @@ concurrent, `always` vs. `everysec`) and the group-commit design that would rais
 - [**Security threat model**](docs/SECURITY_THREAT_MODEL.md) — the formal adversary model, the per-threat attack→defense→code matrix, the §17 OWASP ASI-2026 coverage map, and an honest residual-risk analysis.
 - [**Whitepaper**](docs/background/WHITEPAPER.md) — threat model, the seven invariants, and the formal argument for authorization-before-execution.
 - Feature deep-dives: [workload identity](docs/integrate/INTEGRATIONS.md) · [telemetry](docs/operate/TELEMETRY.md) · [OAuth resource server](docs/integrate/INTEGRATIONS.md) · [extensibility](docs/integrate/EXTENSIBILITY.md) · [governed-alias pattern](docs/integrate/INTEGRATIONS.md) · [A2A choke-point](docs/integrate/ARCHITECTURE.md) · [workspace generate](docs/integrate/WORKSPACE_GENERATE.md).
-- Runnable walkthroughs: [demo company](docs/start/GETTING_STARTED.md) · [Claude MCP bridge](docs/start/GETTING_STARTED.md) · [DynamoDB live-fire](docs/integrate/INTEGRATIONS.md) · [end-to-end lifecycle](docs/start/GETTING_STARTED.md).
+- Runnable walkthroughs: [live company walkthrough](docs/start/GETTING_STARTED.md) · [Claude MCP bridge](docs/start/GETTING_STARTED.md) · [DynamoDB live-fire](docs/integrate/INTEGRATIONS.md) · [end-to-end lifecycle](docs/start/GETTING_STARTED.md).
 
 **FUTURE-wave design docs** (rigorous designs + honest scope boundaries — the three below are *designs and decisions, not built substrate rewrites*):
 
@@ -1221,7 +1221,7 @@ concurrent, `always` vs. `everysec`) and the group-commit design that would rais
 
 ## Evaluate & work with us
 
-- **Try it alone, free, now:** `./scripts/quickstart_demo.sh` (or `mcpip up`) — sandbox
+- **Try it alone, free, now:** `./scripts/quickstart.sh` (or `mcpip up`) — sandbox
   gateway + live walkthrough in one command; no signup, no sales call.
 - **Questions / evaluation help:** [GitHub Issues](https://github.com/mcpip-security/mcpip/issues)
   · security reports via [`SECURITY.md`](SECURITY.md) (private disclosure).

@@ -99,7 +99,7 @@ ${BOLD}Point it at a gateway${RESET}
 ${BOLD}No gateway yet? Bring one up (Docker)${RESET}
   ${DIM}docker compose up${RESET}                                   gateway on :8080 + Redis
   ${DIM}# or a full local walkthrough from a checkout:${RESET}
-  ${DIM}./scripts/quickstart_demo.sh${RESET}
+  ${DIM}./scripts/quickstart.sh${RESET}
 
 ${DIM}Docs: https://github.com/mcpip-security/mcpip · run 'mcpip --help' for every command.${RESET}
 NEXT

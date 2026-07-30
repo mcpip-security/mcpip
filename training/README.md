@@ -72,5 +72,5 @@ question instead of managing it. See `docs/policies/NOTICES.md` for the full leg
 
 For Tier 1, `scripts/provision_workspace_model.sh` does the whole setup in one command —
 checks for Ollama, pulls the Apache-2.0 base, builds `mcpip-workspace` from the Modelfile,
-and verifies a draft. It's referenced from `scripts/quickstart_demo.sh` so the model is
+and verifies a draft. It's referenced from `scripts/quickstart.sh` so the model is
 part of standard bring-up, not a side chore.
