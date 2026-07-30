@@ -237,6 +237,13 @@ export function ActivityHistory({ gateway }: { gateway: GatewayLive }): JSX.Elem
   const [draft, setDraft] = useState<FilterState>(EMPTY_FILTERS);
   const [applied, setApplied] = useState<FilterState>(EMPTY_FILTERS);
   const [rows, setRows] = useState<RecentDecision[]>([]);
+  // Retention signal from the server. Without it an empty page is ambiguous:
+  // "nothing happened in this window" and "this window is older than anything
+  // still held" look identical, and for an audit product they are opposites.
+  const [retention, setRetention] = useState<{ precedes: boolean; floorMs: number | null }>({
+    precedes: false,
+    floorMs: null,
+  });
   const [cursor, setCursor] = useState<string | null>(null);
   const [state, setState] = useState<LoadState>('idle');
   const [scanned, setScanned] = useState(0);
@@ -260,6 +267,10 @@ export function ActivityHistory({ gateway }: { gateway: GatewayLive }): JSX.Elem
         return;
       }
       setRows((prev) => (resume ? [...prev, ...page.decisions] : page.decisions));
+      setRetention({
+        precedes: page.window_precedes_retention,
+        floorMs: page.retention_floor_ms,
+      });
       setScanned((prev) => (resume ? prev + page.scanned : page.scanned));
       setCursor(page.next_cursor);
       setState('idle');
@@ -499,9 +510,19 @@ export function ActivityHistory({ gateway }: { gateway: GatewayLive }): JSX.Elem
         ) : rows.length === 0 && !busy ? (
           <EmptyState
             icon={Inbox}
-            title="No decisions in this window"
+            title={
+              retention.precedes
+                ? 'This window predates the retained decisions'
+                : 'No decisions in this window'
+            }
             detail={
-              gateway.tenant
+              retention.precedes
+                ? `The gateway still holds decisions only back to ${
+                    retention.floorMs === null
+                      ? 'its retention floor'
+                      : new Date(retention.floorMs).toISOString()
+                  }, and this window starts before that. The rows are not missing — they aged out of the hot buffer, so widening the range further back cannot return them. Narrow the window to start after the retention floor, or read the sealed WORM export for older history.`
+                : gateway.tenant
                 ? `No allow/deny decisions for tenant ${gateway.tenant} match the current date range and filters. This history is tenant-scoped: decisions authorized under a different tenant are deliberately not shown, so traffic from the live walkthrough or the CLI running as another tenant will not appear here. Widen the window or clear a facet.`
                 : 'No allow/deny decisions match the current date range and filters. Widen the window or clear a facet.'
             }

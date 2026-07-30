@@ -35,7 +35,9 @@ interface Preset {
 
 /** Curated, safe starting points — every one is a real gateway route. */
 const PRESETS: ReadonlyArray<Preset> = [
-  { label: 'version', method: 'GET', path: '/v1/version', auth: false },
+  // JWT-gated, unlike /readyz and /healthz below — firing it without a bearer
+  // answers 403, which reads as a broken gateway rather than a missing header.
+  { label: 'version', method: 'GET', path: '/v1/version', auth: true },
   { label: 'readyz', method: 'GET', path: '/readyz', auth: false },
   { label: 'healthz', method: 'GET', path: '/healthz', auth: false },
   { label: 'audit attestation', method: 'GET', path: '/v1/audit/attestation', auth: true },
