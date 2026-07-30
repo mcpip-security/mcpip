@@ -3,7 +3,7 @@
   "private": true,
   "version": "3.0.0",
   "type": "module",
-  "description": "MCPIP — The Authorization Layer for Autonomous AI. Operator console (porcelain/ink).",
+  "description": "MCPIP \u2014 The Authorization Layer for Autonomous AI. Operator console (porcelain/ink).",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
@@ -41,8 +41,8 @@
     "autoprefixer": "10.5.4",
     "jsdom": "^29.1.1",
     "postcss": "8.5.25",
-    "tailwindcss": "3.4.14",
-    "typescript": "5.6.3",
+    "tailwindcss": "3.4.19",
+    "typescript": "5.9.3",
     "vite": "^8.1.5",
     "vitest": "^4.1.10"
   }
