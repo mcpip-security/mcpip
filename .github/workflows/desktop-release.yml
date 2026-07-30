@@ -75,3 +75,50 @@ jobs:
             dashboard/src-tauri/target/**/release/bundle/msi/*.msi
             dashboard/src-tauri/target/**/release/bundle/deb/*.deb
             dashboard/src-tauri/target/**/release/bundle/appimage/*.AppImage
+
+  # The matrix above only produces Actions artifacts: they expire, require a
+  # GitHub login to fetch, and have no stable URL — so nothing can be linked from
+  # the website. This job attaches the same bundles to a public Release, which is
+  # what gives them permanent, anonymous download URLs.
+  release:
+    needs: bundle
+    if: startsWith(github.ref, 'refs/tags/desktop-v')
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write        # narrower than the workflow default; only this job publishes
+    steps:
+      - name: Collect every platform's bundles
+        uses: actions/download-artifact@v4
+        with:
+          pattern: mcpip-operator-*
+          merge-multiple: true
+          path: dist
+
+      # Flatten: the upload preserved each bundle's nested target/ path, and a
+      # release asset list cannot contain directories.
+      - name: Flatten and checksum
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          find dist -type f \( -name '*.dmg' -o -name '*.msi' -o -name '*.deb' \
+            -o -name '*.AppImage' \) -exec cp -n {} out/ \;
+          test -n "$(ls -A out)" || { echo "::error::no installers found"; exit 1; }
+          cd out && sha256sum * > SHA256SUMS && cat SHA256SUMS
+
+      # gh is preinstalled on the runner — no third-party action in the release
+      # path of a security product.
+      - name: Publish the Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" out/* \
+            --repo "${GITHUB_REPOSITORY}" \
+            --title "MCPIP Operator Console ${GITHUB_REF_NAME#desktop-}" \
+            --notes "Desktop console installers for macOS, Windows, and Linux.
+
+          Verify before installing:
+
+              sha256sum -c SHA256SUMS
+
+          Built from \`${GITHUB_SHA}\` by \`.github/workflows/desktop-release.yml\`." \
+            --verify-tag
