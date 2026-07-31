@@ -950,8 +950,12 @@ def test_audit_verify_intact(client: TestClient, idp: _DemoIdP) -> None:
 
 
 def test_audit_inclusion_proof(client: TestClient, idp: _DemoIdP) -> None:
-    """An emitted event has an O(log n) inclusion proof that verifies to its signed root."""
-    token = idp.mint()
+    """An emitted event has an O(log n) inclusion proof that verifies to its signed root.
+
+    The proof surface is CAP_DIRECTORY_ADMIN-gated and tenant-scoped (it once leaked
+    the hidden target to any authenticated caller of any tenant), so mint an admin
+    token in the event's tenant to read it."""
+    token = idp.mint(capabilities=[CAP_DIRECTORY_ADMIN])
     _post(client, alias=_AUTO_ALIAS, arguments={"period": "proof"}, token=token)
     event_id = _last_event_id()
     assert event_id is not None

@@ -637,9 +637,11 @@ export interface ProofResult {
 }
 
 /**
- * GET /v1/audit/proof/{event_id} — SANDBOX ONLY. Fetch the O(log n) Merkle
- * inclusion proof binding one buffered event to a signed epoch root. 404 means the
- * event exists but is not yet sealed into an epoch (or is unknown). Fails soft.
+ * GET /v1/audit/proof/{event_id} — SANDBOX ONLY, CAP_DIRECTORY_ADMIN-gated and
+ * tenant-scoped. Fetch the O(log n) Merkle inclusion proof binding one buffered
+ * event to a signed epoch root. 404 means the event is unknown, not yet sealed,
+ * OR belongs to another tenant (indistinguishable — no cross-tenant existence
+ * oracle). Fails soft.
  */
 export async function auditProof(
   token: string,

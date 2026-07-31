@@ -675,13 +675,16 @@ export function useGatewayLive(): GatewayLive {
       if (base === null) {
         return { status: 'unavailable', proof: null, detail: 'no gateway connected' };
       }
-      const token = await ensureToken(signal);
+      // CAP_DIRECTORY_ADMIN: the proof surface is admin-gated + tenant-scoped (the
+      // sealed record carries the hidden target), so the plain identity token would
+      // 403 here — same lesson as the attestation panel.
+      const token = await ensureAdminToken(signal);
       if (!token) {
-        return { status: 'unavailable', proof: null, detail: 'no verified identity for the proof read' };
+        return { status: 'unavailable', proof: null, detail: 'no admin identity for the proof read' };
       }
       return auditProof(token, eventId, { base, signal });
     },
-    [ensureToken],
+    [ensureAdminToken],
   );
 
   /** Portable signed audit attestation (plain-JWT-gated; production-available). Fails soft. */

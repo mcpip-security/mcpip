@@ -70,6 +70,11 @@ class Grant:
     # Ancestor SESSION ids, root-first, excluding the child itself. Denormalized
     # so the hot path can probe every revocation key without walking grants.
     ancestors: tuple[str, ...]
+    # Ancestor AGENT ids, root-first, aligned with ``ancestors``. Denormalized so
+    # the hot path can cascade the PRINCIPAL kill-switch: a revoked/quarantined
+    # ancestor agent must sever every delegated descendant, or a compromised
+    # principal escapes containment through a pre-positioned escape token.
+    ancestor_agents: tuple[str, ...]
 
 
 class DelegationStore:
@@ -95,6 +100,7 @@ class DelegationStore:
         *,
         tenant_id: str,
         parent_session_id: str,
+        parent_agent_id: str,
         parent_effective_capabilities: tuple[str, ...],
         parent_effective_compartment: Optional[str],
         parent_token_exp: Optional[int],
@@ -121,14 +127,16 @@ class DelegationStore:
             raise DelegationError(
                 f"capabilities not held by the delegating session: {', '.join(excess)}"
             )
-        # Compartment: same-or-narrower. An un-compartmented parent (tenant-wide)
-        # may pin the child to any compartment; a compartmented parent may only
-        # hand down its own.
-        if parent_effective_compartment is not None and (
-            compartment != parent_effective_compartment
-        ):
+        # Compartment: same-or-narrower. The grant's compartment must be None (hand
+        # down NO compartment access) or EXACTLY the delegating session's own
+        # compartment. An un-compartmented parent (effective compartment None) is
+        # entitled to no specific compartment under _compartment_gate, so it can
+        # hand down only None — it can never conjure compartment access it lacks.
+        # Deliberately conservative: a parent holding a compartment only via a
+        # ReBAC grant (not its JWT claim) also cannot delegate it — fail-safe.
+        if compartment is not None and compartment != parent_effective_compartment:
             raise DelegationError(
-                "compartment must equal the delegating session's compartment"
+                "child compartment must be None or the delegating session's own compartment"
             )
         depth = 1 if parent_grant is None else parent_grant.depth + 1
         if depth > MAX_DEPTH:
@@ -152,6 +160,11 @@ class DelegationStore:
             if parent_grant is not None
             else (parent_session_id,)
         )
+        ancestor_agents: tuple[str, ...] = (
+            (*parent_grant.ancestor_agents, parent_agent_id)
+            if parent_grant is not None
+            else (parent_agent_id,)
+        )
         return Grant(
             delegation_id=str(uuid.uuid4()),
             tenant_id=tenant_id,
@@ -163,6 +176,7 @@ class DelegationStore:
             expires_at=expires_at,
             depth=depth,
             ancestors=ancestors,
+            ancestor_agents=ancestor_agents,
         )
 
     async def persist(self, grant: Grant) -> None:
@@ -179,6 +193,7 @@ class DelegationStore:
                 "expires_at": grant.expires_at,
                 "depth": grant.depth,
                 "ancestors": list(grant.ancestors),
+                "ancestor_agents": list(grant.ancestor_agents),
             },
             separators=(",", ":"),
         )
@@ -231,6 +246,7 @@ class DelegationStore:
                 expires_at=int(doc["expires_at"]),
                 depth=int(doc["depth"]),
                 ancestors=tuple(str(a) for a in doc["ancestors"]),
+                ancestor_agents=tuple(str(a) for a in doc.get("ancestor_agents", ())),
             )
         except (ValueError, KeyError, TypeError):
             # A malformed stored grant must never pass a delegated token through
