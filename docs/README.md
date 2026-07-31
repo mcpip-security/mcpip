@@ -51,6 +51,7 @@ docs/
 | Doc | What's inside |
 |---|---|
 | [WHITEPAPER.md](background/WHITEPAPER.md) | The technical whitepaper (standalone artifact). |
+| [SESSION_DELEGATION_DESIGN.md](SESSION_DELEGATION_DESIGN.md) | **Proposal, not implemented** — session-scoped attribution in the WORM chain plus attenuated delegation (a session grants a child session ⊆ of its own authority; revocation cascades down the subtree). |
 
 ## Evidence
 
