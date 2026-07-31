@@ -1,9 +1,11 @@
 # Session identity & attenuated delegation — design proposal
 
-> **Status: PROPOSAL — nothing in this document is implemented.** It exists so
-> the claims shape, endpoint semantics, and invariants can be reviewed before
-> any code is written. Sections marked *normative* are the parts a reviewer
-> should push on hardest.
+> **Status: PHASE 1 SHIPPED — phases 2–3 remain proposals.** The attribution
+> slice (§1: the verified ``session_id`` claim, WORM + projection stamping, the
+> forge, and the CLI's stable per-context id) is implemented and tested
+> (``tests/test_session_attribution.py``). Delegation grants (§2–§4) and the
+> console lineage tree (§5) are NOT implemented; their sections are the review
+> surface before any code is written.
 
 ## The gap
 
@@ -144,8 +146,8 @@ that.
 
 ## Rollout
 
-1. `session_id` claim end-to-end (identity → WORM → projection → CLI/sandbox
-   forge). Pure attribution; no behaviour change. Independently shippable.
+1. **SHIPPED** — `session_id` claim end-to-end (identity → WORM → projection →
+   CLI/sandbox forge). Pure attribution; no behaviour change.
 2. Grant store + `/v1/delegate` + authorize-path intersection + revocation
    cascade, behind a config flag defaulting off.
 3. Console lineage tree + session facet.
