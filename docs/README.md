@@ -51,7 +51,7 @@ docs/
 | Doc | What's inside |
 |---|---|
 | [WHITEPAPER.md](background/WHITEPAPER.md) | The technical whitepaper (standalone artifact). |
-| [SESSION_DELEGATION_DESIGN.md](SESSION_DELEGATION_DESIGN.md) | Session attribution (**phase 1 shipped**: the optional verified `session_id` claim — every decision in the WORM chain names the session that made it) plus the still-proposed attenuated delegation (a session grants a child ⊆ of its own authority; revocation cascades down the subtree). |
+| [SESSION_DELEGATION_DESIGN.md](SESSION_DELEGATION_DESIGN.md) | Session attribution + attenuated delegation (**shipped**): every decision names the session that made it; a session can grant a child ⊆ of its own authority via `POST /v1/delegate`, the authorize path intersects, and revocation cascades down the subtree. Behind `MCPIP_DELEGATION_ENABLED` (default off). |
 
 ## Evidence
 

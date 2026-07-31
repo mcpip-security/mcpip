@@ -166,6 +166,14 @@ function Inspector({ e, inWindow }: { e: StreamEvent; inWindow: boolean }): JSX.
           <Detail label="Agent" mono>
             {e.agent ?? '—'}
           </Detail>
+          <Detail label="Session" mono>
+            {e.sessionId ?? '—'}
+          </Detail>
+          {e.delegationId ? (
+            <Detail label="Delegation grant" mono span>
+              {e.delegationId}
+            </Detail>
+          ) : null}
           <Detail label="Alias" mono>
             {e.alias}
           </Detail>

@@ -698,6 +698,16 @@ class DenyReason(str, Enum):
     # clears the metric-label hygiene guard. It stays WORM-only; the agent sees only the
     # opaque ``MCPIPDenied``.
     POLICY_GATE_DENIED = "policy_gate_denied"
+    # --- Attenuated session delegation (docs/SESSION_DELEGATION_DESIGN.md §3). --
+    # The token carried a ``delegation_id`` claim but no LIVE matching grant backs
+    # it: the grant is missing/expired, a session in its chain was revoked, the
+    # claimed child session/agent does not match the grant's binding, or the
+    # deployment has delegation disabled. Fail-closed by design — a delegated
+    # token is NEVER silently passed through un-narrowed, because "the narrowing
+    # I asked for quietly stopped applying" is the one outcome worse than a deny.
+    # The concrete cause rides ONLY in the WORM ``detail`` string; the agent sees
+    # the opaque ``MCPIPDenied`` like every deny.
+    DELEGATION_INVALID = "delegation_invalid"
 
 
 class DenyFamily(str, Enum):
@@ -760,6 +770,7 @@ DENY_FAMILY: Final[Mapping[DenyReason, DenyFamily]] = MappingProxyType({
     DenyReason.JWT_CLAIMS_MISSING: DenyFamily.IDENTITY,
     DenyReason.SENDER_CONSTRAINT_REQUIRED: DenyFamily.IDENTITY,
     DenyReason.PRINCIPAL_REVOKED: DenyFamily.IDENTITY,
+    DenyReason.DELEGATION_INVALID: DenyFamily.IDENTITY,
     # IDENTITY_INJECTION is an attempt to ASSERT identity through arguments. It is a
     # malformed-input rejection mechanically, but the operator's next move is an
     # identity investigation, so it groups with identity.
@@ -1086,6 +1097,12 @@ class Identity(BaseModel):
     # and ``act_chain`` it authorizes NOTHING and never crosses the agent wire. Absent
     # → None, byte-for-byte legacy behavior (docs/SESSION_DELEGATION_DESIGN.md §1).
     session_id: Optional[str] = None
+    # NEW: OPTIONAL delegation grant reference (UUID) this token claims to operate
+    # under, or None. UNLIKE session_id this one IS an authorization input: when set,
+    # the authorize path must find a live matching grant and INTERSECT the JWT's
+    # capabilities/compartment with it — and denies DELEGATION_INVALID when it cannot.
+    # Absent → None, the un-delegated path, byte-for-byte legacy behavior.
+    delegation_id: Optional[str] = None
     # NEW: True iff the identity arrived via an ID-JAG token exchange (the token or its
     # header declared the id-jag token-type URN). Recognition ONLY — the token is still a
     # JWT verified exactly as any other. WORM/audit ONLY; authorizes NOTHING.

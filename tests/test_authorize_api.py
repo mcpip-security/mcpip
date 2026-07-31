@@ -1489,6 +1489,9 @@ def test_recent_decisions_feed_is_real_opaque_and_tenant_scoped(
         # Deliberate whitelist extension: session attribution — a UUID the verified
         # token asserted about ITSELF; names no target, payload, or other tenant.
         "session_id",
+        # Deliberate whitelist extension: the delegation grant id a narrowed call
+        # operated under — a random UUID scoped to the caller's own tenant.
+        "delegation_id",
     }
     for d in decisions:
         # Opacity: the real target / payload are NEVER in the projection.

@@ -1,11 +1,14 @@
 # Session identity & attenuated delegation — design proposal
 
-> **Status: PHASE 1 SHIPPED — phases 2–3 remain proposals.** The attribution
-> slice (§1: the verified ``session_id`` claim, WORM + projection stamping, the
-> forge, and the CLI's stable per-context id) is implemented and tested
-> (``tests/test_session_attribution.py``). Delegation grants (§2–§4) and the
-> console lineage tree (§5) are NOT implemented; their sections are the review
-> surface before any code is written.
+> **Status: PHASES 1–3 SHIPPED.** Attribution (§1,
+> ``tests/test_session_attribution.py``), delegation grants + authorize-path
+> intersection + cascading revocation (§2–§4, ``services/delegation.py``,
+> ``tests/test_delegation.py``), and the console surfaces (§5: the session
+> facet, stream-inspector fields, and the Delegation lineage panel). Delegation
+> ships behind ``MCPIP_DELEGATION_ENABLED`` (default **off**): when off,
+> ``/v1/delegate`` does not exist (404) and a token carrying ``delegation_id``
+> denies ``DELEGATION_INVALID`` — ignoring the claim would grant MORE than the
+> token was minted for.
 
 ## The gap
 
@@ -148,17 +151,23 @@ that.
 
 1. **SHIPPED** — `session_id` claim end-to-end (identity → WORM → projection →
    CLI/sandbox forge). Pure attribution; no behaviour change.
-2. Grant store + `/v1/delegate` + authorize-path intersection + revocation
-   cascade, behind a config flag defaulting off.
-3. Console lineage tree + session facet.
+2. **SHIPPED** — grant store + `/v1/delegate` + authorize-path intersection +
+   revocation cascade, behind `MCPIP_DELEGATION_ENABLED` (default off).
+3. **SHIPPED** — console: Delegation lineage panel (Principals → Hierarchy),
+   session facet + CSV columns in History, session/grant rows in the stream
+   inspector.
+
+## Resolved questions
+
+* One deny reason (`delegation_invalid`), with the concrete cause (expired /
+  revoked / mis-bound / disabled) riding ONLY in the WORM `detail` string —
+  matching how `policy_denied` keeps its causes out of metric labels.
+  Agent-facing stays opaque either way.
+* Grant GC: Redis TTL at effective expiry. The WORM chain holds the forensic
+  record (`delegation_granted` / `delegation_revoked` are sealed events); live
+  state needs no tombstones.
 
 ## Open questions
-
-* Should `delegation_invalid` be one opaque deny reason or split
-  (`delegation_expired` / `delegation_revoked`) in the operator-facing
-  projection? (Agent-facing stays opaque either way.)
-* Grant GC: expired grants are dead keys — TTL them at effective expiry, or
-  keep tombstones for the forensic read surface?
 * Does the compliance evidence bundle need a delegation section (grants active
   at attestation time)?
 
