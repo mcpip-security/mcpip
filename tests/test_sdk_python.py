@@ -479,7 +479,7 @@ def test_canary_and_quarantine_rosters(
 
 
 def test_audit_verify_and_inclusion_proof(
-    agent: SandboxClient, admin: MCPIPAdminClient
+    agent: SandboxClient, admin: MCPIPAdminClient, gateway: httpx.BaseTransport
 ) -> None:
     """SandboxClient audit surface: chain verify seals an epoch, then the feed's
     event_id resolves to a real Merkle inclusion proof for an SDK-driven call."""
@@ -494,7 +494,14 @@ def test_audit_verify_and_inclusion_proof(
     row = next(r for r in rows if r.correlation_id == receipt.correlation_id)
     assert row.event_id is not None
 
-    proof = agent.audit_proof(row.event_id)
+    # The proof surface is CAP_DIRECTORY_ADMIN-gated + tenant-scoped (it once leaked
+    # the hidden target to any authenticated caller). audit_proof lives on the agent
+    # client, so use an admin-capable SandboxClient in the event's tenant to read it.
+    with SandboxClient(base_url=_BASE_URL, transport=gateway) as admin_sc:
+        admin_sc.set_token(
+            lambda: admin_sc.dev_token(agent_id=_ADMIN_ID, capabilities=[CAP_DIRECTORY_ADMIN])
+        )
+        proof = admin_sc.audit_proof(row.event_id)
     assert proof.event_id == row.event_id
     assert proof.merkle_root and proof.signature
     assert proof.proof is not None  # the (side, digest) path — possibly empty

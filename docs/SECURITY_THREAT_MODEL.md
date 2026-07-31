@@ -1042,3 +1042,25 @@ down the subtree. Two boundaries to be clear-eyed about:
   two tokens with the same session id. Attribution quality is exactly the
   IdP's issuance discipline; the delegation binding (grant → one child session
   + agent) is what the GATEWAY enforces.
+
+### Adversarial review of delegation (closed)
+
+An adversarial campaign against the delegation surface found and this release
+closes three escalation paths — each now has a named regression in
+`tests/test_redteam_regressions.py`:
+
+* **Compartment escalation.** An un-compartmented (tenant-wide) parent — itself
+  denied every compartmented alias — could pin a child *into* a compartment,
+  and the authorize path overwrote the child's compartment with the grant's
+  wholesale. Registration now accepts only `None` or the parent's own
+  compartment, and the effective compartment is the *narrower* of the child's
+  JWT and the grant — never wider than either.
+* **Kill-switch evasion.** The principal kill-switch did not reach delegated
+  descendants: a compromised admin could pre-position an escape delegation on a
+  fresh `agent_id` and survive its own revocation. Principal revocation and
+  quarantine now cascade to every ancestor agent in a delegation chain.
+* **Audit-proof topology leak.** `/v1/audit/proof/{event_id}` returned the
+  sealed record — carrying the obfuscator's hidden real target — to any
+  authenticated caller of any tenant. It is now `CAP_DIRECTORY_ADMIN`-gated
+  (the capability that already defines alias→target mappings) and tenant-scoped,
+  with a cross-tenant lookup indistinguishable from an unknown event.

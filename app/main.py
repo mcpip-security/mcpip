@@ -4321,6 +4321,7 @@ async def delegate(body: _DelegateRequest, request: Request) -> Response:
         grant = DelegationStore.prepare(
             tenant_id=identity.tenant_id,
             parent_session_id=identity.session_id,
+            parent_agent_id=identity.agent_id,
             parent_effective_capabilities=identity.capabilities,
             parent_effective_compartment=identity.compartment,
             parent_token_exp=_verified_token_exp(token),
@@ -4778,9 +4779,29 @@ async def _apply_delegation(identity: Identity) -> Identity:
         raise _DelegationDenied("grant expired")
     if await _components.delegation.is_chain_revoked(identity.tenant_id, grant):
         raise _DelegationDenied("a session in the delegation chain is revoked")
+    # PRINCIPAL kill-switch CASCADE: a revoked or quarantined ANCESTOR agent must
+    # sever every delegated descendant, or a compromised admin escapes containment
+    # via a pre-positioned escape token (a child minted BEFORE the revocation, on a
+    # fresh agent_id, holding delegated authority). The child's OWN agent is checked
+    # by the standard revocation/quarantine gates; this extends that up the chain.
+    # Fail-closed: a store error raises LockError → opaque deny, like every gate.
+    for anc_agent in grant.ancestor_agents:
+        if await _components.revocation.is_revoked(identity.tenant_id, anc_agent):
+            raise _DelegationDenied("an ancestor principal is revoked")
+        if await _components.quarantine.is_quarantined(identity.tenant_id, anc_agent):
+            raise _DelegationDenied("an ancestor principal is quarantined")
     effective = tuple(sorted(set(identity.capabilities) & set(grant.capabilities)))
+    # Effective compartment: NEVER wider than the child's OWN verified JWT claim.
+    # Delegation NARROWS an IdP-issued identity — it can subtract compartment
+    # access, never add it. A grant conveys compartment X only when BOTH the grant
+    # AND the child's JWT already carry X; any disagreement (grant None, JWT None,
+    # or two different compartments) collapses to None — no compartmented access.
+    if grant.compartment is not None and grant.compartment == identity.compartment:
+        eff_compartment = grant.compartment
+    else:
+        eff_compartment = None
     return identity.model_copy(
-        update={"capabilities": effective, "compartment": grant.compartment}
+        update={"capabilities": effective, "compartment": eff_compartment}
     )
 
 
@@ -7878,20 +7899,34 @@ async def audit_proof(event_id: str, request: Request) -> Response:
     """
     SANDBOX ONLY — return the O(log n) inclusion proof for one buffered event.
 
-    JWT-gated; 404 when the event is unknown or not yet sealed into a signed epoch.
+    CAP_DIRECTORY_ADMIN-gated and TENANT-SCOPED. The sealed record carries the
+    obfuscator's hidden real target and the payload hash; this endpoint once
+    returned it to ANY authenticated caller of ANY tenant (a zero-capability agent
+    could read another tenant's topology). It is now gated on the same admin
+    capability that DEFINES the alias→target mappings (so the target is nothing new
+    to that caller) and scoped to the caller's own tenant. A cross-tenant, unknown,
+    or not-yet-sealed event is an indistinguishable 404 — never an existence oracle.
     """
     if not _components.settings.sandbox_mode:
         return JSONResponse(status_code=404, content={"error": "not found"})
-    token = _bearer_from_header(request)
-    if not token:
-        raise MCPIPDenied(_corr(request))
-    try:
-        await _apply_delegation(_components.auth.verify_identity(token))
-    except Exception:  # noqa: BLE001 — any JWT/delegation failure is an opaque deny.
-        raise MCPIPDenied(_corr(request)) from None
+    identity = await _require_directory_admin(request)
 
     proof = await _components.worm.inclusion_proof(event_id)
     if proof is None:
+        return JSONResponse(
+            status_code=404,
+            content={"error": "not found", "correlation_id": _corr(request)},
+        )
+    # Tenant scoping: an admin may prove inclusion only for its OWN tenant's events.
+    # A cross-tenant (or unparseable) record is a 404 — same shape as "unknown", so
+    # this can never be an existence oracle for another tenant's event ids.
+    try:
+        record_doc = json.loads(proof.record)
+        event_body = record_doc.get("event", record_doc)
+        record_tenant = event_body.get("tenant_id")
+    except (ValueError, AttributeError, TypeError):
+        record_tenant = None
+    if record_tenant != identity.tenant_id:
         return JSONResponse(
             status_code=404,
             content={"error": "not found", "correlation_id": _corr(request)},

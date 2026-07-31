@@ -312,9 +312,9 @@ def test_feed_event_id_drives_real_inclusion_proof(client: TestClient, idp: _Dem
     verify = client.get("/v1/audit/verify", headers={"Authorization": f"Bearer {token}"})
     assert verify.status_code == 200 and _json(verify)["intact"] is True
 
-    proof_resp = client.get(
-        f"/v1/audit/proof/{event_id}", headers={"Authorization": f"Bearer {token}"}
-    )
+    # The proof surface is CAP_DIRECTORY_ADMIN-gated + tenant-scoped; use the admin
+    # header (same tenant as the event), not the plain agent token that emitted it.
+    proof_resp = client.get(f"/v1/audit/proof/{event_id}", headers=hdr)
     assert proof_resp.status_code == 200, proof_resp.text
     proof = _json(proof_resp)
     assert proof["event_id"] == event_id

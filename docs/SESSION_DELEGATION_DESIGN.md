@@ -92,8 +92,13 @@ The parent session (authenticated, carrying `session_id`) registers a grant:
   already narrowing the parent). Requesting one the parent lacks → the whole
   registration is refused. Never silently intersected — silent narrowing hides
   operator mistakes.
-* `compartment` must equal the parent's or be a child of it; `tenant_id` is
-  fixed to the parent's, not a parameter.
+* `compartment` must be **None or exactly the delegating session's own
+  compartment** — never an arbitrary one. An un-compartmented (tenant-wide)
+  parent is itself entitled to *no* specific compartment under the compartment
+  gate, so it can hand down only `None`; it can never conjure compartment access
+  it lacks. (Deliberately conservative: a parent holding a compartment only via
+  a ReBAC grant, not its JWT claim, also cannot delegate it — fail-safe.)
+  `tenant_id` is fixed to the parent's, not a parameter.
 * Effective expiry = `min(parent token exp, parent grant expiry, requested)`.
 * Chain depth ≤ 4. A child registering its own grant is checked against its
   *effective* (already-narrowed) set, so authority can only shrink down a
@@ -109,8 +114,12 @@ The parent session (authenticated, carrying `session_id`) registers a grant:
 *Normative:*
 
 * Token carries `delegation_id` claim + live matching grant → effective
-  capabilities = JWT capabilities ∩ grant capabilities; effective compartment
-  per the grant. Intersection only — a grant can never widen.
+  capabilities = JWT capabilities ∩ grant capabilities. Effective compartment is
+  the **narrower of the child's own JWT compartment and the grant** — never
+  wider than either: a grant conveys compartment X only when *both* the grant and
+  the child's verified JWT already carry X; any disagreement collapses to `None`
+  (no compartmented access). Delegation subtracts, never adds. Intersection only
+  — a grant can never widen.
 * Token carries `delegation_id` but the grant is missing, expired, or revoked
   → **deny, fail closed**, deny reason `delegation_invalid`, opaque to the
   agent as all denies are.
@@ -130,6 +139,16 @@ Sealed as `delegation_revoked`. `CAP_DIRECTORY_ADMIN`-gated like the existing
 kill-switch; additionally the **parent session itself** may revoke its own
 descendants (a dispatcher cleaning up its workers is routine operation, not an
 admin event).
+
+**The principal kill-switch also cascades.** Revoking (or quarantining) a
+principal `(tenant_id, agent_id)` must sever every delegated descendant, or a
+compromised admin escapes containment through a pre-positioned escape token — a
+child minted on a *fresh* `agent_id` before the revocation, holding delegated
+authority. Each grant therefore denormalizes its ancestor **agent** ids
+alongside its ancestor session ids, and `_apply_delegation` probes the principal
+revocation/quarantine store for every ancestor agent (O(depth ≤ 4), fail-closed).
+A delegated token whose ancestor principal is revoked is denied
+`delegation_invalid` everywhere an identity is resolved.
 
 ### 5. Console
 
