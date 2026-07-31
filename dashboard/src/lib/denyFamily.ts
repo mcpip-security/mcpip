@@ -109,6 +109,7 @@ const REASON_TO_FAMILY: Readonly<Record<string, DenyFamily>> = {
   jwt_claims_missing: 'identity',
   sender_constraint_required: 'identity',
   principal_revoked: 'identity',
+  delegation_invalid: 'identity',
   identity_injection: 'identity',
 
   pin_required: 'needs_human',

@@ -1284,6 +1284,77 @@ export interface RecentDecision {
    * audit/worm_logger.py recent_decisions).
    */
   event_id: string | null;
+  /**
+   * Session attribution: WHICH session of the agent made this call (a verified
+   * JWT claim), and the delegation grant a narrowed call operated under. Null
+   * for pre-session tokens and pre-extension gateways.
+   */
+  session_id: string | null;
+  delegation_id: string | null;
+}
+
+/** One live delegation grant, as listed by GET /v1/admin/delegations. */
+export interface DelegationGrantRow {
+  delegation_id: string;
+  parent_session_id: string;
+  child_session_id: string;
+  child_agent_id: string;
+  capabilities: string[];
+  compartment: string | null;
+  expires_at: number;
+  depth: number;
+}
+
+/**
+ * GET /v1/admin/delegations — every LIVE attenuated grant for the admin's
+ * tenant (CAP_DIRECTORY_ADMIN). Returns 'disabled' on 404 — the deployment has
+ * delegation off, which the caller must render as its OWN state, never as an
+ * error or an empty roster (an empty state that cannot name its cause is how
+ * a correct gateway gets reported broken).
+ */
+export async function listDelegations(
+  token: string,
+  opts: GatewayClientOptions = {},
+): Promise<DelegationGrantRow[] | 'disabled' | null> {
+  try {
+    const init: RequestInit = { method: 'GET', headers: authHeaders(token) };
+    if (opts.signal) init.signal = opts.signal;
+    const res = await fetch(`${baseOf(opts)}/v1/admin/delegations`, init);
+    if (res.status === 404) return 'disabled';
+    if (!res.ok) return null;
+    const body = (await res.json()) as { delegations?: unknown };
+    if (!Array.isArray(body.delegations)) return null;
+    const rows: DelegationGrantRow[] = [];
+    for (const raw of body.delegations) {
+      if (typeof raw !== 'object' || raw === null) continue;
+      const r = raw as Record<string, unknown>;
+      if (
+        typeof r.delegation_id !== 'string' ||
+        typeof r.parent_session_id !== 'string' ||
+        typeof r.child_session_id !== 'string' ||
+        typeof r.child_agent_id !== 'string' ||
+        typeof r.expires_at !== 'number' ||
+        typeof r.depth !== 'number'
+      ) {
+        continue;
+      }
+      rows.push({
+        delegation_id: r.delegation_id,
+        parent_session_id: r.parent_session_id,
+        child_session_id: r.child_session_id,
+        child_agent_id: r.child_agent_id,
+        capabilities: Array.isArray(r.capabilities)
+          ? r.capabilities.filter((c): c is string => typeof c === 'string')
+          : [],
+        compartment: typeof r.compartment === 'string' ? r.compartment : null,
+        expires_at: r.expires_at,
+        depth: r.depth,
+      });
+    }
+    return rows;
+  } catch {
+    return null;
+  }
 }
 
 /** Normalize one raw feed row to the declared RecentDecision shape (or drop it). */
@@ -1318,6 +1389,8 @@ function asRecentDecision(value: unknown): RecentDecision | null {
     worm_sequence: r.worm_sequence,
     timestamp_ns: r.timestamp_ns,
     event_id: str(r.event_id),
+    session_id: str(r.session_id),
+    delegation_id: str(r.delegation_id),
   };
 }
 
@@ -1359,7 +1432,8 @@ export type DecisionFacet =
   | 'agent_id'
   | 'source_format'
   | 'correlation_id'
-  | 'transaction_ref';
+  | 'transaction_ref'
+  | 'session_id';
 
 /** Inputs to GET /v1/admin/decisions — the date-ranged, multi-filtered, paged history. */
 export interface DecisionQuery {

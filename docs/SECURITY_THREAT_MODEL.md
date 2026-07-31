@@ -1023,3 +1023,22 @@ caveat.)
 ---
 
 *◐ MCPIP · Authorize every AI action before execution.*
+
+## Session delegation — what it does and does not contain
+
+Attenuated delegation (`docs/SESSION_DELEGATION_DESIGN.md`) lets a session grant
+a child session a strict SUBSET of its own authority, and revocation cascades
+down the subtree. Two boundaries to be clear-eyed about:
+
+* **A copied bearer token defeats attribution, by construction.** An
+  orchestrator that copies the parent's own token file to a worker instead of
+  delegating is indistinguishable from the parent — same claims, same session.
+  Delegation makes the governed path cheaper than the copy (one POST, and the
+  child appears in the console lineage); it cannot make the copy impossible.
+  Sender-constrained tokens (`cnf`/proof-of-possession) are the control that
+  binds harder.
+* **`session_id` is asserted, not proven.** It is a verified JWT claim — the
+  IdP vouches for it — but nothing stops an IdP (or the sandbox forge) minting
+  two tokens with the same session id. Attribution quality is exactly the
+  IdP's issuance discipline; the delegation binding (grant → one child session
+  + agent) is what the GATEWAY enforces.

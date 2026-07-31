@@ -39,8 +39,8 @@ import {
 import type { GatewayLive } from '../../lib/useGatewayLive';
 import { issueCompartmentGrant } from '../../lib/grantCeremony';
 import { setPrincipalRevocation } from '../../lib/revokeCeremony';
-import { catalog, mintDevToken } from '../../lib/api';
-import type { DevTokenClaims, LicenseInfo, RelationEdge } from '../../lib/api';
+import { catalog, listDelegations, mintDevToken } from '../../lib/api';
+import type { DelegationGrantRow, DevTokenClaims, LicenseInfo, RelationEdge } from '../../lib/api';
 import { loadDirectory, saveDirectory } from '../../lib/directorySync';
 import {
   CAP_COMPARTMENT_GRANT,
@@ -1644,6 +1644,8 @@ function Hierarchy({ gateway }: { gateway: GatewayLive }): JSX.Element {
           toolbar; still real edges + honest empty state when shown. */}
       {showGraph ? <KnowledgeGraphPanel gateway={gateway} /> : null}
 
+      {live ? <DelegationLineage gateway={gateway} /> : null}
+
       <AnimatePresence>
         {grantFor && live && (
           <TempGrantDialog
@@ -2427,5 +2429,123 @@ function Entitlements({ gateway }: { gateway: GatewayLive }): JSX.Element {
         </Panel>
       </div>
     </div>
+  );
+}
+
+
+/* ---------------------------------------------------------------- delegation */
+
+type LineagePhase = 'loading' | 'disabled' | 'unavailable' | 'ready';
+
+/**
+ * Live attenuated-delegation grants, grouped into parent → children lineage
+ * (docs/SESSION_DELEGATION_DESIGN.md §5). Every row is a REAL grant from
+ * GET /v1/admin/delegations — nothing is fabricated, and each empty state names
+ * its actual cause: the feature being off (404) is not an error, and a failed
+ * admin read is never rendered as "no delegations".
+ */
+function DelegationLineage({ gateway }: { gateway: GatewayLive }): JSX.Element {
+  const [phase, setPhase] = useState<LineagePhase>('loading');
+  const [rows, setRows] = useState<ReadonlyArray<DelegationGrantRow>>([]);
+
+  const load = useCallback(async (signal?: AbortSignal) => {
+    setPhase('loading');
+    const token = await gateway.ensureAdminToken(signal);
+    if (!token) {
+      setPhase('unavailable');
+      return;
+    }
+    const result = await listDelegations(token, { base: gateway.apiBase, signal });
+    if (result === 'disabled') {
+      setPhase('disabled');
+    } else if (result === null) {
+      setPhase('unavailable');
+    } else {
+      setRows(result);
+      setPhase('ready');
+    }
+  }, [gateway]);
+
+  useEffect(() => {
+    const ctrl = new AbortController();
+    void load(ctrl.signal);
+    return () => ctrl.abort();
+  }, [load]);
+
+  const byParent = new Map<string, DelegationGrantRow[]>();
+  for (const r of rows) {
+    const list = byParent.get(r.parent_session_id) ?? [];
+    list.push(r);
+    byParent.set(r.parent_session_id, list);
+  }
+
+  return (
+    <Panel>
+      <PanelHeader
+        title="Delegation lineage"
+        icon={Network}
+        right={
+          <button type="button" className="btn-ghost" onClick={() => void load()}>
+            refresh
+          </button>
+        }
+      />
+      <div className="p-4">
+        {phase === 'loading' ? (
+          <p className="text-[12.5px] text-slate-500">reading live grants…</p>
+        ) : phase === 'disabled' ? (
+          <p className="max-w-[70ch] text-[12.5px] leading-relaxed text-slate-500">
+            Delegation is disabled on this gateway (<code>MCPIP_DELEGATION_ENABLED</code> is
+            off — the documented default). This is the deployment&rsquo;s configured posture,
+            not an error: no session can register an attenuated grant until an operator
+            enables it.
+          </p>
+        ) : phase === 'unavailable' ? (
+          <p className="max-w-[70ch] text-[12.5px] leading-relaxed text-slate-500">
+            The delegation read did not answer — the console&rsquo;s credential lacks
+            CAP_DIRECTORY_ADMIN or the gateway is unreachable. Grants may exist; this
+            panel simply cannot see them right now.
+          </p>
+        ) : rows.length === 0 ? (
+          <p className="max-w-[70ch] text-[12.5px] leading-relaxed text-slate-500">
+            No live grants. A dispatcher session registers one with{' '}
+            <code>POST /v1/delegate</code> — the child then holds a strict subset of its
+            spawner&rsquo;s authority, and revoking any session kills its whole subtree.
+          </p>
+        ) : (
+          <div className="space-y-3">
+            {[...byParent.entries()].map(([parent, children]) => (
+              <div key={parent} className="rounded-lg border border-slate-800 p-3">
+                <p className="font-mono text-[11px] text-slate-400">
+                  parent session <span className="text-slate-200">{parent.slice(0, 13)}…</span>
+                </p>
+                <ul className="mt-2 space-y-1.5">
+                  {children.map((g) => (
+                    <li
+                      key={g.delegation_id}
+                      className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 pl-4 font-mono text-[11px]"
+                    >
+                      <span className="text-slate-500">└─</span>
+                      <span className="text-slate-200">{g.child_agent_id}</span>
+                      <span className="text-slate-500">{g.child_session_id.slice(0, 13)}…</span>
+                      <span className="text-slate-500">
+                        {g.capabilities.length} cap{g.capabilities.length === 1 ? '' : 's'}
+                      </span>
+                      {g.compartment ? (
+                        <span className="text-slate-500">compartment {g.compartment.slice(0, 8)}…</span>
+                      ) : null}
+                      <span className="text-slate-500">depth {g.depth}</span>
+                      <span className="text-slate-500">
+                        expires {new Date(g.expires_at * 1000).toLocaleTimeString()}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </Panel>
   );
 }

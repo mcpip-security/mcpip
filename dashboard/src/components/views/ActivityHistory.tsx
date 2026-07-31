@@ -55,6 +55,7 @@ interface FilterState {
   denyFamily: DenyFamily | '';
   riskTier: string;
   agentId: string;
+  sessionId: string;
 }
 
 const EMPTY_FILTERS: FilterState = {
@@ -66,6 +67,7 @@ const EMPTY_FILTERS: FilterState = {
   denyFamily: '',
   riskTier: '',
   agentId: '',
+  sessionId: '',
 };
 
 /** datetime-local string → epoch ms (or undefined when blank/invalid). */
@@ -103,6 +105,8 @@ function buildQuery(f: FilterState, cursor?: string): DecisionQuery {
   if (risk.length) filters.risk_tier = risk;
   const agent = facetValues(f.agentId);
   if (agent.length) filters.agent_id = agent;
+  const session = facetValues(f.sessionId);
+  if (session.length) filters.session_id = session;
   const query: DecisionQuery = { limit: PAGE_LIMIT, filters };
   const fromMs = toMs(f.from);
   const toMsV = toMs(f.to);
@@ -200,6 +204,8 @@ const EXPORT_COLUMNS: ReadonlyArray<readonly [string, (r: RecentDecision) => str
   ['classification', (r) => r.classification ?? ''],
   ['source_format', (r) => r.source_format ?? ''],
   ['agent_id', (r) => r.agent_id ?? ''],
+  ['session_id', (r) => r.session_id ?? ''],
+  ['delegation_id', (r) => r.delegation_id ?? ''],
   ['transaction_ref', (r) => r.transaction_ref ?? ''],
   ['worm_sequence', (r) => String(r.worm_sequence)],
   ['correlation_id', (r) => r.correlation_id],
@@ -433,6 +439,14 @@ export function ActivityHistory({ gateway }: { gateway: GatewayLive }): JSX.Elem
               placeholder="agent-…"
               value={draft.agentId}
               onChange={(e) => setDraft({ ...draft, agentId: e.target.value })}
+            />
+          </Field>
+          <Field label="Session id">
+            <Input
+              mono
+              placeholder="session uuid…"
+              value={draft.sessionId}
+              onChange={(e) => setDraft({ ...draft, sessionId: e.target.value })}
             />
           </Field>
         </div>

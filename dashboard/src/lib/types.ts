@@ -258,6 +258,11 @@ export interface StreamEvent {
   eventId: string | null;
   /** The REAL per-row WORM sequence (monotonic ledger height at emit time). */
   wormSequence: number;
+  /** Session attribution: WHICH session of the agent made this call (verified
+   * JWT claim). Null for pre-session tokens. */
+  sessionId: string | null;
+  /** The delegation grant a narrowed call operated under; null otherwise. */
+  delegationId: string | null;
 }
 
 /**

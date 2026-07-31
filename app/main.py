@@ -27,6 +27,7 @@ Design contract:
 from __future__ import annotations
 
 import asyncio
+import base64
 import hashlib
 import hmac
 import logging
@@ -173,6 +174,7 @@ from services.relation_store import RelationEdge, RelationTupleStore
 from services.obfuscator import ObfuscatorService
 from services.quarantine import QuarantineStore
 from services.revocation import RevocationStore
+from services.delegation import DelegationError, DelegationStore, Grant
 from services.skill_gate import SkillGateStore
 from services.catalog_overlay import CatalogOverlayStore, MAX_OVERLAY_ENTRIES
 from services.community_gate import (
@@ -421,6 +423,12 @@ class Components:
     # quarantine gate; mutated only by the CAP_DIRECTORY_ADMIN-gated /v1/admin
     # endpoints. A DENY-only control — it never mints identity.
     revocation: RevocationStore
+    # Attenuated session delegation grants (docs/SESSION_DELEGATION_DESIGN.md §2-4).
+    # Consulted on the hot path ONLY for tokens carrying a delegation_id claim;
+    # mutated by /v1/delegate (any authenticated session — registration can only
+    # NARROW its own authority) and the admin/parent revoke surfaces. DENY-only in
+    # effect: it intersects, never widens, and never mints identity.
+    delegation: DelegationStore
     # Operator skill kill-switch. Consulted on the hot path after alias resolution;
     # mutated only by the CAP_DIRECTORY_ADMIN-gated /v1/admin/skills endpoints. A
     # DENY-only control — it never edits the alias→target mapping.
@@ -1584,6 +1592,7 @@ def _wire_redis_bound(
     grants = GrantStore(redis_client, cache=NegativeGrantCache(), relations=relations)
     quarantine = QuarantineStore(redis_client)
     revocation = RevocationStore(redis_client)
+    delegation = DelegationStore(redis_client)
     skill_gate = SkillGateStore(redis_client)
     catalog_overlay = CatalogOverlayStore(redis_client)
     extension_submissions = ExtensionSubmissionStore(redis_client)
@@ -1620,6 +1629,7 @@ def _wire_redis_bound(
         relations,
         quarantine,
         revocation,
+        delegation,
         skill_gate,
         catalog_overlay,
         extension_submissions,
@@ -1647,6 +1657,7 @@ def _rebind_redis(components: Components, redis_client: redis.Redis) -> None:
         components.relations,
         components.quarantine,
         components.revocation,
+        components.delegation,
         components.skill_gate,
         components.catalog_overlay,
         components.extension_submissions,
@@ -1947,6 +1958,7 @@ def _build_components(settings: Settings) -> Components:
         relations,
         quarantine,
         revocation,
+        delegation,
         skill_gate,
         catalog_overlay,
         extension_submissions,
@@ -1996,6 +2008,7 @@ def _build_components(settings: Settings) -> Components:
         relations=relations,
         quarantine=quarantine,
         revocation=revocation,
+        delegation=delegation,
         skill_gate=skill_gate,
         catalog_overlay=catalog_overlay,
         extension_submissions=extension_submissions,
@@ -3109,6 +3122,20 @@ async def _run_authorize_pipeline(
                 "principal revoked by an operator (admin kill-switch)",
             )
 
+        # --- 2d) Delegation: a token operating under a grant is INTERSECTED with
+        # its live grant — never widened, never silently passed through. Any
+        # missing/expired/revoked/mismatched grant (or the feature being disabled
+        # while the claim is present) denies DELEGATION_INVALID, fail-closed. The
+        # narrowed identity replaces the original for EVERYTHING downstream:
+        # compartment visibility, capability gates, forensics.
+        if identity.delegation_id is not None:
+            ctx["delegation_id"] = identity.delegation_id
+            try:
+                identity = await _apply_delegation(identity)
+            except _DelegationDenied as exc:
+                raise GatewayDeny(DenyReason.DELEGATION_INVALID, exc.detail) from None
+            captured_identity = identity
+
         # --- 3) Bridge: declared dialect → parser → normalize + deep gates. ------
         if source_format is not None:
             declared = source_format
@@ -3660,6 +3687,10 @@ async def authz_decision(body: AuthzenDecisionRequest, request: Request) -> Resp
         identity = _components.auth.verify_identity(token)
     except Exception:  # noqa: BLE001 — any JWT failure is an opaque deny (never a verdict).
         raise MCPIPDenied(correlation_id) from None
+    try:
+        identity = await _apply_delegation(identity)
+    except _DelegationDenied:
+        raise MCPIPDenied(correlation_id) from None
 
     allowed, obligations, deny_reason = await _evaluate_authz_decision(
         identity=identity,
@@ -3844,6 +3875,15 @@ async def mcp_edge(request: Request) -> Response:
         try:
             identity = _components.auth.verify_identity(token)
         except Exception:  # noqa: BLE001 — any JWT failure is an opaque deny.
+            return _jsonrpc_error(
+                request_id,
+                -32000,
+                AGENT_FACING_DENY_MESSAGE,
+                {"correlation_id": correlation_id},
+            )
+        try:
+            identity = await _apply_delegation(identity)
+        except _DelegationDenied:
             return _jsonrpc_error(
                 request_id,
                 -32000,
@@ -4089,6 +4129,9 @@ class _DevTokenRequest(BaseModel):
     # forge pre-checks it with compartment/capabilities for a diagnosable 400 here
     # rather than an opaque 403 on the first governed call.
     session_id: Optional[str] = None
+    # OPTIONAL delegation grant reference (UUID) — sandbox testing of the
+    # delegated-token path; the resolver enforces UUID-or-deny like session_id.
+    delegation_id: Optional[str] = None
 
 
 @app.post("/v1/dev/token")
@@ -4115,7 +4158,12 @@ async def dev_token(body: _DevTokenRequest) -> Response:
                 out.append(str(v))
         return out
 
-    malformed = _bad(body.capabilities) + _bad(body.compartment) + _bad(body.session_id)
+    malformed = (
+        _bad(body.capabilities)
+        + _bad(body.compartment)
+        + _bad(body.session_id)
+        + _bad(body.delegation_id)
+    )
     if malformed:
         return JSONResponse(
             status_code=400,
@@ -4131,6 +4179,7 @@ async def dev_token(body: _DevTokenRequest) -> Response:
         compartment=body.compartment,
         capabilities=body.capabilities,
         session_id=body.session_id,
+        delegation_id=body.delegation_id,
     )
     return JSONResponse(status_code=200, content={"jwt": token})
 
@@ -4161,6 +4210,266 @@ async def dev_capabilities() -> Response:
     )
 
 
+class _DelegateRequest(BaseModel):
+    """Body for ``POST /v1/delegate`` (docs/SESSION_DELEGATION_DESIGN.md §2)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    child_agent_id: str
+    child_session_id: str
+    capabilities: list[str] = []
+    compartment: Optional[str] = None
+    expires_in_s: int = 3600
+
+
+class _DelegateRevokeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    session_id: str
+
+
+def _verified_token_exp(token: str) -> Optional[int]:
+    """The ``exp`` of an ALREADY-VERIFIED token (display-free re-read of the same
+    payload the resolver just validated — never used on an unverified token)."""
+    try:
+        payload_b64 = token.split(".")[1]
+        payload_b64 += "=" * (-len(payload_b64) % 4)
+        claims = json.loads(base64.urlsafe_b64decode(payload_b64).decode("utf-8"))
+        exp = claims.get("exp")
+        return int(exp) if isinstance(exp, (int, float)) else None
+    except Exception:  # noqa: BLE001 — absent exp just means no token-exp clamp.
+        return None
+
+
+async def _delegation_caller(request: Request) -> Identity:
+    """Verify + kill-switch-check + delegation-narrow the calling session for the
+    /v1/delegate surfaces. A revoked or quarantined principal must not spawn or
+    revoke children; a delegated caller operates under its EFFECTIVE authority."""
+    token = _bearer_from_header(request)
+    if not token:
+        raise MCPIPDenied(_corr(request))
+    try:
+        identity = _components.auth.verify_identity(token)
+    except Exception:  # noqa: BLE001 — any JWT failure is an opaque deny.
+        raise MCPIPDenied(_corr(request)) from None
+    try:
+        revoked = await _components.revocation.is_revoked(
+            identity.tenant_id, identity.agent_id
+        )
+        quarantined = await _components.quarantine.is_quarantined(
+            identity.tenant_id, identity.agent_id
+        )
+    except Exception:  # noqa: BLE001 — a store failure denies (fail-closed).
+        raise MCPIPDenied(_corr(request)) from None
+    if revoked or quarantined:
+        raise MCPIPDenied(_corr(request))
+    try:
+        return await _apply_delegation(identity)
+    except _DelegationDenied:
+        raise MCPIPDenied(_corr(request)) from None
+
+
+@app.post("/v1/delegate")
+async def delegate(body: _DelegateRequest, request: Request) -> Response:
+    """
+    Register an ATTENUATED grant for a child session (docs/SESSION_DELEGATION_DESIGN.md §2).
+
+    Requires no capability — deliberately: registration can only NARROW the
+    caller's own authority (capabilities strictly ⊆ its effective set, compartment
+    same-or-narrower, expiry min-of-three), so a dispatcher agent is a normal
+    caller, not an admin event. Rule violations are refused with a diagnosable
+    400, never silently intersected. The grant is WORM-sealed BEFORE it becomes
+    readable by the authorize path; if the chain cannot be written, no grant
+    exists. 404 when the deployment has delegation disabled.
+    """
+    if not _components.settings.delegation_enabled:
+        return JSONResponse(status_code=404, content={"error": "not found"})
+    token = _bearer_from_header(request) or ""
+    identity = await _delegation_caller(request)
+    if identity.session_id is None:
+        return JSONResponse(
+            status_code=400,
+            content={"error": "the delegating token must carry a session_id claim"},
+        )
+
+    def _bad_uuid(values: list[str]) -> list[str]:
+        out = []
+        for v in values:
+            try:
+                uuid.UUID(str(v))
+            except (ValueError, AttributeError, TypeError):
+                out.append(str(v))
+        return out
+
+    malformed = _bad_uuid([body.child_session_id]) + _bad_uuid(body.capabilities)
+    if body.compartment is not None:
+        malformed += _bad_uuid([body.compartment])
+    if malformed:
+        return JSONResponse(
+            status_code=400, content={"error": f"not a UUID: {', '.join(malformed)}"}
+        )
+
+    parent_grant = None
+    if identity.delegation_id is not None:
+        parent_grant = await _components.delegation.fetch(
+            identity.tenant_id, identity.delegation_id
+        )
+        if parent_grant is None:
+            raise MCPIPDenied(_corr(request))
+
+    try:
+        grant = DelegationStore.prepare(
+            tenant_id=identity.tenant_id,
+            parent_session_id=identity.session_id,
+            parent_effective_capabilities=identity.capabilities,
+            parent_effective_compartment=identity.compartment,
+            parent_token_exp=_verified_token_exp(token),
+            parent_grant=parent_grant,
+            child_agent_id=body.child_agent_id,
+            child_session_id=body.child_session_id,
+            capabilities=body.capabilities,
+            compartment=body.compartment,
+            expires_in_s=body.expires_in_s,
+        )
+    except DelegationError as exc:
+        return JSONResponse(status_code=400, content={"error": str(exc)})
+
+    # Write-before-execute: the grant is sealed to the chain BEFORE it can be
+    # read by the authorize path. An unsealable grant must not exist.
+    try:
+        await _components.worm.emit(
+            {
+                "decision": "admin_action",
+                "admin_action": "delegation_granted",
+                "tenant_id": grant.tenant_id,
+                "agent_id": identity.agent_id,
+                "session_id": grant.parent_session_id,
+                "delegation_id": grant.delegation_id,
+                "child_session_id": grant.child_session_id,
+                "child_agent_id": grant.child_agent_id,
+                "capabilities": list(grant.capabilities),
+                "compartment": grant.compartment,
+                "expires_at": grant.expires_at,
+                "depth": grant.depth,
+                "correlation_id": _corr(request),
+                "ts": time.time(),
+            }
+        )
+    except Exception:  # noqa: BLE001 — no seal, no grant (fail-closed).
+        return JSONResponse(status_code=503, content={"error": "audit unavailable"})
+    await _components.delegation.persist(grant)
+    return JSONResponse(
+        status_code=201,
+        content={
+            "delegation_id": grant.delegation_id,
+            "child_session_id": grant.child_session_id,
+            "expires_at": grant.expires_at,
+            "depth": grant.depth,
+        },
+    )
+
+
+@app.post("/v1/delegate/revoke")
+async def delegate_revoke(body: _DelegateRevokeRequest, request: Request) -> Response:
+    """
+    A parent session revokes one of its own DESCENDANTS — routine dispatcher
+    cleanup, not an admin event, which is why no capability is required. The
+    caller must actually be an ancestor of the target session; anything else
+    (including a target that does not exist) is an opaque deny, so this surface
+    is not an existence oracle. Cascades: every grant whose chain passes through
+    the revoked session dies on its next liveness probe.
+    """
+    if not _components.settings.delegation_enabled:
+        return JSONResponse(status_code=404, content={"error": "not found"})
+    identity = await _delegation_caller(request)
+    if identity.session_id is None:
+        raise MCPIPDenied(_corr(request))
+    grants = await _components.delegation.list_grants(identity.tenant_id)
+    is_descendant = any(
+        g.child_session_id == body.session_id and identity.session_id in g.ancestors
+        for g in grants
+    )
+    if not is_descendant:
+        raise MCPIPDenied(_corr(request))
+    try:
+        await _components.worm.emit(
+            {
+                "decision": "admin_action",
+                "admin_action": "delegation_revoked",
+                "tenant_id": identity.tenant_id,
+                "agent_id": identity.agent_id,
+                "session_id": identity.session_id,
+                "revoked_session_id": body.session_id,
+                "correlation_id": _corr(request),
+                "ts": time.time(),
+            }
+        )
+    except Exception:  # noqa: BLE001 — no seal, no revocation record; still revoke.
+        pass
+    await _components.delegation.revoke_session(
+        tenant_id=identity.tenant_id, session_id=body.session_id
+    )
+    return JSONResponse(status_code=200, content={"revoked": body.session_id})
+
+
+@app.get("/v1/admin/delegations")
+async def admin_list_delegations(request: Request) -> Response:
+    """Every LIVE grant for the admin's tenant (CAP_DIRECTORY_ADMIN; 404 when the
+    deployment has delegation disabled). Read-only; feeds the console lineage tree."""
+    if not _components.settings.delegation_enabled:
+        return JSONResponse(status_code=404, content={"error": "not found"})
+    identity = await _require_directory_admin(request)
+    grants = await _components.delegation.list_grants(identity.tenant_id)
+    return JSONResponse(
+        status_code=200,
+        content={
+            "delegations": [
+                {
+                    "delegation_id": g.delegation_id,
+                    "parent_session_id": g.parent_session_id,
+                    "child_session_id": g.child_session_id,
+                    "child_agent_id": g.child_agent_id,
+                    "capabilities": list(g.capabilities),
+                    "compartment": g.compartment,
+                    "expires_at": g.expires_at,
+                    "depth": g.depth,
+                }
+                for g in grants
+            ]
+        },
+    )
+
+
+@app.post("/v1/admin/delegations/revoke")
+async def admin_revoke_delegation(
+    body: _DelegateRevokeRequest, request: Request
+) -> Response:
+    """Admin kill-switch for a session subtree (CAP_DIRECTORY_ADMIN) — same
+    cascade as the parent-side revoke, without the ancestry requirement."""
+    if not _components.settings.delegation_enabled:
+        return JSONResponse(status_code=404, content={"error": "not found"})
+    identity = await _require_directory_admin(request)
+    try:
+        await _components.worm.emit(
+            {
+                "decision": "admin_action",
+                "admin_action": "delegation_revoked",
+                "tenant_id": identity.tenant_id,
+                "agent_id": identity.agent_id,
+                "session_id": identity.session_id,
+                "revoked_session_id": body.session_id,
+                "correlation_id": _corr(request),
+                "ts": time.time(),
+            }
+        )
+    except Exception:  # noqa: BLE001 — best-effort record; the block still lands.
+        pass
+    await _components.delegation.revoke_session(
+        tenant_id=identity.tenant_id, session_id=body.session_id
+    )
+    return JSONResponse(status_code=200, content={"revoked": body.session_id})
+
+
 @app.get("/v1/whoami")
 async def whoami(request: Request) -> Response:
     """
@@ -4180,6 +4489,12 @@ async def whoami(request: Request) -> Response:
     try:
         identity = _components.auth.verify_identity(token)
     except Exception:  # noqa: BLE001 — any JWT failure is an opaque deny.
+        raise MCPIPDenied(_corr(request)) from None
+    try:
+        identity = await _apply_delegation(identity)
+    except _DelegationDenied:
+        # A delegated token with no live backing grant is denied EVERYWHERE, not
+        # only on /v1/authorize — fail-closed, opaque like any deny.
         raise MCPIPDenied(_corr(request)) from None
     return JSONResponse(
         status_code=200,
@@ -4209,6 +4524,12 @@ async def catalog(request: Request) -> Response:
     try:
         identity = _components.auth.verify_identity(token)
     except Exception:  # noqa: BLE001 — any JWT failure is an opaque deny.
+        raise MCPIPDenied(_corr(request)) from None
+    try:
+        identity = await _apply_delegation(identity)
+    except _DelegationDenied:
+        # A delegated token with no live backing grant is denied EVERYWHERE, not
+        # only on /v1/authorize — fail-closed, opaque like any deny.
         raise MCPIPDenied(_corr(request)) from None
 
     visible = await _components.obf.list_visible(
@@ -4313,8 +4634,8 @@ async def version_info(request: Request) -> Response:
     if not token:
         raise MCPIPDenied(_corr(request))
     try:
-        _components.auth.verify_identity(token)
-    except Exception:  # noqa: BLE001 — any JWT failure is an opaque deny.
+        await _apply_delegation(_components.auth.verify_identity(token))
+    except Exception:  # noqa: BLE001 — any JWT/delegation failure is an opaque deny.
         raise MCPIPDenied(_corr(request)) from None
 
     running = get_version()
@@ -4370,8 +4691,8 @@ async def license_info(request: Request) -> Response:
     if not token:
         raise MCPIPDenied(_corr(request))
     try:
-        _components.auth.verify_identity(token)
-    except Exception:  # noqa: BLE001 — any JWT failure is an opaque deny.
+        await _apply_delegation(_components.auth.verify_identity(token))
+    except Exception:  # noqa: BLE001 — any JWT/delegation failure is an opaque deny.
         raise MCPIPDenied(_corr(request)) from None
 
     lic = _components.license
@@ -4416,6 +4737,53 @@ class _RevokeBody(BaseModel):
     reason: Optional[str] = None
 
 
+class _DelegationDenied(Exception):
+    """Internal: a delegated token has no live backing grant. The detail is a
+    WORM-safe cause string; it NEVER crosses the agent wire."""
+
+    def __init__(self, detail: str) -> None:
+        self.detail = detail
+        super().__init__(detail)
+
+
+async def _apply_delegation(identity: Identity) -> Identity:
+    """
+    Narrow a delegated identity to the INTERSECTION of its JWT claims and its live
+    grant — or refuse (docs/SESSION_DELEGATION_DESIGN.md §3).
+
+    A token WITHOUT a ``delegation_id`` claim passes through untouched: the
+    un-delegated path is byte-for-byte legacy. A token WITH the claim is narrowed
+    or denied — never silently passed through un-narrowed, including when the
+    deployment has delegation disabled, because ignoring the claim would grant
+    MORE than the token was minted for. Grant liveness + the revocation cascade
+    are key-presence reads, O(depth ≤ 4), fail-closed on transport (LockError
+    propagates to the caller's funnel exactly like the revocation gate).
+    """
+    if identity.delegation_id is None:
+        return identity
+    if not _components.settings.delegation_enabled:
+        raise _DelegationDenied("delegation disabled on this deployment")
+    grant = await _components.delegation.fetch(
+        identity.tenant_id, identity.delegation_id
+    )
+    if grant is None:
+        raise _DelegationDenied("no live grant backs the delegation_id claim")
+    # Strong binding: the grant names ONE child session and agent. A delegation id
+    # replayed inside any other token denies — a grant is not a bearer widget.
+    if identity.session_id is None or identity.session_id != grant.child_session_id:
+        raise _DelegationDenied("session binding does not match the grant")
+    if identity.agent_id != grant.child_agent_id:
+        raise _DelegationDenied("agent binding does not match the grant")
+    if grant.expires_at <= int(time.time()):
+        raise _DelegationDenied("grant expired")
+    if await _components.delegation.is_chain_revoked(identity.tenant_id, grant):
+        raise _DelegationDenied("a session in the delegation chain is revoked")
+    effective = tuple(sorted(set(identity.capabilities) & set(grant.capabilities)))
+    return identity.model_copy(
+        update={"capabilities": effective, "compartment": grant.compartment}
+    )
+
+
 async def _require_directory_admin(request: Request) -> Identity:
     """
     Verify the JWT, require the ``CAP_DIRECTORY_ADMIN`` capability, AND enforce the
@@ -4436,6 +4804,12 @@ async def _require_directory_admin(request: Request) -> Identity:
     try:
         identity = _components.auth.verify_identity(token)
     except Exception:  # noqa: BLE001 — any JWT failure is an opaque deny.
+        raise MCPIPDenied(_corr(request)) from None
+    try:
+        identity = await _apply_delegation(identity)
+    except _DelegationDenied:
+        # A delegated token with no live backing grant is denied EVERYWHERE, not
+        # only on /v1/authorize — fail-closed, opaque like any deny.
         raise MCPIPDenied(_corr(request)) from None
     if not any(
         constant_time_equals(c, CAP_DIRECTORY_ADMIN) for c in identity.capabilities
@@ -4494,6 +4868,12 @@ async def _require_forensic_read(request: Request) -> Identity:
         identity = _components.auth.verify_identity(token)
     except Exception:  # noqa: BLE001 — any JWT failure is an opaque deny.
         raise MCPIPDenied(_corr(request)) from None
+    try:
+        identity = await _apply_delegation(identity)
+    except _DelegationDenied:
+        # A delegated token with no live backing grant is denied EVERYWHERE, not
+        # only on /v1/authorize — fail-closed, opaque like any deny.
+        raise MCPIPDenied(_corr(request)) from None
     if not any(
         constant_time_equals(c, CAP_FORENSIC_READ) for c in identity.capabilities
     ):
@@ -4549,6 +4929,12 @@ async def _require_authenticated(request: Request) -> Identity:
         identity = _components.auth.verify_identity(token)
     except Exception:  # noqa: BLE001 — any JWT failure is an opaque deny.
         raise MCPIPDenied(_corr(request)) from None
+    try:
+        identity = await _apply_delegation(identity)
+    except _DelegationDenied:
+        # A delegated token with no live backing grant is denied EVERYWHERE, not
+        # only on /v1/authorize — fail-closed, opaque like any deny.
+        raise MCPIPDenied(_corr(request)) from None
     await _enforce_kill_switches(request, identity)
     return identity
 
@@ -4571,6 +4957,12 @@ async def _require_catalog_reviewer(request: Request) -> Identity:
     try:
         identity = _components.auth.verify_identity(token)
     except Exception:  # noqa: BLE001 — any JWT failure is an opaque deny.
+        raise MCPIPDenied(_corr(request)) from None
+    try:
+        identity = await _apply_delegation(identity)
+    except _DelegationDenied:
+        # A delegated token with no live backing grant is denied EVERYWHERE, not
+        # only on /v1/authorize — fail-closed, opaque like any deny.
         raise MCPIPDenied(_corr(request)) from None
     if not any(
         constant_time_equals(c, CAP_CATALOG_REVIEWER) for c in identity.capabilities
@@ -4908,6 +5300,7 @@ _DECISION_FILTER_FIELDS: Final[tuple[str, ...]] = (
     "correlation_id",
     "transaction_ref",
     "session_id",
+    "delegation_id",
 )
 _STREAM_ID_RE: Final = re.compile(r"^\d+-\d+$")
 
@@ -7469,8 +7862,8 @@ async def audit_verify(request: Request) -> Response:
     if not token:
         raise MCPIPDenied(_corr(request))
     try:
-        _components.auth.verify_identity(token)
-    except Exception:  # noqa: BLE001 — any JWT failure is an opaque deny.
+        await _apply_delegation(_components.auth.verify_identity(token))
+    except Exception:  # noqa: BLE001 — any JWT/delegation failure is an opaque deny.
         raise MCPIPDenied(_corr(request)) from None
 
     await _components.worm.close_epoch()
@@ -7493,8 +7886,8 @@ async def audit_proof(event_id: str, request: Request) -> Response:
     if not token:
         raise MCPIPDenied(_corr(request))
     try:
-        _components.auth.verify_identity(token)
-    except Exception:  # noqa: BLE001 — any JWT failure is an opaque deny.
+        await _apply_delegation(_components.auth.verify_identity(token))
+    except Exception:  # noqa: BLE001 — any JWT/delegation failure is an opaque deny.
         raise MCPIPDenied(_corr(request)) from None
 
     proof = await _components.worm.inclusion_proof(event_id)
@@ -7630,6 +8023,12 @@ async def authenticator(challenge_id: str, request: Request) -> Response:
     try:
         identity = _components.auth.verify_identity(token)
     except Exception:  # noqa: BLE001 — any JWT failure is an opaque deny.
+        raise MCPIPDenied(_corr(request)) from None
+    try:
+        identity = await _apply_delegation(identity)
+    except _DelegationDenied:
+        # A delegated token with no live backing grant is denied EVERYWHERE, not
+        # only on /v1/authorize — fail-closed, opaque like any deny.
         raise MCPIPDenied(_corr(request)) from None
 
     otp = await _components.auth.peek_authenticator_otp(identity, challenge_id)

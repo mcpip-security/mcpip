@@ -320,6 +320,8 @@ function toStreamEvent(r: RecentDecision): StreamEvent {
     classification: r.classification,
     eventId: r.event_id,
     wormSequence: r.worm_sequence,
+    sessionId: r.session_id,
+    delegationId: r.delegation_id,
   };
 }
 

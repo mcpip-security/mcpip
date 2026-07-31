@@ -68,6 +68,12 @@ class Settings(BaseSettings):
     # PEM public key of the trusted IdP. None + sandbox_mode -> reuse _DemoIdP.
     jwt_public_key_path: str | None = Field(default=None)
 
+    # --- Attenuated session delegation (docs/SESSION_DELEGATION_DESIGN.md). ------
+    # Default OFF. When off, /v1/delegate does not exist (404) and any token
+    # carrying a delegation_id claim is denied DELEGATION_INVALID — fail-closed,
+    # because ignoring the claim would grant MORE than the token was minted for.
+    delegation_enabled: bool = Field(default=False)
+
     # --- WORM audit sink. -------------------------------------------------------
     worm_path: str = Field(default="./mcpip_worm.jsonl")
     # Ed25519 PKCS8 PEM used to sign the chain. None + sandbox_mode -> ephemeral.

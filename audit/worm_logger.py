@@ -251,6 +251,9 @@ _DECISION_SAFE_KEYS: tuple[str, ...] = (
     # verified token asserted about ITSELF (which session of an agent acted). Names no
     # target, no payload, no pin/otp, and no other tenant's anything.
     "session_id",
+    # The delegation grant a narrowed call operated under — confirmed non-topology/
+    # non-secret: a random grant UUID scoped to the caller's own tenant.
+    "delegation_id",
 )
 
 # The alert projection for the off-hot-path deny-response playbook (``scan_alerts``) — a

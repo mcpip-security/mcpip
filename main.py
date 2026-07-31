@@ -774,6 +774,7 @@ class _DemoIdP:
         compartment: Optional[str] = None,
         capabilities: Optional[list[str]] = None,
         session_id: Optional[str] = None,
+        delegation_id: Optional[str] = None,
     ) -> str:
         """Mint a valid EdDSA JWT. ``drop_claim`` omits a required claim to test denial.
 
@@ -798,6 +799,8 @@ class _DemoIdP:
             claims["capabilities"] = capabilities
         if session_id is not None:
             claims["session_id"] = session_id
+        if delegation_id is not None:
+            claims["delegation_id"] = delegation_id
         if drop_claim is not None:
             claims.pop(drop_claim, None)
         return jwt.encode(claims, self._private_pem, algorithm="EdDSA")
