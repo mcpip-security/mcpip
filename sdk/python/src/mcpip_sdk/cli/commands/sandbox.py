@@ -11,6 +11,7 @@ into an inline ``complete`` or written to a 0600 file, NEVER echoed.
 from __future__ import annotations
 
 import argparse
+import uuid
 from dataclasses import replace
 
 from mcpip_sdk.cli import config as cfg
@@ -21,6 +22,18 @@ from mcpip_sdk.cli.render import block, emit_object
 
 
 def cmd_sandbox_dev_token(rt: Runtime, args: argparse.Namespace) -> int:
+    # Session identity, resolved before minting: an explicit --session-id wins;
+    # otherwise the context's stable id (minted once, then reused on every
+    # re-mint so token refreshes stay ONE session in the WORM chain); a fresh
+    # UUID when neither exists yet.
+    name = rt.resolved.context_name or "default"
+    config = cfg.load()
+    existing = config.contexts.get(name)
+    session_id: str = (
+        args.session_id
+        or (existing.session_id if existing is not None else None)
+        or str(uuid.uuid4())
+    )
     with rt.sandbox_client() as client:
         token = client.dev_token(
             tenant_id=args.tenant,
@@ -28,6 +41,7 @@ def cmd_sandbox_dev_token(rt: Runtime, args: argparse.Namespace) -> int:
             role=args.role,
             compartment=args.compartment,
             capabilities=args.cap or None,
+            session_id=session_id,
         )
 
     if args.out is not None:
@@ -35,17 +49,16 @@ def cmd_sandbox_dev_token(rt: Runtime, args: argparse.Namespace) -> int:
         path = args.out
         wired = False
     else:
-        name = rt.resolved.context_name or "default"
         path = cfg.default_token_path(name)
         cfg.write_secret_file(path, token, exclusive=False)  # atomic 0600 rotate
-        # Wire the context's token-source at file:PATH so later commands use it.
-        config = cfg.load()
-        existing = config.contexts.get(name)
+        # Wire the context's token-source at file:PATH so later commands use it,
+        # and persist the session id so the next mint reuses it.
         ctx = cfg.Context(
             name=name,
             base_url=existing.base_url if existing else rt.resolved.base_url,
             sandbox=existing.sandbox if existing else rt.resolved.sandbox,
             token_source=f"file:{path}",
+            session_id=session_id,
         )
         contexts = dict(config.contexts)
         contexts[name] = ctx
@@ -56,13 +69,20 @@ def cmd_sandbox_dev_token(rt: Runtime, args: argparse.Namespace) -> int:
     # NEVER print the token — only where it landed.
     emit_object(
         rt.mode,
-        {"token_written": True, "path": path, "context_wired": wired, "agent_id": args.agent},
+        {
+            "token_written": True,
+            "path": path,
+            "context_wired": wired,
+            "agent_id": args.agent,
+            "session_id": session_id,
+        },
         block(
             [
                 ("token_written", True),
                 ("path", path),
                 ("context_wired", wired),
                 ("agent_id", args.agent),
+                ("session_id", session_id),
             ]
         ),
         quiet_id=path,

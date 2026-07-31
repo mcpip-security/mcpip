@@ -247,6 +247,10 @@ _DECISION_SAFE_KEYS: tuple[str, ...] = (
     "classification",
     "source_format",
     "transaction_ref",
+    # Session identity of the caller — confirmed non-topology/non-secret: a UUID the
+    # verified token asserted about ITSELF (which session of an agent acted). Names no
+    # target, no payload, no pin/otp, and no other tenant's anything.
+    "session_id",
 )
 
 # The alert projection for the off-hot-path deny-response playbook (``scan_alerts``) — a

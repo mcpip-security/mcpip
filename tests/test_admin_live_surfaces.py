@@ -68,6 +68,7 @@ _EVENTS_STREAM = "mcpip:worm:events"
 _FEED_KEYS = {
     "correlation_id", "agent_id", "alias", "decision", "deny_reason", "transport",
     "risk_tier", "classification", "source_format", "transaction_ref",
+    "session_id",  # session attribution (None for pre-session tokens)
     "tenant_id", "event_id", "worm_sequence", "timestamp_ns",
 }
 # Fields that must NEVER surface (topology, payload, step-up, secrets).

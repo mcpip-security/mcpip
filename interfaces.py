@@ -1080,6 +1080,12 @@ class Identity(BaseModel):
     # ONLY — like the `role` claim it authorizes NOTHING and never crosses the agent wire.
     # Empty tuple → not a delegation chain (legacy behavior unchanged).
     act_chain: tuple[str, ...] = ()
+    # NEW: OPTIONAL session identity (UUID) this token asserts, or None. Distinguishes
+    # SESSIONS of one agent_id in the WORM chain — an orchestrator's workers stop
+    # collapsing into one indistinguishable principal. WORM/audit ONLY — like ``role``
+    # and ``act_chain`` it authorizes NOTHING and never crosses the agent wire. Absent
+    # → None, byte-for-byte legacy behavior (docs/SESSION_DELEGATION_DESIGN.md §1).
+    session_id: Optional[str] = None
     # NEW: True iff the identity arrived via an ID-JAG token exchange (the token or its
     # header declared the id-jag token-type URN). Recognition ONLY — the token is still a
     # JWT verified exactly as any other. WORM/audit ONLY; authorizes NOTHING.

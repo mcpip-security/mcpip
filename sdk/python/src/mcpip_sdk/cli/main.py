@@ -283,6 +283,12 @@ def _build_sandbox(sub: argparse._SubParsersAction[argparse.ArgumentParser], par
     dev.add_argument("--role", default="ops")
     dev.add_argument("--cap", action="append", metavar="UUID", help="a capability UUID claim")
     dev.add_argument("--compartment", metavar="UUID")
+    dev.add_argument(
+        "--session-id",
+        metavar="UUID",
+        default=None,
+        help="session identity stamped into the token (WORM attribution); defaults to the context's stable id, minted once and reused",
+    )
     dev.add_argument("--out", metavar="FILE", help="write the token to FILE (O_EXCL 0600) instead")
 
     auth = _leaf(ssub, "authenticator", sandbox.cmd_sandbox_authenticator, help="fetch a step-up OTP and complete inline (never echoed)", parent=parent)

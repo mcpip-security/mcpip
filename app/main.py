@@ -2984,6 +2984,7 @@ def _capture_forensic(
         "correlation_id": correlation_id,
         "tenant_id": identity.tenant_id,
         "agent_id": identity.agent_id,
+        "session_id": identity.session_id,
         "role": identity.role,
         "issuer": identity.issuer,
         "act_sub": identity.act_sub,
@@ -3050,6 +3051,10 @@ async def _run_authorize_pipeline(
         ctx["tenant_id"] = identity.tenant_id
         ctx["agent_id"] = identity.agent_id
         ctx["jti"] = identity.jti
+        # Session identity → WORM/audit ONLY, like the delegation chain below: absent →
+        # recorded neither, so pre-session tokens produce byte-identical events.
+        if identity.session_id is not None:
+            ctx["session_id"] = identity.session_id
         # Full RFC-8693 delegation chain + ID-JAG marker → WORM/audit ONLY (optional
         # per-event ctx fields, landing on ALLOW and every DENY leaf like jti). An
         # identity, NOT a secret: the chain is KEPT (not redacted) and never crosses the
@@ -3678,6 +3683,7 @@ async def authz_decision(body: AuthzenDecisionRequest, request: Request) -> Resp
                 "obligations": [o["id"] for o in obligations],
                 "tenant_id": identity.tenant_id,
                 "agent_id": identity.agent_id,
+                "session_id": identity.session_id,
                 "alias": body.resource.id,
                 "correlation_id": correlation_id,
                 "ts": time.time(),
@@ -4078,6 +4084,11 @@ class _DevTokenRequest(BaseModel):
     role: str = "ops"
     compartment: Optional[str] = None
     capabilities: Optional[list[str]] = None
+    # OPTIONAL session identity (UUID) — stamped into the token so the WORM chain can
+    # tell sessions of one agent apart. The resolver enforces UUID-or-deny, so the
+    # forge pre-checks it with compartment/capabilities for a diagnosable 400 here
+    # rather than an opaque 403 on the first governed call.
+    session_id: Optional[str] = None
 
 
 @app.post("/v1/dev/token")
@@ -4104,7 +4115,7 @@ async def dev_token(body: _DevTokenRequest) -> Response:
                 out.append(str(v))
         return out
 
-    malformed = _bad(body.capabilities) + _bad(body.compartment)
+    malformed = _bad(body.capabilities) + _bad(body.compartment) + _bad(body.session_id)
     if malformed:
         return JSONResponse(
             status_code=400,
@@ -4119,6 +4130,7 @@ async def dev_token(body: _DevTokenRequest) -> Response:
         role=body.role,
         compartment=body.compartment,
         capabilities=body.capabilities,
+        session_id=body.session_id,
     )
     return JSONResponse(status_code=200, content={"jwt": token})
 
@@ -4177,6 +4189,7 @@ async def whoami(request: Request) -> Response:
             "role": identity.role,
             "compartment": identity.compartment,
             "capabilities": list(identity.capabilities),
+            "session_id": identity.session_id,
             "sender_constrained": identity.cnf_jkt is not None,
         },
     )
@@ -4894,6 +4907,7 @@ _DECISION_FILTER_FIELDS: Final[tuple[str, ...]] = (
     "source_format",
     "correlation_id",
     "transaction_ref",
+    "session_id",
 )
 _STREAM_ID_RE: Final = re.compile(r"^\d+-\d+$")
 

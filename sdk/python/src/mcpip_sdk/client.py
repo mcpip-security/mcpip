@@ -426,6 +426,7 @@ class SandboxClient(MCPIPClient):
         *,
         compartment: str | None = None,
         capabilities: Sequence[str] | None = None,
+        session_id: str | None = None,
     ) -> str:
         """
         SANDBOX ONLY — mint a valid EdDSA JWT from the in-process demo IdP
@@ -448,6 +449,8 @@ class SandboxClient(MCPIPClient):
             body["compartment"] = compartment
         if capabilities is not None:
             body["capabilities"] = list(capabilities)
+        if session_id is not None:
+            body["session_id"] = session_id
         response = self._request(
             "POST", "/v1/dev/token", json_body=body, authenticated=False,
             tolerate=(404,),
