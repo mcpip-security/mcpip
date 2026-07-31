@@ -303,6 +303,10 @@ class TokenResolver:
         #    Malformed/oversized → TokenError (fail-closed, mapped to JWT_INVALID).
         compartment = _optional_uuid_claim(claims, "compartment")
         capabilities = _capabilities_claim(claims)
+        # OPTIONAL session identity — same contract as ``compartment``: read ONLY from
+        # the verified payload (a header would let any caller impersonate a session),
+        # UUID-or-fail-closed, absent → None. Audit-only; never an authz input.
+        session_id = _optional_uuid_claim(claims, "session_id")
 
         # 5) OPTIONAL sender-constraint (cnf.jkt) + delegation actor (act.sub).
         #    Absent → None (legacy bearer token, unchanged). A malformed cnf/act must
@@ -345,6 +349,7 @@ class TokenResolver:
             jti=claims.get("jti"),
             compartment=compartment,
             capabilities=capabilities,
+            session_id=session_id,
             cnf_jkt=cnf_jkt,
             act_sub=act_sub,
             act_chain=act_chain,

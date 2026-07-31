@@ -51,6 +51,7 @@ docs/
 | Doc | What's inside |
 |---|---|
 | [WHITEPAPER.md](background/WHITEPAPER.md) | The technical whitepaper (standalone artifact). |
+| [SESSION_DELEGATION_DESIGN.md](SESSION_DELEGATION_DESIGN.md) | Session attribution (**phase 1 shipped**: the optional verified `session_id` claim — every decision in the WORM chain names the session that made it) plus the still-proposed attenuated delegation (a session grants a child ⊆ of its own authority; revocation cascades down the subtree). |
 
 ## Evidence
 

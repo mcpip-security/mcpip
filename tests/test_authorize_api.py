@@ -1486,6 +1486,9 @@ def test_recent_decisions_feed_is_real_opaque_and_tenant_scoped(
         # Deliberate whitelist extension: the WORM event_id — a random per-event
         # uuid4 handle for /v1/audit/proof/{event_id}, never topology or secret.
         "event_id",
+        # Deliberate whitelist extension: session attribution — a UUID the verified
+        # token asserted about ITSELF; names no target, payload, or other tenant.
+        "session_id",
     }
     for d in decisions:
         # Opacity: the real target / payload are NEVER in the projection.

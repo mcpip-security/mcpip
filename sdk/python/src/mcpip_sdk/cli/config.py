@@ -170,6 +170,11 @@ class Context:
     base_url: str = _DEFAULT_BASE_URL
     sandbox: bool = False
     token_source: str | None = None
+    # Stable session identity minted once per context and stamped into every
+    # dev token, so the WORM chain attributes this context's calls to ONE
+    # session instead of collapsing all local processes into the bare agent_id.
+    # A UUID reference, not a secret. None → legacy context, no claim stamped.
+    session_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -222,11 +227,13 @@ def _from_toml(raw: dict[str, Any]) -> Config:
             base_url = table.get("base_url")
             sandbox = table.get("sandbox")
             token_source = table.get("token-source")
+            session_id = table.get("session-id")
             contexts[name] = Context(
                 name=name,
                 base_url=base_url if isinstance(base_url, str) else _DEFAULT_BASE_URL,
                 sandbox=bool(sandbox) if isinstance(sandbox, bool) else False,
                 token_source=token_source if isinstance(token_source, str) else None,
+                session_id=session_id if isinstance(session_id, str) else None,
             )
     current = raw.get("current-context")
     return Config(
@@ -261,6 +268,8 @@ def _to_toml(config: Config) -> str:
         lines.append(f"sandbox = {'true' if ctx.sandbox else 'false'}")
         if ctx.token_source is not None:
             lines.append(f"token-source = {_toml_str(ctx.token_source)}")
+        if ctx.session_id is not None:
+            lines.append(f"session-id = {_toml_str(ctx.session_id)}")
     return "\n".join(lines) + "\n"
 
 

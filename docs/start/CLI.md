@@ -239,7 +239,7 @@ discriminator. Exit code `3` is the single, uniform deny signal.
 
 | Command | Wraps |
 | --- | --- |
-| `mcpip sandbox dev-token [--tenant --agent --role --cap UUID … --compartment] [--out FILE]` | `SandboxClient.dev_token()`; writes the JWT into the 0600 token store (or `--out`, `O_EXCL 0600`), **never printed** |
+| `mcpip sandbox dev-token [--tenant --agent --role --cap UUID … --compartment --session-id UUID] [--out FILE]` | `SandboxClient.dev_token()`; writes the JWT into the 0600 token store (or `--out`, `O_EXCL 0600`), **never printed**. Stamps a stable per-context `session_id` (minted once, reused on re-mints) so the WORM chain attributes this context's calls to one session; `--session-id` overrides |
 | `mcpip sandbox authenticator <CHALLENGE_ID> [--out FILE]` | `SandboxClient.authenticator_code()`; completes the staged challenge inline (or writes the OTP to a 0600 file), **never echoed** |
 | `mcpip sandbox audit verify` | `SandboxClient.audit_verify()` |
 | `mcpip sandbox audit proof <EVENT_ID>` | `SandboxClient.audit_proof()` |
