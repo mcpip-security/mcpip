@@ -530,9 +530,23 @@ zero extra mounts.
 
 ### `mcpip verify` — read-only release verification
 
-`mcpip` is the console script installed by the wheel (`pyproject.toml`
-`[project.scripts] mcpip = "mcpip_verify.cli:main"`); from a source checkout use
-`./.venv/bin/python -m mcpip_verify.cli` interchangeably.
+The verifier is deliberately standalone: it must run for an auditor who has a signed
+release, an interpreter, and nothing else — no gateway, no SDK, no network. Three
+equivalent ways to invoke it:
+
+```bash
+mcpip-verify verify --manifest … --pubkey …   # console script, gateway distribution
+mcpip verify --manifest … --pubkey …          # via the SDK CLI, passthrough
+python -m mcpip_verify verify …               # from a checkout, nothing installed
+```
+
+`mcpip-verify` is the console script installed by the gateway wheel
+(`pyproject.toml` `[project.scripts] mcpip-verify = "mcpip_verify.cli:main"`). It is
+**not** named `mcpip`: the SDK distribution owns that command, and two distributions
+claiming one name means installation order silently decides which CLI you get. The SDK's
+`mcpip verify` passes its arguments through to exactly this parser, so the commands
+below work under either name. With only the SDK installed, `mcpip verify` reports that
+the verifier is absent rather than returning a verdict it did not compute.
 
 **Fail-closed contract:** on ANY *release* verification failure the tool prints exactly
 `verification failed` to stderr (opaque — no reason, no path, no hash) and exits `2`.

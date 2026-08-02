@@ -20,9 +20,12 @@ from mcpip_sdk.cli import config as cfg
 from mcpip_sdk.cli._runtime import Runtime
 from mcpip_sdk.cli.errors import CLIConfigError, ExitCode, map_exception
 from mcpip_sdk.cli.render import OutputMode, render_error
-from mcpip_sdk.cli.commands import admin, agent, connect, reads, sandbox, up, why
+from mcpip_sdk.cli.commands import admin, agent, connect, reads, sandbox, up, verify, why
 
 _S = argparse.SUPPRESS
+
+#: Subcommands dispatched straight to mcpip_verify, ahead of this CLI's parser.
+_PASSTHROUGH = frozenset({"verify", "export-audit"})
 Handler = Callable[[Runtime, argparse.Namespace], int]
 
 
@@ -225,6 +228,18 @@ def _build_agent(sub: argparse._SubParsersAction[argparse.ArgumentParser], paren
     # agent-facing opacity, it just makes the operator side answerable in one step.
     w = _leaf(sub, "why", why.cmd_why, help="explain a denial from its correlation id", parent=parent)
     w.add_argument("correlation_id")
+
+    # `verify` / `export-audit` are documented as `mcpip …` everywhere (Operations,
+    # Release, and Compliance, where release verification is an auditable control),
+    # but they live in the gateway's mcpip_verify package. Both are registered here
+    # so the documented command works for anyone who installed the SDK — which is
+    # what the docs tell you to install. Arguments pass straight through to the real
+    # parser rather than being re-declared, so the two can never drift.
+    # Registered so they appear in `mcpip --help`; dispatch happens BEFORE argparse
+    # (see main()) so mcpip_verify's own flags reach its parser untouched. Routing
+    # them through here would make `--manifest` collide with this parser's globals.
+    _leaf(sub, "verify", verify.cmd_verify, help="verify a signed release or air-gap bundle (read-only)", needs_resolve=False, parent=parent)
+    _leaf(sub, "export-audit", verify.cmd_export_audit, help="export the WORM audit stream, optionally re-verifying the signed chain", needs_resolve=False, parent=parent)
 
     dec = _leaf(sub, "decision", agent.cmd_decision, help="ask for an AuthZEN PDP verdict (nothing executes)", parent=parent)
     dec.add_argument("alias")
@@ -509,6 +524,16 @@ def _needs_group(rt: Runtime, args: argparse.Namespace) -> int:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    # `verify` / `export-audit` are handed to mcpip_verify's own parser verbatim.
+    # They are documented as `mcpip verify …` everywhere but implemented in the
+    # gateway distribution, and their flags (--manifest, --pubkey, --redis-url)
+    # would otherwise be parsed against this CLI's globals. Intercepting here keeps
+    # ONE argument contract instead of a mirrored copy that can drift. `--help`
+    # still falls through to argparse so the command documents itself.
+    tokens = list(sys.argv[1:] if argv is None else argv)
+    if tokens and tokens[0] in _PASSTHROUGH and "--help" not in tokens and "-h" not in tokens:
+        return verify.delegate(tokens[0], tokens[1:])
+
     parser = build_parser()
     try:
         args = parser.parse_args(argv)

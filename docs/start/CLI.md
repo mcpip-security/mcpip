@@ -34,6 +34,20 @@ pip  install ./sdk/python        # into the active environment
 pipx install mcpip-sdk           # once published to PyPI
 ```
 
+The release verifier is a separate, deliberately standalone tool — an auditor
+must be able to verify a signed release with no gateway, no SDK and no network.
+It ships in the **gateway** distribution as `mcpip-verify`, and `mcpip verify` /
+`mcpip export-audit` here pass straight through to it when it is importable:
+
+```bash
+pip install mcpip                # the gateway distribution: adds mcpip-verify
+python -m mcpip_verify verify    # or run it from a checkout, nothing installed
+```
+
+Only one distribution may claim the `mcpip` command; a test fails the build if
+both ever do again, because installation order would otherwise decide which CLI
+a user gets.
+
 **Homebrew (macOS/Linux).** A real virtualenv formula lives at
 `packaging/homebrew/mcpip.rb`. It works **today**, before any published release,
 straight from git:
@@ -223,6 +237,8 @@ discriminator. Exit code `3` is the single, uniform deny signal.
 | `mcpip mcp initialize` | `MCPIPClient.mcp_call('initialize')` |
 | `mcpip mcp tools list` | `MCPIPClient.mcp_call('tools/list')` |
 | `mcpip mcp tools call <ALIAS> [--arg k=v …] [--otp-stdin]` | `MCPIPClient.mcp_call('tools/call', …)`; an `isError` step-up is completed format-independently |
+| `mcpip verify <...>` | The release verifier (`mcpip_verify`), read-only and network-free. Arguments pass straight through, so `mcpip verify --manifest … --pubkey …` and `mcpip verify bundle …` behave exactly as [Operations](../operate/OPERATIONS.md) documents. Ships in the **gateway** distribution; with only the SDK installed this reports that and names `mcpip-verify` / `python -m mcpip_verify` rather than returning a verdict |
+| `mcpip export-audit <...>` | Read-only WORM export, with `--verify` re-verifying the signed chain offline. Same passthrough and same absence behavior as `verify` |
 | `mcpip why <CORRELATION_ID>` | Resolves a denial to its reason **and the fix**. Reads `admin.forensic_get()` first (`CAP_FORENSIC_READ`), falling back to the decision projection (`CAP_DIRECTORY_ADMIN`). Changes nothing about agent-facing opacity; with neither capability it reports what it lacked rather than guessing. `--json` returns a stable shape (nulls, never missing keys); `--quiet` prints the bare reason token |
 
 ### Reads

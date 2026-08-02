@@ -34,6 +34,7 @@ os.environ.setdefault(
     os.path.join(os.path.dirname(__file__), ".mcpip_test_cli_worm.jsonl"),
 )
 
+import argparse
 import asyncio
 import json
 import stat
@@ -799,3 +800,85 @@ def test_why_on_an_allow_reports_nothing_to_fix(
     payload = json.loads(out)
     assert payload["decision"] == "allow"
     assert payload["deny_reason"] is None
+
+
+# ---------------------------------------------------------------------------
+# The `mcpip` console-script collision.
+#
+# Two distributions used to declare the SAME `mcpip` entry point: the gateway
+# (mcpip_verify.cli:main — verify / export-audit) and the SDK
+# (mcpip_sdk.cli:main — login / authorize / admin / …). Whichever was installed
+# last silently won. The documented install is `pipx install ./sdk/python`, so a
+# user following the docs got the SDK CLI and every documented `mcpip verify`
+# failed — including the release verification COMPLIANCE.md lists as control T2.
+# ---------------------------------------------------------------------------
+
+
+def test_only_one_distribution_declares_the_mcpip_script() -> None:
+    """No two pyprojects may claim `mcpip`, or installation order decides the CLI."""
+    import tomllib
+
+    claimants = []
+    for path in ("pyproject.toml", os.path.join("sdk", "python", "pyproject.toml")):
+        full = os.path.join(_REPO_ROOT, path)
+        with open(full, "rb") as handle:
+            data = tomllib.load(handle)
+        scripts = data.get("project", {}).get("scripts", {})
+        if "mcpip" in scripts:
+            claimants.append((path, scripts["mcpip"]))
+    assert len(claimants) <= 1, f"two distributions claim `mcpip`: {claimants}"
+    # And the one that does must be the user-facing client.
+    if claimants:
+        assert claimants[0][1].startswith("mcpip_sdk"), claimants
+
+
+def test_verify_and_export_audit_are_reachable_from_the_documented_cli() -> None:
+    """`mcpip verify` / `mcpip export-audit` must exist on the CLI the docs install."""
+    parser = build_parser()
+    actions = [
+        a for a in parser._actions if isinstance(a, argparse._SubParsersAction)
+    ]
+    assert actions, "root parser has no subcommands"
+    names = set(actions[0].choices)
+    assert {"verify", "export-audit"} <= names, sorted(names)
+
+
+def test_verify_passthrough_reaches_the_real_parser(capsys: Any) -> None:
+    """The verifier's own flags must not be parsed against this CLI's globals.
+
+    `--manifest` is not an `mcpip` global; routing it through this parser made it
+    an 'unrecognized arguments' usage error instead of a verification attempt.
+    """
+    code = main(["verify", "--manifest", "/nonexistent", "--pubkey", "/nonexistent"])
+    captured = capsys.readouterr()
+    # Fail-closed and opaque: the verifier's documented contract on any failure.
+    assert code == 2, captured
+    assert "verification failed" in captured.err
+    assert "unrecognized arguments" not in captured.err
+
+
+def test_verify_help_still_documents_itself(capsys: Any) -> None:
+    """`--help` falls through to argparse rather than being passed through."""
+    code = main(["verify", "--help"])
+    assert code == ExitCode.OK
+    assert "verify a signed release" in capsys.readouterr().out
+
+
+def test_verify_reports_an_honest_absence_without_the_gateway_package(
+    monkeypatch: Any, capsys: Any
+) -> None:
+    """With mcpip_verify absent, say so — never report a verdict nothing computed."""
+    import importlib
+
+    from mcpip_sdk.cli.commands import verify as verify_cmd
+
+    def _refuse(name: str) -> Any:
+        raise ImportError(name)
+
+    monkeypatch.setattr(importlib, "import_module", _refuse)
+    code = verify_cmd.delegate("verify", ["--manifest", "x"])
+    captured = capsys.readouterr()
+    assert code == ExitCode.UNAVAILABLE
+    assert "mcpip-verify" in captured.err and "python -m mcpip_verify" in captured.err
+    # It must not claim anything about the artifact it never read.
+    assert "verified" not in captured.err.lower()
