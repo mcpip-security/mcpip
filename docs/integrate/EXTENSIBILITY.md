@@ -91,7 +91,7 @@ capability UUID, separable from `CAP_DIRECTORY_ADMIN` so "can approve extensions
 principals").
 
 **Flow:**
-1. **Author** — `POST /v1/admin/extensions/submit` with an **extension manifest** (§4); stored pending
+1. **Author** — `POST /v1/extensions/submit` with an **extension manifest** (§4); stored pending
    in a new bounded, tenant-scoped `ExtensionSubmissionStore`.
 2. **Review** — `GET /v1/admin/extensions/pending` shows the manifest + a rendered diff vs. the live catalog.
 3. **Validate fail-closed before approve** — `POST /v1/admin/extensions/{id}/approve` re-runs the

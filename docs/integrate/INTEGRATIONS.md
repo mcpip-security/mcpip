@@ -43,7 +43,7 @@ key. That is the point — a stolen token is inert. But it presumes each caller
 Enforcing PoP on *every* agent would fail-close the keyless ones and break the
 fleet. MCPIP's answer is **not** to enforce per-agent — it enforces per **action
 risk** at the resource (see `require_sender_constraint` + the production
-boot-lint in `SECURITY`/`invariants.md`). Cheap/low-risk work rides a bearer
+boot-lint; see [the security invariants](../SECURITY_THREAT_MODEL.md#1b-the-security-invariants)). Cheap/low-risk work rides a bearer
 token and never newly fails; only sensitive actions demand a key-proof. This
 document is how the agents that *do* reach sensitive actions get a key.
 
@@ -114,7 +114,7 @@ MCPIP never mints in production (the sandbox `/v1/dev/token` forge 404s when
 2. **The proof-of-possession** (`auth/pop.py`, pipeline step 5a) — `typ`,
    asymmetric alg allow-list, public-only JWK, RFC-7638 thumbprint == `cnf.jkt`
    (constant-time), signature, `htm`/`htu`, `ath` (token hash) + `pch`
-   (canonical payload hash), freshness, single-use `jti`. See `invariants.md`.
+   (canonical payload hash), freshness, single-use `jti`. See [the security invariants](../SECURITY_THREAT_MODEL.md#1b-the-security-invariants).
 
 3. **The resource requirement** — a sensitive alias
    (`require_sender_constraint`) demands the above; a bare bearer is denied
@@ -244,8 +244,8 @@ already sees. This is exactly what stops a compliant client (or an attacker)
 from replaying a token obtained for some *other* resource server at MCPIP's
 edge: the audience is the resource indicator, and it must name this gateway.
 
-This binding is **not relaxed and not widened** by N2 — the item adds regression
-coverage (resolver-level and end-to-end) and this documentation only. See
+This binding is **not relaxed and not widened** by issuer pinning — that adds regression
+coverage (resolver-level and end-to-end) and nothing else. See
 `tests/test_oauth_resource_metadata.py::test_rfc8707_*`.
 
 ### 3. SEP-2352 — Issuer pinning (`iss_binding`)
@@ -255,7 +255,7 @@ The issuer is a verified, pinned dimension. `MultiIssuerResolver` routes by the
 verifies `iss == self._issuer` cryptographically; the verified value is recorded
 on `Identity.issuer`.
 
-N2 adds an **optional, fail-closed defense-in-depth check**. If a token carries a
+Issuer pinning is an **optional, fail-closed defense-in-depth check**. If a token carries a
 top-level `iss_binding` claim, it MUST be a string equal to the cryptographically
 verified issuer:
 
@@ -272,7 +272,7 @@ carries the verified value) and touches nothing in the `{EdDSA, RS256}` algorith
 allow-list — it is an *additional* check performed **after** full cryptographic
 verification, never a relaxation.
 
-### What N2 does NOT do
+### What issuer pinning does NOT do
 
 - It does **not** add a `WWW-Authenticate: Bearer resource_metadata=...` header to
   the existing 401 path — that would alter the current opaque 401 response shape.

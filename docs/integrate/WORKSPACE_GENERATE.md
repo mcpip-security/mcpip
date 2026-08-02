@@ -4,7 +4,9 @@ Describe the company; get a **governed workspace scaffold** — an org chart and
 skill catalog with safe risk tiers — that the operator reviews and applies through the
 same hardened admin endpoints they'd use by hand.
 
-**Where it lives: first-run setup only.** In the onboarding "Describe your company" step
+**Where it lives in the console: first-run setup.** The three endpoints below are ordinary
+admin routes and can be driven from a terminal at any time — what is setup-only is the
+console *entry point*, not the capability. In the onboarding "Describe your company" step
 the operator types a brief, MCPIP drafts a starter workspace (teams + tools), they review
 and refine it, and on launch the drafted workspace is **provisioned to the connected
 gateway** — validated and WORM-audited — instead of only being written to local config.
@@ -102,7 +104,8 @@ domains (finance/hr/security/legal) mark their mutations `restricted` (and, bein
 # in the console: run first-run setup → "Describe your company" → type a brief →
 #                 Design my workspace → review/remove tools → Enter console (provisions)
 # or from a terminal, with an admin token:
-curl -s :8080/v1/admin/workspace/draft -H "Authorization: Bearer $ADMIN" \
+curl -s http://localhost:8080/v1/admin/workspace/draft \
+     -H "Authorization: Bearer $ADMIN" -H 'content-type: application/json' \
      -d '{"brief":"engineering, finance, support","company":"Acme","tenant":"acme"}'
 ```
 

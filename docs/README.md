@@ -46,7 +46,7 @@ docs/
 | [EXTENSIBILITY.md](integrate/EXTENSIBILITY.md) | Author-your-own community **skills** (implemented) and **gates** (CEL runtime deferred) — reviewer-approval + WORM record + hash-pin. |
 | [WORKSPACE_GENERATE.md](integrate/WORKSPACE_GENERATE.md) | Brief → governed workspace scaffold: the draft/validate/apply endpoints, inference-free core with an optional local-first LLM toolchain. |
 | [LOCAL_MODEL.md](integrate/LOCAL_MODEL.md) | Bring your own model — the gateway is inference-free and never calls one; the optional drafting path takes any OpenAI-compatible endpoint (Ollama, llama.cpp, vLLM, LM Studio, your own). Two settings, no bundled weights. |
-| [IMPLEMENTATION_WEB.md](integrate/IMPLEMENTATION_WEB.md) | The web/console implementation reference. |
+| [IMPLEMENTATION_WEB.md](integrate/IMPLEMENTATION_WEB.md) | **Design spec, not shipped** — the contract for a dedicated human-in-the-loop approval UI (a `/v2/*` surface the gateway does not serve). Kept for its trust-boundary analysis; the shipped console is `dashboard/`. |
 
 ## Background
 

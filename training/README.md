@@ -32,8 +32,12 @@ ollama pull qwen2.5:1.5b
 ollama create mcpip-workspace -f training/Modelfile.workspace
 OLLAMA_ORIGINS='*' ollama serve
 ```
-Console → Tenants → Workspace Generate → model settings → `http://localhost:11434/v1`,
-model `mcpip-workspace`.
+Point the drafting client at it with `http://localhost:11434/v1` and model
+`mcpip-workspace`. There is **no console panel for this today** — the console's workspace
+generation uses the deterministic offline starter draft, and `dashboard/src/lib/localModel.ts`
+is not imported by any view (see the status note in
+[`docs/integrate/LOCAL_MODEL.md`](../docs/integrate/LOCAL_MODEL.md)). Score the endpoint from a
+terminal with `scripts/eval_workspace_model.py` instead.
 
 ## Tier 2 — QLoRA fine-tune (≈1h on one GPU)
 When you want reliable JSON + your house conventions in the weights:

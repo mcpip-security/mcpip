@@ -629,7 +629,7 @@ So **one authorized decision ⇒ at least one fsync-gated round trip**. fsync la
 underlying disk is therefore a hard floor on single-caller authorize latency, and its
 reciprocal is the single-caller emit ceiling. This is intrinsic to "durable before
 authorize" — it is not an inefficiency to optimize away without changing the durability
-model. **Do not weaken it.** (`invariants.md` → WORM/audit: "Production refuses to boot
+model. **Do not weaken it.** ([the security invariants](../SECURITY_THREAT_MODEL.md#1b-the-security-invariants) → WORM/audit: "Production refuses to boot
 unless Redis AOF is `appendfsync always`".)
 
 ---
