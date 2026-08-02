@@ -3,7 +3,7 @@
 This is the consolidated getting-started and onboarding reference for MCPIP — the one
 page a new client, developer, or operator reads to go from a fresh clone to an
 authorized, audited tool call. It folds together the client SDK/CLI index, the operator
-run-up guide, the Claude / MCP host setup, the runnable company demo, and the full
+run-up guide, the Claude / MCP host setup, the runnable company walkthrough, and the full
 end-to-end lifecycle so you never have to hunt across scattered docs. MCPIP is a
 zero-trust authorization gateway between an autonomous agent's tool calls and the systems
 that execute them — pipeline: **Bridge** (normalize the provider dialects) →
@@ -16,7 +16,7 @@ real deny-reason never cross the boundary.
 > **The one rule that governs everything:** production is **fail-closed by default**
 > (`MCPIP_SANDBOX_MODE=false`). The gateway *refuses to boot* until you supply a valid
 > license, integrity manifest, and key material. That refusal is the safety net — not a
-> bug to work around. Sandbox mode mounts a demo IdP (JWT forge) + OTP peek so you can
+> bug to work around. Sandbox mode mounts a sandbox IdP (JWT forge) + OTP peek so you can
 > exercise the whole pipeline before provisioning anything; **never** run sandbox in
 > production.
 
@@ -48,7 +48,7 @@ none needed for your first governed call.
 You have three ways to get a live sandbox gateway on `:8080`. All are self-contained; none
 needs an external IdP.
 
-### Option A — one command (the company demo)
+### Option A — one command (the company walkthrough)
 
 The fastest path also runs the walkthrough. **Just run this — it does everything**
 (auto-installs Redis via Homebrew if missing, creates a venv, installs deps, boots the
@@ -64,7 +64,7 @@ north star is under five minutes on a clean machine.
 
 Only prerequisite: **Python 3.12** (and, on macOS, [Homebrew](https://brew.sh) so the
 script can install Redis for you). It is idempotent — anything already running is reused,
-never restarted. See [Demo Company Walkthrough](#demo-company-walkthrough) for what it
+never restarted. See [Company Walkthrough](#company-walkthrough) for what it
 shows.
 
 ### Option B — Docker (60-second smoke test)
@@ -73,7 +73,7 @@ shows.
 git clone https://github.com/mcpip-security/mcpip.git && cd mcpip
 MCPIP_SANDBOX_MODE=true docker compose up --build     # gateway :8080 + internal Redis (AOF always-on)
 
-# In another shell — mint a demo token and fire an authentic call:
+# In another shell — mint a sandbox token and fire an authentic call:
 TOKEN=$(curl -s localhost:8080/v1/dev/token -d '{}' -H 'content-type: application/json' | jq -r .jwt)
 curl -s localhost:8080/v1/authorize -H "authorization: Bearer $TOKEN" \
   -H 'content-type: application/json' -d '{
@@ -91,7 +91,7 @@ curl -s localhost:8080/v1/authorize -H "authorization: Bearer $TOKEN" \
 
 ### Option C — manual (venv + Redis + uvicorn)
 
-MCPIP is Python 3.12 + Redis. In sandbox mode the gateway also exposes a demo-token minter
+MCPIP is Python 3.12 + Redis. In sandbox mode the gateway also exposes a sandbox-token minter
 (`POST /v1/dev/token`) so the walkthrough is runnable without an external IdP; production
 never mints identities. `redis-server` needs Redis installed (`brew install redis`), and
 `python -m uvicorn` avoids depending on a console script.
@@ -122,6 +122,20 @@ cd dashboard && npm install && npm run dev     # operator console → :5173
 `python main.py` needs Redis and is the fastest confidence check: forged-JWT rejections,
 the canary tripwire, the WORM epoch verify, and more — exit 0 means all invariants hold.
 
+### Troubleshooting
+
+The gateway is **fail-closed**, so the most common first-run surprise is a call that
+denies for a reason the *agent* is never told (that opacity is the design — reasons live
+in the audit log, not on the wire). The fixes below cover what that usually means.
+
+| Symptom | Almost always means | Do this |
+|---|---|---|
+| **Every** call returns `MCPIP: request denied by policy` | The gateway is reachable but **not ready** — its Redis-backed WORM audit store is down, so it correctly refuses to execute anything it cannot first record. `GET /healthz` still says `live` (it checks the process, not Redis). | `curl localhost:8080/readyz` → if `redis` is not `up`, start Redis (`redis-server --port 63790`) and retry. `mcpip login` now prints `ready` + `redis` for exactly this reason. |
+| `command not found: mcpip` | The CLI (the `mcpip-sdk` package) is not on your `PATH` — `quickstart.sh` builds the gateway's venv but does not install the CLI. | `source .venv/bin/activate && pip install ./sdk/python`, or `pipx install ./sdk/python` for a global command. |
+| One specific alias denies with exit `3` | Opaque deny — the identity is not entitled (wrong tenant/compartment, missing capability), or a `pin_required` alias needs the step-up. It is working as designed. | Read the real reason as an operator: `GET /v1/admin/decisions/recent` (needs `CAP_DIRECTORY_ADMIN`) shows the `deny_reason`. |
+| A `pin_required` alias returns `202` with a `challenge_id` | Not an error — a payload-bound one-time PIN is staged. | Fetch the code (`sandbox authenticator <challenge_id>`) and complete the call with the same payload + pin. |
+| Production gateway **refuses to boot** | Also by design — `MCPIP_SANDBOX_MODE=false` fails closed until a valid license, integrity manifest, and key material are supplied. | See [Boot production](#boot-production-fail-closed-zero-hardcoded-secrets). For a quick local run, use sandbox mode. |
+
 ---
 
 ## Connecting an Agent (REST + MCP)
@@ -145,7 +159,7 @@ Unknown vendor → opaque `403`; neither field → `422`. (The A2A `a2a_task` di
 ### Copy-paste end-to-end (sandbox)
 
 ```bash
-# 1) Mint a demo JWT (sandbox only — 404s in production).
+# 1) Mint a sandbox JWT (sandbox only — 404s in production).
 TOKEN=$(curl -s localhost:8080/v1/dev/token -d '{}' -H 'content-type: application/json' | jq -r .jwt)
 
 # 2) AUTO alias → executes immediately. Response is opaque: decision + committed status
@@ -735,11 +749,11 @@ linearizable, NTP discipline), and your real catalog's policy.
 node-foothold adversary that forges attestation binds `cnf` to its own key and MCPIP
 verifies it flawlessly. That boundary is named, not hidden; the MCPIP-side roadmap
 (delegation-chain attenuation re-verified at execute, replay-guard Redis hardening, a PoP
-stage for the legacy demo pipeline) is tracked in the internal roadmap.
+stage for the legacy pipeline) is tracked in the internal roadmap.
 
 ---
 
-## Demo Company Walkthrough
+## Company Walkthrough
 
 A real, end-to-end walkthrough you can run on your own machine. **No mock data**: every
 decision is an actual round-trip through the zero-trust pipeline, WORM-logged before the
@@ -794,12 +808,12 @@ Scenario 3 — Company agent, no team
     DENY   skill_engineering_roadmap         ✓
 ```
 
-> Run the demo from `quickstart.sh`, not the raw `python3 scripts/live_company.py` on
+> Run the walkthrough from `quickstart.sh`, not the raw `python3 scripts/live_company.py` on
 > its own — the latter only works once a gateway is already up. You can also hold the MCP
 > session yourself with `scripts/mcp_terminal.py` (see
 > [Drive the MCP connector live from your terminal](#drive-the-mcp-connector-live-from-your-terminal)).
 
-### Connect Claude Code to the demo
+### Connect Claude Code to the walkthrough
 
 Point Claude Code's MCP client at the gateway (see
 [Claude / MCP client setup](#claude--mcp-client-setup)) and the gateway enforces team scope
@@ -895,7 +909,7 @@ CI: `.github/workflows/desktop-release.yml` (trigger via `workflow_dispatch` or 
 
 ### Sandbox vs. production
 
-The demo mints bearer tokens via the sandbox `/v1/dev/token` helper purely so the
+The walkthrough mints bearer tokens via the sandbox `/v1/dev/token` helper purely so the
 walkthrough is self-contained. In production MCPIP is **identity-sovereign**: it never
 mints principals. A real agent license is issued out-of-band by your IdP —
 
@@ -909,7 +923,7 @@ python scripts/mint_principal.py --idp-key /secure/idp_ed25519.pem \
 
 — and the gateway only ever *verifies* it. Production additionally requires
 sender-constrained (proof-of-possession) tokens for sensitive AUTO reads, so a stolen
-bearer cannot read across the compartment gate; the demo's compartment is the
+bearer cannot read across the compartment gate; the walkthrough's compartment is the
 team-separation control the walkthrough is built to show.
 
 ---
