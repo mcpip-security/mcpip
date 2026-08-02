@@ -828,7 +828,7 @@ source .venv/bin/activate
 pip install -r requirements.txt
 
 export MCPIP_REDIS_URL=redis://localhost:63790/0   # default; optional
-python main.py         # runs the 10-gate proof, exits 0 iff all hold
+python main.py         # runs the 29-check proof, exits 0 iff all hold
 ```
 
 The console/agent web surfaces described here embed the same framework-free gateway core. The

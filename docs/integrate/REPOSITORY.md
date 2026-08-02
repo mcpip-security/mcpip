@@ -9,7 +9,7 @@ than contributing, you want [Getting Started](../start/GETTING_STARTED.md) inste
 mcpip/
   interfaces.py        Shared primitives: models, enums, limits, canonical_json,
                        reject_unsafe_string, the abstract engine contracts, MCPIPDenied
-  main.py              The MCPIPGateway pipeline and the 10-gate proof (python main.py)
+  main.py              The MCPIPGateway pipeline and the 29-check proof (python main.py)
 
   bridge/              Stage 1 — normalize any provider tool call
   obfuscator/          Stage 2 — resolve a tenant-scoped alias to a real target
