@@ -39,6 +39,28 @@ An agent proposes an action in whatever dialect its framework speaks. MCPIP **no
 
 ---
 
+## New here? Start in 30 seconds
+
+One command clones nothing you have to configure — it stands up Redis + the gateway + a live governed walkthrough and prints your zero-to-first-governed-call time:
+
+```bash
+git clone https://github.com/mcpip-security/mcpip.git && cd mcpip
+./scripts/quickstart.sh
+```
+
+Then follow the path that fits you:
+
+| You are a… | Go to |
+|---|---|
+| **developer** connecting an agent | [Getting Started](docs/start/GETTING_STARTED.md) — clone → authorized call, one page · then [SDK](docs/start/SDK.md) · [CLI](docs/start/CLI.md) |
+| **operator** running the gateway | [Operations](docs/operate/OPERATIONS.md) — deploy, keys, upgrades, runbook · [Compliance](docs/operate/COMPLIANCE.md) |
+| **architect** evaluating the design | [Architecture](docs/integrate/ARCHITECTURE.md) · [Whitepaper](docs/background/WHITEPAPER.md) · [the request pipeline ↓](#architecture--the-request-pipeline) |
+| **auditor / security reviewer** | [Threat model](docs/SECURITY_THREAT_MODEL.md) · [Evidence — real runs](docs/evidence/README.md) · [security invariants ↓](#security-invariants) |
+
+New to the whole idea? Everything is indexed in [`docs/`](docs/README.md). The full quickstart — MCP-client config, three-CLI-commands, and manual setup by hand — is [further down ↓](#quickstart).
+
+---
+
 ## What MCPIP enforces — and what it does not
 
 The most useful thing a security component can tell you is where it stops. MCPIP is a

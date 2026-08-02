@@ -67,7 +67,7 @@ as two WORM audit events. This mirrors `scripts/claude_mcp_bridge.py` and the
 operator console.
 
 Sandbox gateways additionally offer `SandboxClient.dev_token(...)` (`POST
-/v1/dev/token`) — mint-on-demand demo identities that expire in ~5 minutes.
+/v1/dev/token`) — mint-on-demand sandbox identities that expire in ~5 minutes.
 Pair it with a callback for anything long-running:
 
 ```python
@@ -172,7 +172,7 @@ Each targets an endpoint that **exists only** under
 
 | Method | Endpoint | Purpose |
 | --- | --- | --- |
-| `dev_token(tenant_id, agent_id, role, compartment=, capabilities=)` | `POST /v1/dev/token` | Mint a demo EdDSA JWT (~5 min exp) |
+| `dev_token(tenant_id, agent_id, role, compartment=, capabilities=)` | `POST /v1/dev/token` | Mint a sandbox EdDSA JWT (~5 min exp) |
 | `authenticator_code(challenge_id)` | `GET /v1/authenticator/{id}` | The stand-in enrolled authenticator (OTP tenant-scoped to the caller) |
 | `audit_verify()` | `GET /v1/audit/verify` | Force epoch close + verify the signed Merkle-epoch chain |
 | `audit_proof(event_id)` | `GET /v1/audit/proof/{id}` | O(log n) inclusion proof for one sealed WORM event (`event_id` comes from the admin decisions feed) |

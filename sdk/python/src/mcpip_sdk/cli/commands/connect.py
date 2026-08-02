@@ -40,9 +40,15 @@ def cmd_login(rt: Runtime, args: argparse.Namespace) -> int:
     if token_source is not None:
         cfg.validate_token_source(token_source)
 
-    # Validate reachability — never mints or sends a token.
+    # Validate reachability — never mints or sends a token. Also read readiness:
+    # a gateway can be reachable (healthz live) yet NOT ready (its Redis-backed
+    # WORM audit store is down). Because MCPIP is fail-closed — no audit write,
+    # no execute — an un-ready gateway denies EVERY governed call with the opaque
+    # "request denied by policy". Surfacing it here is the one place that turns
+    # that otherwise-inscrutable deny into an obvious "your Redis is down".
     with MCPIPClient(base_url, transport=_runtime._TRANSPORT_OVERRIDE) as client:
         health = client.health()
+        readiness = client.ready()
 
     config = cfg.load()
     contexts = dict(config.contexts)
@@ -65,6 +71,8 @@ def cmd_login(rt: Runtime, args: argparse.Namespace) -> int:
             "sandbox": sandbox,
             "reachable": True,
             "gateway_version": health.version,
+            "ready": readiness.ready,
+            "redis": readiness.redis,
         },
         block(
             [
@@ -73,7 +81,21 @@ def cmd_login(rt: Runtime, args: argparse.Namespace) -> int:
                 ("sandbox", sandbox),
                 ("reachable", True),
                 ("gateway_version", health.version),
+                ("ready", readiness.ready),
+                ("redis", readiness.redis),
             ]
+            + (
+                []
+                if readiness.ready
+                else [
+                    (
+                        "note",
+                        "gateway reachable but NOT ready — its audit store (Redis) is "
+                        "down, so it fails closed and every call is denied until Redis "
+                        "recovers (GET /readyz)",
+                    )
+                ]
+            )
         ),
         quiet_id=name,
     )
