@@ -451,7 +451,23 @@ function orgReducer(org: OrgUnit[], action: OrgAction): OrgUnit[] {
 
 /* ------------------------------------------------------------ directory sync */
 
-type SyncStatus = 'offline' | 'loading' | 'synced' | 'saving' | 'error';
+/**
+ * Every distinct outcome of directory persistence, because they call for
+ * different operator actions: a failed READ is not "nothing saved yet", and
+ * having no admin credential at all is not a sync at all. Collapsing these
+ * into 'synced' is the one thing this badge must never do.
+ */
+type SyncStatus =
+  | 'offline'
+  | 'loading'
+  | 'synced'
+  | 'saving'
+  | 'error'
+  | 'read-failed'
+  | 'no-credential';
+
+/** How often a blocked directory load re-checks for a usable admin credential. */
+const DIRECTORY_RETRY_MS = 15_000;
 
 /**
  * Persist the org tree via GET/PUT /v1/directory when live: load once on
@@ -467,6 +483,9 @@ function useDirectorySync(
 ): SyncStatus {
   const [status, setStatus] = useState<SyncStatus>('offline');
   const [ready, setReady] = useState(false);
+  // Bumped on a timer while the load is stuck without a credential, so pinning
+  // an operator bearer mid-session recovers the sync without a page reload.
+  const [attempt, setAttempt] = useState(0);
   // The last org state that is known-persisted (loaded doc, or the seed baseline).
   // A save fires only when the live org diverges from this snapshot.
   const lastSavedRef = useRef<string | null>(null);
@@ -484,17 +503,27 @@ function useDirectorySync(
     const controller = new AbortController();
     setStatus('loading');
     void (async () => {
-      const loaded = await loadDirectory(gateway.apiBase, controller.signal);
+      const credential = await gateway.ensureAdminToken(controller.signal);
       if (cancelled) return;
-      if (loaded && loaded.orgUnits.length > 0) {
+      const loaded = await loadDirectory(credential, gateway.apiBase, controller.signal);
+      if (cancelled) return;
+      if (loaded.kind === 'ok' && loaded.orgUnits.length > 0) {
         // Baseline is the RAW stored doc: if sanitizing changed anything (e.g.
         // scrubbing the old fabricated key-binding fields), the very next
         // debounced save persists the cleaned document — a deliberate migration.
         lastSavedRef.current = JSON.stringify(loaded.orgUnits);
         dispatch({ type: 'HYDRATE', org: sanitizeOrg(loaded.orgUnits, fallbackTenant) });
-      } else {
-        // No saved doc yet — the current tree is the baseline; only edits persist.
+      } else if (loaded.kind === 'ok' || loaded.kind === 'absent') {
+        // Nothing stored yet — the current tree is the baseline; only edits persist.
         lastSavedRef.current = JSON.stringify(org);
+      }
+      if (loaded.kind === 'read-failed' || loaded.kind === 'no-credential') {
+        // The read did not happen, so there is NO persisted baseline to diverge
+        // from. Staying un-ready keeps the debounced save from overwriting a
+        // document we were never able to see — a save here could clobber the
+        // real directory with this session's local tree.
+        setStatus(loaded.kind);
+        return;
       }
       setReady(true);
       setStatus('synced');
@@ -505,7 +534,16 @@ function useDirectorySync(
     };
     // `org` intentionally excluded — the baseline is captured once at load.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gateway.mode, gateway.apiBase, ready, dispatch, fallbackTenant]);
+  }, [gateway.mode, gateway.apiBase, ready, attempt, dispatch, fallbackTenant]);
+
+  // Retry the load while it is blocked, so a bearer pinned after connect is
+  // picked up. Only these two states retry: they are recoverable by operator
+  // action, unlike 'offline' (no gateway) or a completed load.
+  useEffect(() => {
+    if (status !== 'no-credential' && status !== 'read-failed') return;
+    const t = window.setTimeout(() => setAttempt((n) => n + 1), DIRECTORY_RETRY_MS);
+    return () => window.clearTimeout(t);
+  }, [status, attempt]);
 
   // Debounced save whenever the tree diverges from the persisted baseline.
   useEffect(() => {
@@ -516,13 +554,24 @@ function useDirectorySync(
     const controller = new AbortController();
     const t = window.setTimeout(() => {
       void (async () => {
+        const credential = await gateway.ensureAdminToken(controller.signal);
         // rbac deliberately omitted: the old fixture matrix is gone, so saves
         // also scrub any stored rbac blob (the document is rebuilt whole).
-        const ok = await saveDirectory(gateway.apiBase, org, undefined, controller.signal);
-        if (ok) {
+        const outcome = await saveDirectory(
+          credential,
+          gateway.apiBase,
+          org,
+          undefined,
+          controller.signal,
+        );
+        if (outcome === 'saved') {
           lastSavedRef.current = serialized;
+          setStatus('synced');
+        } else {
+          // 'no-credential' and 'write-failed' are different operator problems:
+          // one needs a bearer pinned, the other needs the gateway looked at.
+          setStatus(outcome === 'no-credential' ? 'no-credential' : 'error');
         }
-        setStatus(ok ? 'synced' : 'error');
       })();
     }, 700);
     return () => {
@@ -607,15 +656,35 @@ function SyncBadge({ sync }: { sync: SyncStatus }): JSX.Element {
   if (sync === 'offline') {
     return <span className="chip">Local only</span>;
   }
-  const map: Record<Exclude<SyncStatus, 'offline'>, { text: string; cls: string; dot: string }> = {
+  const map: Record<
+    Exclude<SyncStatus, 'offline'>,
+    { text: string; cls: string; dot: string; title?: string }
+  > = {
     loading: { text: 'Loading…', cls: 'text-slate-500', dot: 'bg-slate-500' },
     saving: { text: 'Saving…', cls: 'text-staged', dot: 'bg-staged' },
     synced: { text: 'Synced', cls: 'text-verified', dot: 'bg-verified' },
     error: { text: 'Save failed', cls: 'text-denied', dot: 'bg-denied' },
+    'read-failed': {
+      text: 'Not synced — read failed',
+      cls: 'text-denied',
+      dot: 'bg-denied',
+      title:
+        'GET /v1/directory did not answer. The tree below is this session’s local state, not the persisted directory — edits are held back so they cannot overwrite a document that was never read.',
+    },
+    'no-credential': {
+      text: 'Not synced — no admin credential',
+      cls: 'text-staged',
+      dot: 'bg-staged',
+      title:
+        'GET/PUT /v1/directory need CAP_DIRECTORY_ADMIN. Pin an operator bearer that carries it (Settings → Operator token); this retries automatically.',
+    },
   };
   const m = map[sync];
   return (
-    <span className={`inline-flex items-center gap-1.5 text-[11px] font-medium ${m.cls}`}>
+    <span
+      className={`inline-flex items-center gap-1.5 text-[11px] font-medium ${m.cls}`}
+      {...(m.title ? { title: m.title } : {})}
+    >
       <span className={`h-1.5 w-1.5 rounded-full ${m.dot}`} />
       {m.text}
     </span>
@@ -853,18 +922,19 @@ const TTL_OPTIONS = [
 function TempGrantDialog({
   agent,
   targets,
-  apiBase,
+  gateway,
   tenant,
   onClose,
   onIssued,
 }: {
   agent: AgentPrincipal;
   targets: ReadonlyArray<GrantTarget>;
-  apiBase: string;
+  gateway: GatewayLive;
   tenant: string;
   onClose: () => void;
   onIssued: () => void;
 }): JSX.Element {
+  const apiBase = gateway.apiBase;
   const reduced = prefersReducedMotion();
   const [compartmentUuid, setCompartmentUuid] = useState(targets[0]?.uuid ?? '');
   const [ttlSeconds, setTtlSeconds] = useState<number>(TTL_OPTIONS[1].seconds);
@@ -876,11 +946,18 @@ function TempGrantDialog({
     if (busy || target === null) return;
     setBusy(true);
     setError(null);
+    // Run AS the operator's pinned bearer when there is one — on a production
+    // gateway the officer forge is a 404, so a self-minted officer is not an
+    // option. A forge token would carry the wrong (console) capabilities here,
+    // so only a real pinned bearer is passed through.
+    const officerToken =
+      gateway.identitySource === 'operator-token' ? await gateway.ensureToken() : null;
     const res = await issueCompartmentGrant({
       apiBase,
       granteeAgentId: agent.agentId,
       compartmentDisplay: target.uuid,
       ttlSeconds,
+      officerToken,
       // Omit an empty tenant so the ceremony's own company-config fallback (and
       // its honest no-tenant failure) applies instead of a blank tenant claim.
       ...(tenant ? { tenantId: tenant } : {}),
@@ -1651,7 +1728,7 @@ function Hierarchy({ gateway }: { gateway: GatewayLive }): JSX.Element {
           <TempGrantDialog
             agent={grantFor}
             targets={grantTargets}
-            apiBase={gateway.apiBase}
+            gateway={gateway}
             tenant={tenant}
             onClose={() => setGrantFor(null)}
             onIssued={() => setNote({ tone: 'verified', text: `grant committed for ${grantFor.agentId} · WORM-logged` })}

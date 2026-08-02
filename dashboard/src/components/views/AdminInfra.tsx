@@ -94,15 +94,32 @@ function resolveTenant(gateway: GatewayLive): string | null {
 }
 
 /**
- * Mint a CAP_DIRECTORY_ADMIN token for one admin read. Null when the sandbox
- * /v1/dev/token minter is absent (production, by design) or refused — callers
- * must then render an explicit "unavailable" state, never an empty list.
+ * Obtain a CAP_DIRECTORY_ADMIN credential for one admin read.
+ *
+ * Prefers whatever credential the console is ACTUALLY operating with —
+ * `gateway.ensureAdminToken()` returns an operator-pinned bearer when one is
+ * pinned, and only falls back to the sandbox forge otherwise. These panels used
+ * to mint from the forge exclusively, so on a production gateway (where
+ * /v1/dev/token is a deliberate 404) every one of them rendered "unavailable"
+ * and blamed the missing minter — while a valid pinned bearer sat unused in the
+ * Connection tab of this same view. Null now means no credential of ANY kind.
+ *
+ * `agentId` is kept for the sandbox path's audit attribution; a pinned bearer
+ * carries its own identity and is used as-is.
  */
-async function mintAdminToken(apiBase: string, tenantId: string, agentId: string): Promise<string | null> {
+async function adminCredential(
+  gateway: GatewayLive,
+  tenantId: string,
+  agentId: string,
+): Promise<string | null> {
+  const preferred = await gateway.ensureAdminToken();
+  if (preferred) {
+    return preferred;
+  }
   try {
     return await mintDevToken(
       { tenant_id: tenantId, agent_id: agentId, capabilities: [CAP_DIRECTORY_ADMIN] },
-      { base: apiBase },
+      { base: gateway.apiBase },
     );
   } catch {
     return null;
@@ -467,11 +484,27 @@ function ConnectionPanel({ gateway }: { gateway: GatewayLive }): JSX.Element {
     // 2 · AUTH — mint and present a real token. This is the identity leg: if it fails the
     // gateway is reachable but will not accept us, which is a DIFFERENT problem from
     // unreachable, and the operator must be able to tell them apart.
+    // Present the credential the console will ACTUALLY operate with: an
+    // operator-pinned bearer first, the sandbox forge only as a fallback, and
+    // minted for the CONFIGURED tenant rather than the forge's default — so
+    // step 3 exercises the same tenant every other panel reads. Previously this
+    // minted `{}` unconditionally, so against a production gateway it reported
+    // "the gateway will not accept our identity" without ever having presented
+    // the operator's pinned one.
     mark(1, 'running');
     let identified = false;
     let token = '';
     try {
-      token = await mintDevToken({}, { base: target });
+      const pinned = await gateway.ensureAdminToken();
+      if (pinned) {
+        token = pinned;
+      } else {
+        const configuredTenant = resolveTenant(gateway);
+        token = await mintDevToken(
+          configuredTenant ? { tenant_id: configuredTenant } : {},
+          { base: target },
+        );
+      }
       identified = Boolean(token);
     } catch {
       identified = false;
@@ -874,7 +907,7 @@ function CloudEnvironments({ gateway }: { gateway: GatewayLive }): JSX.Element {
       setRead({ kind: 'unavailable' });
       return;
     }
-    const token = await mintAdminToken(gateway.apiBase, tenant, 'agent-cloud-admin');
+    const token = await adminCredential(gateway, tenant, 'agent-cloud-admin');
     const envs = token ? await listCloudEnvironments(token, { base: gateway.apiBase }) : null;
     if (envs === null) {
       setRead({ kind: 'unavailable' });
@@ -1075,7 +1108,7 @@ function SecretVaultPanel({ gateway }: { gateway: GatewayLive }): JSX.Element {
       setRead({ kind: 'unavailable' });
       return;
     }
-    const token = await mintAdminToken(gateway.apiBase, tenant, 'agent-vault-admin');
+    const token = await adminCredential(gateway, tenant, 'agent-vault-admin');
     // listVaultSecrets returns null on transport/auth failure vs an ANSWERED
     // { vault_enabled, secrets } — the distinction this panel exists to keep.
     const listed = token ? await listVaultSecrets(token, { base: gateway.apiBase }) : null;
@@ -1348,7 +1381,7 @@ function PolicyGuardrails({ gateway }: { gateway: GatewayLive }): JSX.Element {
       setRead({ kind: 'unavailable' });
       return;
     }
-    const token = await mintAdminToken(gateway.apiBase, tenant, 'agent-policy-admin');
+    const token = await adminCredential(gateway, tenant, 'agent-policy-admin');
     // getPolicy returns null on transport/auth failure vs an ANSWERED document
     // (whose rules may legitimately be empty) — the distinction this panel keeps.
     const doc = token ? await getPolicy(token, { base: gateway.apiBase }) : null;
@@ -1377,7 +1410,7 @@ function PolicyGuardrails({ gateway }: { gateway: GatewayLive }): JSX.Element {
       rules: [...read.data.rules, draftRule],
     };
     setBusy('save');
-    const token = await mintAdminToken(gateway.apiBase, tenant, 'agent-policy-admin');
+    const token = await adminCredential(gateway, tenant, 'agent-policy-admin');
     const ok = token ? await putPolicy(token, document, { base: gateway.apiBase }) : false;
     setBusy(null);
     if (ok) {
@@ -1397,7 +1430,7 @@ function PolicyGuardrails({ gateway }: { gateway: GatewayLive }): JSX.Element {
     }
     const remaining = read.data.rules.filter((_, i) => i !== index);
     setBusy(`rule-${index}`);
-    const token = await mintAdminToken(gateway.apiBase, tenant, 'agent-policy-admin');
+    const token = await adminCredential(gateway, tenant, 'agent-policy-admin');
     let ok = false;
     if (token) {
       // Removing the last rule deletes the document outright — back to the honest

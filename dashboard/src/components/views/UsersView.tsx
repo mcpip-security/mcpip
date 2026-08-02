@@ -27,7 +27,8 @@ import type { OperatorRole, OperatorStatus, OperatorUser } from '../../lib/api';
  * disable, remove. No mock data, and — the harder half — no FALSE emptiness: a
  * roster the gateway refused to disclose is not a roster of zero people, and the
  * two render differently (see `Roster` below). The `role` is a management label
- * (it authorizes nothing); the invite returns a one-time reference link to send.
+ * (it authorizes nothing); the invite returns a one-time reference TOKEN, shown
+ * once, that the admin conveys out of band — it is not a credential and not a URL.
  */
 
 const ROLES: ReadonlyArray<OperatorRole> = ['admin', 'member', 'viewer'];
@@ -218,9 +219,15 @@ export function UsersView({ gateway }: { gateway: GatewayLive }): JSX.Element {
     [token, apiBase, load],
   );
 
-  const copyLink = useCallback((invite: { email: string; token: string }) => {
-    const link = `${window.location.origin}/invite#token=${invite.token}`;
-    void navigator.clipboard?.writeText(link).then(
+  /**
+   * Copy the RAW reference token — not a URL. The gateway is explicit that this
+   * is a one-time invite REFERENCE, never a credential, and there is no
+   * redemption route in this console to point at; the previous
+   * `{origin}/invite#token=…` link resolved nowhere and implied a self-serve
+   * flow that does not exist.
+   */
+  const copyToken = useCallback((invite: { email: string; token: string }) => {
+    void navigator.clipboard?.writeText(invite.token).then(
       () => {
         setCopied(true);
         window.setTimeout(() => setCopied(false), 1600);
@@ -322,14 +329,20 @@ export function UsersView({ gateway }: { gateway: GatewayLive }): JSX.Element {
             <div className="flex w-full flex-wrap items-center gap-3 rounded-lg border border-verified/25 bg-verified/8 px-3 py-2">
               <ShieldCheck size={15} className="text-verified" />
               <span className="text-[12.5px] text-ink">
-                Invited <span className="font-mono">{lastInvite.email}</span>. Send them this one-time link:
+                Invited <span className="font-mono">{lastInvite.email}</span>. Shown once — send them
+                this one-time reference out of band:
               </span>
+              <code className="rounded border border-verified/25 bg-surface px-2 py-1 font-mono text-[11px] text-ink">
+                {lastInvite.token.length > 18
+                  ? `${lastInvite.token.slice(0, 10)}…${lastInvite.token.slice(-6)}`
+                  : lastInvite.token}
+              </code>
               <button
                 type="button"
-                onClick={() => copyLink(lastInvite)}
+                onClick={() => copyToken(lastInvite)}
                 className="btn-ghost border-verified/30 text-verified"
               >
-                {copied ? <Check size={12} /> : <Copy size={12} />} {copied ? 'Copied' : 'Copy invite link'}
+                {copied ? <Check size={12} /> : <Copy size={12} />} {copied ? 'Copied' : 'Copy invite token'}
               </button>
               <button
                 type="button"

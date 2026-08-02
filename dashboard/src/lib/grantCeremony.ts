@@ -89,15 +89,27 @@ export async function issueCompartmentGrant(opts: {
   granteeAgentId: string;
   compartmentDisplay: string;
   ttlSeconds: number;
-  /** Tenant that owns the compartment (ignored for sandbox seeds). */
+  /** Tenant that owns the compartment (the caller's tenant wins over a seed default). */
   tenantId?: string;
+  /**
+   * An operator-pinned bearer to run the ceremony AS, when one is pinned. On a
+   * production gateway this is the ONLY way the ceremony can run — /v1/dev/token
+   * is a deliberate 404 there, so forging an officer is not an option. Whether
+   * this bearer actually carries the grant mandate is the gateway's call: if it
+   * does not, the stage is denied, which is the honest result.
+   */
+  officerToken?: string | null;
   signal?: AbortSignal;
 }): Promise<GrantResult> {
   const known = await resolveCompartment(opts.compartmentDisplay);
   if (!known) {
     return { ok: false, reason: 'not a resolvable compartment UUID — staged locally only' };
   }
-  const tenantId = known.seedTenant ?? opts.tenantId ?? loadCompanyConfig()?.tenant ?? null;
+  // The CALLER'S tenant wins. `seedTenant` is only the fallback that lets the
+  // sandbox showcase compartments work before a company profile exists —
+  // preferring it would have hijacked an operator whose own catalog happens to
+  // carry a seed UUID and minted the officer for the wrong tenant.
+  const tenantId = opts.tenantId ?? loadCompanyConfig()?.tenant ?? known.seedTenant ?? null;
   if (!tenantId) {
     return { ok: false, reason: 'no tenant owns this compartment — complete the company setup first' };
   }
@@ -118,12 +130,27 @@ export async function issueCompartmentGrant(opts: {
     source_format: 'raw_mcp' as const,
     tool_call: { tool: 'skill_compartment_grant', arguments: grantArgs },
   };
+  // A pinned operator bearer is a REAL identity and always wins; the forge is the
+  // sandbox fallback. Distinguishing "no officer credential" from "gateway
+  // unreachable" matters — on production they look identical from inside a catch.
+  let officer = opts.officerToken ?? null;
+  if (officer === null) {
+    try {
+      officer = await mintDevToken(officerClaims, reqOpts);
+    } catch {
+      return {
+        ok: false,
+        reason:
+          'no officer credential — /v1/dev/token is not available on this gateway; pin an operator bearer that carries the compartment-grant mandate',
+      };
+    }
+  }
   try {
-    const officer = await mintDevToken(officerClaims, reqOpts);
     const staged = await authorize(request, { token: officer, base, signal: opts.signal });
     if (staged.kind === 'denied') {
       // Opaque on the wire, honest to the operator: the mandate gate denies e.g.
-      // a compartment the gateway doesn't know — WORM holds the concrete reason.
+      // a compartment the gateway doesn't know, or an officer without BOTH the
+      // coarse and the per-compartment scoped capability — WORM holds the reason.
       return { ok: false, reason: 'gateway denied the grant mandate (see the WORM ledger)' };
     }
     if (staged.kind !== 'staged') {

@@ -1654,6 +1654,17 @@ export interface RegisterSkillBody {
   access?: 'read' | 'write';
 }
 
+/** Outcome of a skill registration — the gateway's concrete 409 is preserved. */
+export type RegisterSkillResult =
+  | { ok: true }
+  | {
+      ok: false;
+      error: 'alias_exists' | 'target_posture_conflict' | 'denied' | 'unreachable';
+      detail: string | null;
+      /** Named only when the conflicting alias is tenant-wide (never a compartmented one). */
+      conflictingAlias: string | null;
+    };
+
 /**
  * POST /v1/admin/skills/register — register a NEW skill for the caller's tenant.
  * ADDITIVE ONLY: opaque 403 if the alias already resolves (config or a prior overlay),
@@ -1664,7 +1675,7 @@ export async function registerSkill(
   token: string,
   body: RegisterSkillBody,
   opts: GatewayClientOptions = {},
-): Promise<boolean> {
+): Promise<RegisterSkillResult> {
   try {
     const init: RequestInit = {
       method: 'POST',
@@ -1673,9 +1684,28 @@ export async function registerSkill(
     };
     if (opts.signal) init.signal = opts.signal;
     const res = await fetch(`${baseOf(opts)}/v1/admin/skills/register`, init);
-    return res.status === 200;
+    if (res.status === 200) return { ok: true };
+    // The gateway answers registration conflicts with a CONCRETE, non-opaque 409
+    // on purpose — its own comment: "an operator who cannot tell 'already
+    // registered' from 'refused' learns to ignore the refusal". Surfacing that
+    // body is the whole point; collapsing it to a boolean threw it away.
+    if (res.status === 409) {
+      try {
+        const b = (await res.json()) as Record<string, unknown>;
+        const kind = b.error === 'target_posture_conflict' ? 'target_posture_conflict' : 'alias_exists';
+        return {
+          ok: false,
+          error: kind,
+          detail: typeof b.detail === 'string' ? b.detail : null,
+          conflictingAlias: typeof b.conflicting_alias === 'string' ? b.conflicting_alias : null,
+        };
+      } catch {
+        return { ok: false, error: 'alias_exists', detail: null, conflictingAlias: null };
+      }
+    }
+    return { ok: false, error: 'denied', detail: null, conflictingAlias: null };
   } catch {
-    return false;
+    return { ok: false, error: 'unreachable', detail: null, conflictingAlias: null };
   }
 }
 
@@ -1713,6 +1743,16 @@ export interface DirectoryDocument {
 }
 
 /**
+ * The three distinct answers a directory read can give. 'absent' means the
+ * gateway ANSWERED and holds no document (a real, saveable state); 'read-failed'
+ * means the answer is unknown — never treat it as "nothing saved yet".
+ */
+export type DirectoryRead =
+  | { kind: 'ok'; document: DirectoryDocument }
+  | { kind: 'absent' }
+  | { kind: 'read-failed' };
+
+/**
  * GET /v1/directory — the persisted operator directory for the caller's tenant, or
  * null when nothing has been saved. Requires CAP_DIRECTORY_ADMIN; opaque 403
  * otherwise. Fails soft: returns null on any error (the console keeps its local tree).
@@ -1720,24 +1760,28 @@ export interface DirectoryDocument {
 export async function getDirectory(
   token: string,
   opts: GatewayClientOptions = {},
-): Promise<DirectoryDocument | null> {
+): Promise<DirectoryRead> {
   try {
     const init: RequestInit = { method: 'GET', headers: authHeaders(token) };
     if (opts.signal) {
       init.signal = opts.signal;
     }
     const res = await fetch(`${baseOf(opts)}/v1/directory`, init);
+    // A 403 (no CAP_DIRECTORY_ADMIN), a 404 (pre-endpoint gateway) and a real
+    // 200 {"document":null} are THREE different answers. Collapsing them to one
+    // null made the console adopt its purely local tree and badge it "Synced" —
+    // claiming the gateway agreed when the read had in fact failed.
     if (!res.ok) {
-      return null;
+      return { kind: 'read-failed' };
     }
     const body = (await res.json()) as { document?: unknown };
     const doc = body.document;
     if (doc === null || doc === undefined || typeof doc !== 'object') {
-      return null;
+      return { kind: 'absent' };
     }
-    return doc as DirectoryDocument;
+    return { kind: 'ok', document: doc as DirectoryDocument };
   } catch {
-    return null;
+    return { kind: 'read-failed' };
   }
 }
 
@@ -2297,6 +2341,35 @@ function asPendingExtension(value: unknown): PendingExtension | null {
       created_at: str(r.created_at),
       submitter_is_reviewer: bool(r.submitter_is_reviewer),
       approvable: bool(r.approvable),
+    };
+  }
+  if (r.kind === 'registry_server') {
+    // X3 registry-server rows carry publisher/verification fields a skill row has
+    // none of. Falling through to the skill projection dropped every one of them
+    // AND relabelled the row 'skill', so the reviewer lost the only signals the
+    // decision actually turns on: which publisher, and is it verified right now.
+    return {
+      submission_id: r.submission_id,
+      kind: 'registry_server',
+      alias: str(r.alias),
+      target: str(r.target),
+      transport: str(r.transport),
+      risk_tier: str(r.risk_tier),
+      classification: str(r.classification),
+      publisher_namespace: str(r.publisher_namespace),
+      server_name: str(r.server_name),
+      server_version: str(r.server_version),
+      provenance:
+        typeof r.provenance === 'object' && r.provenance !== null && !Array.isArray(r.provenance)
+          ? (r.provenance as Record<string, unknown>)
+          : null,
+      author: str(r.author),
+      submitter_agent_id: str(r.submitter_agent_id),
+      manifest_sha256: str(r.manifest_sha256),
+      created_at: str(r.created_at),
+      verified: bool(r.verified),
+      conflicts_existing_alias: bool(r.conflicts_existing_alias),
+      submitter_is_reviewer: bool(r.submitter_is_reviewer),
     };
   }
   // Default to the skill projection (the backend labels skill rows `kind:'skill'`).

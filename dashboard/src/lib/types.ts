@@ -414,5 +414,49 @@ export interface PendingGateExtension {
   approvable: boolean;
 }
 
-/** One row of GET /v1/admin/extensions/pending — a skill or a gate, discriminated by `kind`. */
-export type PendingExtension = PendingSkillExtension | PendingGateExtension;
+/**
+ * One PENDING REGISTRY-SERVER submission (X3) as projected by
+ * GET /v1/admin/extensions/pending — a governed projection of an upstream
+ * `server.json`. It is NOT a hand-authored skill: the reviewer's decision turns on
+ * the publisher namespace and its live verification state, which a skill row has
+ * no equivalent of. `verified` is answered fresh per read (is the namespace
+ * CURRENTLY allow-listed?) — an approve is refused fail-closed when it is false.
+ * `provenance` is the upstream `_meta` block: RECORDED to WORM, never trusted for
+ * authorization, and reviewer-visible only.
+ */
+export interface PendingRegistryServerExtension {
+  submission_id: string;
+  kind: 'registry_server';
+  alias: string;
+  /** The derived cloud_rest target URL — reviewer-visible ONLY; never reaches an agent. */
+  target: string;
+  transport: string;
+  risk_tier: string;
+  classification: string;
+  /** Reverse-DNS publisher namespace the allow-list decision is made against. */
+  publisher_namespace: string;
+  server_name: string;
+  server_version: string;
+  /** Upstream `server.json` `_meta` — recorded, NOT trusted; null when absent. */
+  provenance: Record<string, unknown> | null;
+  /** Operator-facing manifest label — the AUTHORITATIVE actor is `submitter_agent_id`. */
+  author: string;
+  submitter_agent_id: string;
+  manifest_sha256: string;
+  created_at: string;
+  /** Is the publisher namespace allow-listed RIGHT NOW? `false` ⇒ an approve is refused. */
+  verified: boolean;
+  /** Does this alias already resolve (config OR overlay)? An approve would be refused. */
+  conflicts_existing_alias: boolean;
+  /** Did the reviewer also submit this? (separation-of-duties hint) */
+  submitter_is_reviewer: boolean;
+}
+
+/**
+ * One row of GET /v1/admin/extensions/pending — a skill, a gate, or a registry
+ * server, discriminated by `kind`.
+ */
+export type PendingExtension =
+  | PendingSkillExtension
+  | PendingGateExtension
+  | PendingRegistryServerExtension;

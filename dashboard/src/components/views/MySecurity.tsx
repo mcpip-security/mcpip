@@ -34,6 +34,15 @@ const OPERATOR_AGENT_ID = 'operator-console';
 
 function useOperatorToken(gateway: GatewayLive): () => Promise<string | null> {
   return useCallback(async () => {
+    // An operator-pinned bearer is a REAL IdP identity and the only one that
+    // exists on a production gateway — prefer it, fall back to the sandbox
+    // forge. This view used to mint exclusively, so in production it declared
+    // "this console holds no identity for this gateway" while a pinned bearer
+    // sat unused.
+    const pinned = await gateway.ensureToken();
+    if (pinned) {
+      return pinned;
+    }
     try {
       const company = loadCompanyConfig();
       const claims: { tenant_id?: string; agent_id: string } = { agent_id: OPERATOR_AGENT_ID };
@@ -44,7 +53,7 @@ function useOperatorToken(gateway: GatewayLive): () => Promise<string | null> {
     } catch {
       return null;
     }
-  }, [gateway.apiBase]);
+  }, [gateway]);
 }
 
 function CopyValue({ label, value }: { label: string; value: string }): JSX.Element {
@@ -137,14 +146,16 @@ export function MySecurity({ gateway }: { gateway: GatewayLive }): JSX.Element {
     setStatus(await authnStatus(token, { base: gateway.apiBase }));
     const company = loadCompanyConfig();
     try {
-      const admin = await mintDevToken(
-        {
-          ...(company?.tenant ? { tenant_id: company.tenant } : {}),
-          agent_id: 'operator-directory-admin',
-          capabilities: [CAP_DIRECTORY_ADMIN],
-        },
-        { base: gateway.apiBase },
-      );
+      const admin =
+        (await gateway.ensureAdminToken()) ??
+        (await mintDevToken(
+          {
+            ...(company?.tenant ? { tenant_id: company.tenant } : {}),
+            agent_id: 'operator-directory-admin',
+            capabilities: [CAP_DIRECTORY_ADMIN],
+          },
+          { base: gateway.apiBase },
+        ));
       setRoster(await authnEnrollments(admin, { base: gateway.apiBase }));
     } catch {
       setRoster('unavailable');
@@ -215,14 +226,16 @@ export function MySecurity({ gateway }: { gateway: GatewayLive }): JSX.Element {
   const removeEnrollment = async (agentId: string): Promise<void> => {
     const company = loadCompanyConfig();
     try {
-      const admin = await mintDevToken(
-        {
-          ...(company?.tenant ? { tenant_id: company.tenant } : {}),
-          agent_id: 'operator-directory-admin',
-          capabilities: [CAP_DIRECTORY_ADMIN],
-        },
-        { base: gateway.apiBase },
-      );
+      const admin =
+        (await gateway.ensureAdminToken()) ??
+        (await mintDevToken(
+          {
+            ...(company?.tenant ? { tenant_id: company.tenant } : {}),
+            agent_id: 'operator-directory-admin',
+            capabilities: [CAP_DIRECTORY_ADMIN],
+          },
+          { base: gateway.apiBase },
+        ));
       await authnAdminDisable(admin, agentId, { base: gateway.apiBase });
       await refresh();
     } catch {
