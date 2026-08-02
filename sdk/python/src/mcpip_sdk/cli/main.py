@@ -20,7 +20,7 @@ from mcpip_sdk.cli import config as cfg
 from mcpip_sdk.cli._runtime import Runtime
 from mcpip_sdk.cli.errors import CLIConfigError, ExitCode, map_exception
 from mcpip_sdk.cli.render import OutputMode, render_error
-from mcpip_sdk.cli.commands import admin, agent, connect, reads, sandbox, up
+from mcpip_sdk.cli.commands import admin, agent, connect, reads, sandbox, up, why
 
 _S = argparse.SUPPRESS
 Handler = Callable[[Runtime, argparse.Namespace], int]
@@ -218,6 +218,13 @@ def _build_agent(sub: argparse._SubParsersAction[argparse.ArgumentParser], paren
     comp.add_argument("--challenge", required=True, metavar="ID", help="the staged challenge id")
     comp.add_argument("--credential-out", metavar="FILE", dest="credential_out", help="capture a vended cloud credential to FILE (O_EXCL 0600); never printed")
     _otp_flags(comp)
+
+    # `why` sits next to `authorize` deliberately: it is the command you reach for
+    # with the correlation id the previous line just printed. It reads the same
+    # capability-gated surfaces `admin forensic get` does — it does not soften the
+    # agent-facing opacity, it just makes the operator side answerable in one step.
+    w = _leaf(sub, "why", why.cmd_why, help="explain a denial from its correlation id", parent=parent)
+    w.add_argument("correlation_id")
 
     dec = _leaf(sub, "decision", agent.cmd_decision, help="ask for an AuthZEN PDP verdict (nothing executes)", parent=parent)
     dec.add_argument("alias")

@@ -45,7 +45,7 @@ import pytest
 import redis as redis_sync
 from pathlib import Path
 
-from interfaces import CAP_DIRECTORY_ADMIN
+from interfaces import CAP_DIRECTORY_ADMIN, CAP_FORENSIC_READ
 
 from app.main import _components, app
 
@@ -344,8 +344,19 @@ def cli_env(
         admin_token = minter.dev_token(
             agent_id="agent-cli-admin", capabilities=[CAP_DIRECTORY_ADMIN]
         )
+        # `mcpip why` reads the forensic surface first, which is a HIGHER bar than
+        # directory-admin: CAP_FORENSIC_READ is deliberately distinct, so an
+        # investigator token needs both to exercise the fallback path too.
+        forensic_token = minter.dev_token(
+            agent_id="agent-cli-investigator",
+            capabilities=[CAP_FORENSIC_READ, CAP_DIRECTORY_ADMIN],
+        )
     monkeypatch.setenv("MCPIP_TOKEN", token)
-    yield {"token": token, "admin_token": admin_token}
+    yield {
+        "token": token,
+        "admin_token": admin_token,
+        "forensic_token": forensic_token,
+    }
 
 
 def _run(argv: list[str], capsys: Any) -> tuple[int, str, str]:
@@ -676,3 +687,115 @@ def test_up_render_proposal_is_pure_and_tolerant() -> None:
     assert "deny-by-default" in text
     # Degenerate plan: still renders the header + footer, no exception.
     assert _render_proposal({}, "org_units=0 teams=0 skills=0")
+
+
+# ---------------------------------------------------------------------------
+# `mcpip why` — the deny-diagnosis command.
+#
+# The point of these tests is the HONESTY of the command, not its happy path. It
+# reads capability-gated operator surfaces and must never invent a reason it did
+# not read: without the capability, without a matching decision, or for a reason
+# newer than this CLI, it has to say so. A `why` that guessed would be worse than
+# no `why` at all, because a wrong remediation sends an operator down a false path.
+# ---------------------------------------------------------------------------
+
+
+def test_why_remedy_table_covers_every_deny_reason() -> None:
+    """Every DenyReason the gateway can emit has guidance and a family.
+
+    Adding a reason to `interfaces.DenyReason` without adding it here would make
+    `mcpip why` fall through to "no guidance for this reason" — honest, but a
+    silent downgrade. This fails the build instead.
+    """
+    from interfaces import DenyReason
+    from mcpip_sdk.cli.diagnose import FAMILY, REMEDIES
+
+    reasons = {r.value for r in DenyReason}
+    assert not (reasons - set(REMEDIES)), "deny reasons with no remedy text"
+    assert not (reasons - set(FAMILY)), "deny reasons with no family"
+    # And nothing invented on our side that the gateway cannot produce.
+    assert not (set(REMEDIES) - reasons), "remedy text for a non-existent reason"
+
+
+def test_why_remedies_are_actionable() -> None:
+    """Guidance must tell the operator what to DO, not restate the enum."""
+    from mcpip_sdk.cli.diagnose import REMEDIES
+
+    for reason, remedy in REMEDIES.items():
+        assert remedy.means.strip().endswith("."), reason
+        assert len(remedy.fix) > 40, f"{reason}: fix is too thin to act on"
+        # Restating the machine token is what we are replacing.
+        assert remedy.fix.strip() != reason
+
+
+def test_why_explains_a_real_denial(cli_env: dict[str, str], capsys: Any) -> None:
+    """End to end: deny a call, then resolve its correlation id to a next action."""
+    code, out, _ = _run(["--json", "authorize", "skill_cli_nope"], capsys)
+    assert code == ExitCode.DENIED
+    corr = json.loads(out)["correlation_id"]
+
+    code, out, _ = _run(
+        ["--json", "--token-cmd", f"printf %s {cli_env['forensic_token']}", "why", corr],
+        capsys,
+    )
+    assert code == ExitCode.OK
+    payload = json.loads(out)
+    assert payload["correlation_id"] == corr
+    assert payload["decision"] == "deny"
+    assert payload["deny_reason"] == "unknown_alias"
+    assert payload["family"] == "catalog"
+    assert payload["means"] and payload["fix"]
+
+
+def test_why_without_capability_says_so_and_invents_nothing(
+    cli_env: dict[str, str], capsys: Any
+) -> None:
+    """A caller with no investigative capability gets an honest miss, not a guess."""
+    code, out, _ = _run(["--json", "authorize", "skill_cli_nope_2"], capsys)
+    corr = json.loads(out)["correlation_id"]
+
+    # The default MCPIP_TOKEN is a plain agent bearer: no forensic, no directory admin.
+    code, out, _ = _run(["--json", "why", corr], capsys)
+    assert code == ExitCode.NOT_FOUND
+    payload = json.loads(out)
+    assert payload["deny_reason"] is None
+    assert payload["means"] is None and payload["fix"] is None
+    # It must name what it lacked rather than shrugging.
+    joined = " ".join(payload["notes"]).lower()
+    assert "capability" in joined or "cap_" in joined.lower()
+
+
+def test_why_on_an_unknown_correlation_id_is_an_honest_miss(
+    cli_env: dict[str, str], capsys: Any
+) -> None:
+    code, out, _ = _run(
+        [
+            "--json",
+            "--token-cmd",
+            f"printf %s {cli_env['forensic_token']}",
+            "why",
+            "0" * 32,
+        ],
+        capsys,
+    )
+    assert code == ExitCode.NOT_FOUND
+    payload = json.loads(out)
+    assert payload["deny_reason"] is None
+    assert payload["notes"]
+
+
+def test_why_on_an_allow_reports_nothing_to_fix(
+    cli_env: dict[str, str], capsys: Any
+) -> None:
+    code, out, _ = _run(
+        ["--json", "authorize", _AUTO_ALIAS, "--arg", "period=2026-Q2"], capsys
+    )
+    corr = json.loads(out)["correlation_id"]
+    code, out, _ = _run(
+        ["--json", "--token-cmd", f"printf %s {cli_env['forensic_token']}", "why", corr],
+        capsys,
+    )
+    assert code == ExitCode.OK
+    payload = json.loads(out)
+    assert payload["decision"] == "allow"
+    assert payload["deny_reason"] is None

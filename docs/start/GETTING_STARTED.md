@@ -128,11 +128,33 @@ The gateway is **fail-closed**, so the most common first-run surprise is a call 
 denies for a reason the *agent* is never told (that opacity is the design — reasons live
 in the audit log, not on the wire). The fixes below cover what that usually means.
 
+When you have a `correlation_id` from a denial, start with **`mcpip why <correlation_id>`**.
+It resolves the id against the audit log and prints what happened plus the concrete next
+step, instead of leaving you to interpret a machine token:
+
+```console
+$ mcpip why ee843779451141798559da2f23acf4c4
+ee843779451141798559da2f23acf4c4  DENY
+  alias          skill_spend_summry
+  agent          agent-dev
+  format         raw_mcp
+  reason         unknown_alias  (catalog)
+  arguments      {'period': '2026-Q2'}
+
+The alias does not resolve for this tenant.
+
+  Fix: Check the spelling, and confirm the alias is in this tenant's catalog:
+  `mcpip catalog`. Registering one is `mcpip admin skills register`.
+```
+
+This reads the same capability-gated surfaces the console does — it does not make the
+agent-facing wire any less opaque. Without a credential it says so rather than guessing.
+
 | Symptom | Almost always means | Do this |
 |---|---|---|
 | **Every** call returns `MCPIP: request denied by policy` | The gateway is reachable but **not ready** — its Redis-backed WORM audit store is down, so it correctly refuses to execute anything it cannot first record. `GET /healthz` still says `live` (it checks the process, not Redis). | `curl localhost:8080/readyz` → if `redis` is not `up`, start Redis (`redis-server --port 63790`) and retry. `mcpip login` now prints `ready` + `redis` for exactly this reason. |
 | `command not found: mcpip` | The CLI (the `mcpip-sdk` package) is not on your `PATH` — `quickstart.sh` builds the gateway's venv but does not install the CLI. | `source .venv/bin/activate && pip install ./sdk/python`, or `pipx install ./sdk/python` for a global command. |
-| One specific alias denies with exit `3` | Opaque deny — the identity is not entitled (wrong tenant/compartment, missing capability), or a `pin_required` alias needs the step-up. It is working as designed. | Read the real reason as an operator: `GET /v1/admin/decisions/recent` (needs `CAP_DIRECTORY_ADMIN`) shows the `deny_reason`. |
+| One specific alias denies with exit `3` | Opaque deny — the identity is not entitled (wrong tenant/compartment, missing capability), or a `pin_required` alias needs the step-up. It is working as designed. | `mcpip why <correlation_id>` — it reads the audit log and tells you the reason **and the fix**. Needs `CAP_FORENSIC_READ` or `CAP_DIRECTORY_ADMIN`; the agent wire stays opaque. |
 | A `pin_required` alias returns `202` with a `challenge_id` | Not an error — a payload-bound one-time PIN is staged. | Fetch the code (`sandbox authenticator <challenge_id>`) and complete the call with the same payload + pin. |
 | Production gateway **refuses to boot** | Also by design — `MCPIP_SANDBOX_MODE=false` fails closed until a valid license, integrity manifest, and key material are supplied. | See [Boot production](#boot-production-fail-closed-zero-hardcoded-secrets). For a quick local run, use sandbox mode. |
 

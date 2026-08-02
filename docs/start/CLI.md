@@ -223,6 +223,7 @@ discriminator. Exit code `3` is the single, uniform deny signal.
 | `mcpip mcp initialize` | `MCPIPClient.mcp_call('initialize')` |
 | `mcpip mcp tools list` | `MCPIPClient.mcp_call('tools/list')` |
 | `mcpip mcp tools call <ALIAS> [--arg k=v …] [--otp-stdin]` | `MCPIPClient.mcp_call('tools/call', …)`; an `isError` step-up is completed format-independently |
+| `mcpip why <CORRELATION_ID>` | Resolves a denial to its reason **and the fix**. Reads `admin.forensic_get()` first (`CAP_FORENSIC_READ`), falling back to the decision projection (`CAP_DIRECTORY_ADMIN`). Changes nothing about agent-facing opacity; with neither capability it reports what it lacked rather than guessing. `--json` returns a stable shape (nulls, never missing keys); `--quiet` prints the bare reason token |
 
 ### Reads
 
