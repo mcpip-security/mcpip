@@ -127,6 +127,62 @@ through a hash-pinned registry (`vendor: "gemini"` → `gemini_function_call`).
 An unknown `vendor` is an opaque `403`. Neither field is a `422`. The format is never inferred
 from payload bytes — sniffing is what lets a caller choose the parser that validates least.
 
+#### Envelope by format
+
+The `tool_call` body for each dialect, calling the same alias with the same arguments. Every
+envelope below was executed against a live gateway and returned `200 allow`. The same
+`(alias, arguments)` produces a byte-identical payload lock in every dialect — the shape only
+changes where they are read from.
+
+```jsonc
+// openai_tool_call — note that `arguments` is a JSON *string*
+{"id":"call_1","type":"function",
+ "function":{"name":"skill_spend_summary","arguments":"{\"period\":\"2026-Q2\"}"}}
+
+// anthropic_tool_use
+{"type":"tool_use","id":"call_1","name":"skill_spend_summary","input":{"period":"2026-Q2"}}
+
+// gemini_function_call
+{"functionCall":{"name":"skill_spend_summary","args":{"period":"2026-Q2"}}}
+
+// bedrock_tool_use
+{"toolUse":{"toolUseId":"call_1","name":"skill_spend_summary","input":{"period":"2026-Q2"}}}
+
+// mcp_jsonrpc
+{"jsonrpc":"2.0","id":1,"method":"tools/call",
+ "params":{"name":"skill_spend_summary","arguments":{"period":"2026-Q2"}}}
+
+// raw_mcp
+{"tool":"skill_spend_summary","arguments":{"period":"2026-Q2"}}
+```
+
+The A2A task envelope is the one shape you cannot guess, so it is given in full. It carries
+**exactly one** `DataPart`, and the alias key is `skill` — not `tool` or `name`. Every level is
+`extra="forbid"`, so a stray key is a schema violation rather than a silently ignored field.
+
+```jsonc
+// a2a_task
+{
+  "kind": "task",
+  "id": "task-1",
+  "contextId": "ctx-1",
+  "status": { "state": "submitted" },
+  "message": {
+    "kind": "message",
+    "role": "agent",
+    "messageId": "msg-1",
+    "parts": [{
+      "kind": "data",
+      "data": { "skill": "skill_spend_summary", "arguments": { "period": "2026-Q2" } }
+    }]
+  }
+}
+```
+
+The task and message ids, and any declared `metadata`, are recorded to the audit log for
+correlation and are **never trusted**: metadata is never merged into arguments, so an actor or
+principal claim there is inert. Identity comes from the JWT, in this dialect as in every other.
+
 ### The step-up flow
 
 High-risk aliases are `pin_required` and consume a payload-bound, exactly-once lock.
