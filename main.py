@@ -1258,14 +1258,21 @@ class _DemoRunner:
         # A goal-hijacked agent sweeps the catalog and selects a bait skill; the
         # tripwire denies CANARY_TRIPPED and quarantines it, so its NEXT call — an
         # ordinary AUTO skill — is denied AGENT_QUARANTINED before any real work.
-        canary_agent = idp.mint(tenant_id="tenant-acme", agent_id="agent-hijacked-1")
+        # The agent id is RUN-UNIQUE because the quarantine this gate creates is real
+        # and durable: it outlives the process. With a fixed id, a second run against
+        # the same Redis had the agent already frozen, so the canary call denied
+        # AGENT_QUARANTINED before reaching the tripwire and C11 reported FAIL — the
+        # proof failing on a correctly-working gateway. Re-running the proof must be
+        # safe, since it is what an operator does to confirm a deployment.
+        hijacked_id = f"agent-hijacked-{uuid.uuid4().hex[:12]}"
+        canary_agent = idp.mint(tenant_id="tenant-acme", agent_id=hijacked_id)
         await self._expect_deny(
             "C11 canary tripwire trips",
             self._gw.authorize_and_execute(
                 canary_agent,
                 _openai_call("skill_export_all_credentials", {}),
                 SourceFormat.OPENAI_TOOL_CALL,
-                _make_trace("agent-hijacked-1"),
+                _make_trace(hijacked_id),
             ),
             DenyReason.CANARY_TRIPPED,
         )
@@ -1275,7 +1282,7 @@ class _DemoRunner:
                 canary_agent,
                 _openai_call("skill_spend_summary", {"period": "Q1"}),
                 SourceFormat.OPENAI_TOOL_CALL,
-                _make_trace("agent-hijacked-1"),
+                _make_trace(hijacked_id),
             ),
             DenyReason.AGENT_QUARANTINED,
         )

@@ -17,38 +17,27 @@ It is deliberately narrow. It does not host models, run agents, or proxy prompts
 
 ## Quickstart
 
-One command brings up Redis, the gateway, and a governed walkthrough, then prints your
-time-to-first-authorized-call. Nothing to install first; macOS and Linux; idempotent.
+Requires Python 3.12 and Redis. One command then brings up Redis, the gateway, and a
+governed walkthrough, and prints your time-to-first-authorized-call. Idempotent, so it is
+safe to re-run.
 
 ```bash
 git clone https://github.com/mcpip-security/mcpip.git && cd mcpip
 ./scripts/quickstart.sh
 ```
 
-Then point any MCP client at the gateway. It *is* an MCP server:
+On macOS the script installs Redis via Homebrew if it is missing. On Linux, install it
+first — `sudo apt-get install redis-server`, or the equivalent for your distribution.
 
-```json
-{
-  "mcpServers": {
-    "mcpip": {
-      "type": "http",
-      "url": "http://localhost:8080/v1/mcp",
-      "headers": { "Authorization": "Bearer <jwt>" }
-    }
-  }
-}
-```
-
-Or go through the CLI:
+In sandbox mode the gateway mints identities for you, standing in for your IdP. Get one:
 
 ```bash
-pipx install ./sdk/python
-mcpip login --gateway http://localhost:8080 --sandbox --context sbx
-mcpip --context sbx sandbox dev-token --agent ops-1
-mcpip --context sbx authorize skill_spend_summary --arg period=2026-Q2
+JWT=$(curl -s -X POST http://localhost:8080/v1/dev/token \
+  -H 'content-type: application/json' \
+  -d '{"tenant_id":"tenant-acme","agent_id":"agent-1"}' | jq -r .jwt)
 ```
 
-Or straight HTTP:
+Then authorize a call — straight HTTP:
 
 ```bash
 curl -s -X POST http://localhost:8080/v1/authorize \
@@ -58,6 +47,32 @@ curl -s -X POST http://localhost:8080/v1/authorize \
       "name":"skill_spend_summary","arguments":"{\"period\":\"2026-Q2\"}"}}
   }'
 ```
+
+Through the CLI:
+
+```bash
+pipx install ./sdk/python
+mcpip login --gateway http://localhost:8080 --sandbox --context sbx
+mcpip --context sbx sandbox dev-token --agent ops-1
+mcpip --context sbx authorize skill_spend_summary --arg period=2026-Q2
+```
+
+Or from any MCP client — the gateway *is* an MCP server. Use the `$JWT` from above:
+
+```json
+{
+  "mcpServers": {
+    "mcpip": {
+      "type": "http",
+      "url": "http://localhost:8080/v1/mcp",
+      "headers": { "Authorization": "Bearer eyJhbGciOi..." }
+    }
+  }
+}
+```
+
+When a call denies, `mcpip why <correlation_id>` tells you the reason and the fix — the
+agent-facing wire stays opaque, but you are the operator.
 
 Full walkthrough: [Getting Started](docs/start/GETTING_STARTED.md).
 
@@ -166,7 +181,7 @@ Version 3.0.0. Source-available core under BSL 1.1; SDKs under Apache-2.0.
 - Payload-bound one-time step-up; a changed byte is a different request with no approval behind it
 - Ed25519 Merkle audit written before dispatch, with offline re-verification
 - Compartment and capability separation, canary tripwires, ReBAC projection, the operator console
-- 1,590 tests, `mypy --strict`, and a self-verifying 10-gate proof that exits non-zero if any gate fails
+- 1,590 tests, `mypy --strict`, and a self-verifying 29-check proof that exits non-zero if any check fails
 
 **Being wired up**
 
@@ -185,11 +200,16 @@ Version 3.0.0. Source-available core under BSL 1.1; SDKs under Apache-2.0.
 - No inference in the authorization path. Decisions are deterministic, which is what makes them
   replayable and auditable.
 
-## The 10-gate proof
+## The executable proof
 
-`python main.py` runs an executable proof: three allow-paths and seven attacks, each printing
-`PASS` or `FAIL`. The process exits `0` only if every gate holds, then re-reads the audit log and
-asserts the signed chain is intact. It is the fastest way to confirm a deployment behaves.
+`python main.py` runs the pipeline in-process against 29 checks — 7 allow-paths and 22 attacks,
+covering identity, the payload lock, compartments, capability grants, canary tripwires and the
+deny-only policy overlay. Each prints `PASS` or `FAIL`. The process exits `0` only if every
+check holds, then re-reads the audit log and asserts the signed Merkle chain is intact.
+
+It exercises the engine directly rather than over HTTP, so it proves the authorization logic,
+not a running deployment. To check a deployment, use `mcpip verify` for the release and
+`GET /readyz` plus a real authorize call for the gateway.
 
 ## Operator console
 
