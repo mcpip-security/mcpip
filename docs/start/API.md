@@ -116,7 +116,7 @@ through a hash-pinned registry (`vendor: "gemini"` → `gemini_function_call`).
 
 | `source_format` | Shape |
 |---|---|
-| `openai_tool_call` | OpenAI / Azure OpenAI `tool_calls[]` function envelope |
+| `openai_tool_call` | One OpenAI-style `{id, type:"function", function:{name, arguments}}` entry — the element of `tool_calls[]`, not the array |
 | `anthropic_tool_use` | Anthropic `tool_use` content block |
 | `gemini_function_call` | Gemini `functionCall` part object |
 | `bedrock_tool_use` | Bedrock Converse `toolUse` block |
@@ -126,6 +126,27 @@ through a hash-pinned registry (`vendor: "gemini"` → `gemini_function_call`).
 
 An unknown `vendor` is an opaque `403`. Neither field is a `422`. The format is never inferred
 from payload bytes — sniffing is what lets a caller choose the parser that validates least.
+
+#### The vendor ids
+
+If you already know your framework or provider, send `vendor` and skip choosing a format —
+the hash-pinned registry maps it to the right parser. These 82 ids are the registry as
+shipped (`bridge/connectors/registry.py`); `raw_mcp` has no vendor alias because it is the
+direct form.
+
+| Resolves to | Vendor ids |
+|---|---|
+| `openai_tool_call` | `openai`, `azure_openai`, `copilot`, `github_models`, `xai`, `mistral`, `groq`, `together`, `fireworks`, `perplexity`, `openrouter`, `deepinfra`, `nebius`, `cerebras`, `sambanova`, `nvidia_nim`, `databricks`, `snowflake_cortex`, `watsonx`, `cloudflare_workers_ai`, `vercel_ai_gateway`, `portkey`, `litellm`, `deepseek`, `qwen`, `kimi`, `moonshot`, `minimax`, `glm`, `zhipu`, `ernie`, `ollama`, `lmstudio`, `localai`, `llama_cpp`, `vllm`, `sglang`, `tgi` |
+| `mcp_jsonrpc` | `mcp`, `claude_code`, `codex`, `chatgpt`, `cursor`, `vscode`, `jetbrains`, `zed`, `windsurf`, `cline`, `roo`, `kilocode`, `continue`, `goose`, `warp`, `amp`, `crush`, `opencode`, `openclaw`, `openhands`, `copilot_studio`, `langgraph`, `langflow`, `llamaindex`, `crewai`, `autogen`, `semantic_kernel`, `pydantic_ai`, `openai_agents`, `mastra`, `strands`, `dify`, `flowise`, `n8n`, `librechat`, `openwebui`, `gemini_cli` |
+| `anthropic_tool_use` | `claude`, `claude_bedrock`, `claude_vertex` |
+| `gemini_function_call` | `gemini`, `vertex` |
+| `bedrock_tool_use` | `bedrock` |
+| `a2a_task` | `a2a` |
+
+A vendor id is a routing convenience, never an authorization input: `vendor: "openai"` and
+`source_format: "openai_tool_call"` produce the identical `NormalizedIntent` and the
+identical payload lock. Adding one is a deliberate registry re-pin, so the set cannot drift
+without a commit that recomputes the hash.
 
 #### Envelope by format
 
