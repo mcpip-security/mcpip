@@ -256,6 +256,72 @@ gateway dialing an LLM endpoint is an incident, not a config (see
 
 ---
 
+## Configuration reference
+
+Every setting is read by `core/config.py` (`pydantic-settings`, env prefix `MCPIP_`). Defaults
+are secure-by-default: an unset security-critical value is a fail-closed boot error in
+production, never a permissive fallback.
+
+### Core
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `MCPIP_REDIS_URL` | `redis://localhost:63790/0` | Redis endpoint for payload locks and WORM chain state. Compose overrides this to `redis://redis:6379/0`. |
+| `MCPIP_SANDBOX_MODE` | `false` | Boot an ephemeral in-process IdP and WORM signing key, and mount the five sandbox helper endpoints (with a loud banner). Defaults `false` everywhere — bare `uvicorn`, image, and Compose — so a misconfigured deployment fails closed rather than exposing a token-minting oracle. |
+| `MCPIP_API_HOST` · `MCPIP_API_PORT` | `0.0.0.0` · `8080` | Bind address and port for `uvicorn app.main:app`. |
+| `MCPIP_REGION` | unset | A behavior-neutral operator region tag (`us-east-1`, `eu-frankfurt`, …) surfaced read-only on `/healthz` and `/v1/version`. It changes nothing — no routing, authorization, key derivation, or storage. Deliberately never a metric label. |
+| `MCPIP_DELEGATION_ENABLED` | `false` | Attenuated session delegation. Off means the surface does not exist (`404`) and a token carrying `delegation_id` is denied fail-closed rather than silently un-narrowed. |
+
+### Identity
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `MCPIP_JWT_ISSUER` | `mcpip-demo-idp` | Expected JWT `iss`. The default is a **sandbox** value: with `sandbox_mode=false` the gateway refuses to boot while it is still set, because shipped defaults are published and predictable. |
+| `MCPIP_JWT_AUDIENCE` | `mcpip-gateway` | Expected JWT `aud`. Same refuse-to-boot rule — set your own gateway audience. |
+| `MCPIP_JWT_PUBLIC_KEY_PATH` | unset | PEM public key for verifying JWTs. Unset with `sandbox_mode` uses the in-process sandbox IdP; unset in production is a fail-closed boot error. |
+
+### Audit
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `MCPIP_WORM_SIGNING_KEY_PATH` | unset | Ed25519 PKCS8 PEM signing key for the WORM log. Unset means an ephemeral key (sandbox); unset in production refuses to start. |
+| `MCPIP_WORM_ANCHOR_PATH` | derived | The out-of-tamper-domain append-only anchor for the signed epoch-head low-watermark, which is what catches rollback and tail truncation. **Must sit on a durable volume distinct from the Redis store.** Unset derives it next to `MCPIP_WORM_PATH`. |
+| `MCPIP_WORM_PATH` | `./mcpip_worm.jsonl` | JSONL ledger path used **only** by the legacy `mode="per_event"` migration path. The default hybrid model keeps the buffer and signed chain in Redis Streams. Production requires Redis AOF with `appendfsync always`, so each `XADD` is fsync-durable before the action is authorized. |
+
+### Step-up delivery
+
+With both webhook settings unset, every `pin_required` staging fails closed with
+`otp_delivery_failed` — an AUTO-only deployment leaves them blank. Setting **exactly one** is a
+fail-closed boot error.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `MCPIP_AUTHN_WEBHOOK_URL` | unset | HTTPS sink the one-time code is pushed to. SSRF-guarded: https only, every resolved address checked against private/loopback/link-local/reserved ranges (covering `169.254.169.254`), connection pinned to the validated IP to defeat DNS rebinding, redirects not followed. |
+| `MCPIP_AUTHN_WEBHOOK_SECRET_PATH` | unset | Path to the raw ≥32-byte HMAC-SHA256 secret signing each notice (`X-MCPIP-Signature`). A shorter secret is a fail-closed boot error. Never logged, never a label, never in the body. |
+| `MCPIP_AUTHN_WEBHOOK_TIMEOUT_S` | `5.0` | Bounded connect+read ceiling for one push, clamped to `[0.5s, 30s]` at construction so a misconfiguration can neither hang a staging request nor set a value that always fails. |
+
+### Forensics
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `MCPIP_FORENSIC_CAPTURE` | tri-state | Unset means **on in sandbox, off in production**. An explicit `true`/`false` always wins. Controls capture breadth only — retrieval is always `CAP_FORENSIC_READ`-gated and WORM-audited. |
+| `MCPIP_FORENSIC_KEY_PATH` | unset | A raw 32-byte AES-256 key file dedicated to forensics — never the vault or WORM key. In production with capture on, an absent key means the feature is absent (captures dropped, retrieval `404`s). There is no plaintext fallback. Sandbox auto-provisions a dev key under `.keys/`. |
+
+### Capacity and load
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `MCPIP_WORKERS` · `MCPIP_BACKLOG` | `4` · `2048` | uvicorn worker processes and kernel accept backlog. |
+| `MCPIP_MAX_IN_FLIGHT` | `64` | Per-worker admission bound. Excess arrivals shed with an opaque `503 + Retry-After` rather than queueing unboundedly. Probes are never counted or shed, and a shed request never reaches `authorize()` — shedding structurally cannot turn a DENY into an ALLOW. |
+| `MCPIP_REQUEST_TIMEOUT_S` | `15.0` | Per-request wall-clock ceiling. A timeout cancels the coroutine; it never double-executes and never converts a DENY into an ALLOW. |
+| `MCPIP_SHED_RETRY_AFTER_S` | `1` | `Retry-After` advertised on a shed `503`. |
+| `MCPIP_REDIS_MAX_CONNECTIONS` | `64` | Redis async connection-pool size. Size `workers × max_in_flight` against your Redis `maxclients` headroom. |
+| `MCPIP_REDIS_POOL_TIMEOUT_S` | `5.0` | Max wait for a pooled connection before failing closed. |
+| `MCPIP_LOCK_TTL_SECONDS` | `300` | Payload-lock TTL. |
+| `MCPIP_FAST_WALKER` | unset | Route `canonical_json` and the ingress safety walk through the Rust extension. Activates only if it imports **and** its Unicode tables match CPython's; falls back per payload on any defer. Pure Python is the default and the reference. |
+
+---
+
 ## Runbook (day-2 operations)
 
 **Audience:** the operators, release engineers, and security officers who deploy and run the

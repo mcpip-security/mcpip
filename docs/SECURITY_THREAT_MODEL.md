@@ -97,6 +97,25 @@ Three properties of the connector layer (`bridge/connectors/`) are load-bearing 
 
 ---
 
+## 1b. The security invariants
+
+These seven hold on every request, or the request does not run. They are not guidelines: a
+change that weakens one is rejected regardless of what else it improves. Every threat analyzed
+in the rest of this document is ultimately a question about whether one of these still holds.
+
+| # | Invariant | Mechanism | Enforced in |
+|---|---|---|---|
+| 1 | **Timing safety** | `secrets.compare_digest` for every token, hash, secret, and signature comparison. PIN and payload equality happen server-side inside the Lua `EVAL`, so there is zero Python check-then-act. | `interfaces.py`, `auth/*`, `audit/worm_logger.py` |
+| 2 | **TOCTOU payload lock** | A 6-digit PIN bound to `sha256(canonical_json(tenant, agent, alias, arguments))`. Fetch, compare and delete happen in **one atomic Redis Lua `EVAL`**. Only the PIN hash is stored, never the raw PIN. One byte of payload drift is an instant `PAYLOAD_MISMATCH`. | `auth/pin_validator.py` |
+| 3 | **Deep schema rigidity** | Every ingress model, including all nested ones, uses `ConfigDict(extra="forbid", strict=True)`. Depth ≤ 8, ≤ 64 keys per object, ≤ 256 elements per array, ≤ 16 KiB canonical arguments. Control characters, bidi overrides (`U+202A–202E`, `U+2066–2069`) and zero-width characters are rejected. | `interfaces.py`, `bridge/intent_parser.py` |
+| 4 | **M2M identity sovereignty** | `tenant_id`, `agent_id` and `role` come exclusively from a verified JWT. `alg=none` and HMAC confusion are rejected; `exp`/`iat`/`nbf`/`iss`/`aud` plus the three identity claims are required. Any identity- or capability-shaped key in the tool-call payload is a **hard deny, not a strip**. The `role` claim is validated but descriptive only — it authorizes nothing. | `auth/token_resolver.py`, `bridge/intent_parser.py` |
+| 4b | **Capabilities and compartments, never roles** | Privileged actions gate on capability **UUIDs** in the JWT `capabilities` claim (strict, size-bounded list) and Redis-held grants — never a role string. Compartmented aliases deny `compartment_denied` unless the caller holds a direct compartment claim or an active delegated grant, and `GET /v1/catalog` filters so another team's classified alias cannot even be enumerated. Grant issuance is itself an authorization-gated, payload-bound mandate. | `interfaces.py`, `auth/token_resolver.py`, `obfuscator/alias_registry.py`, `services/grant_store.py` |
+| 5 | **Fail-closed, opaque errors** | Any parse, validation, lookup or lock failure denies immediately. The caller receives only a generic message plus a `correlation_id`. Full diagnostics go **only** to the WORM log — no stack traces, paths, key names, or topology leak. | `interfaces.py` (`MCPIPDenied`), `main.py` |
+| 6 | **Stateless nodes** | All synchronization state — payload locks, the WORM event buffer, the monotonic sequence, the signed epoch chain, the event-location index, delegated grants, and the append/epoch locks — lives in Redis via `redis.asyncio`. No module-level mutable auth state. | `main.py`, `auth/pin_validator.py`, `audit/worm_logger.py`, `services/grant_store.py` |
+| 7 | **Zero placeholders** | No TODO or FIXME, no stub bodies, no "rest of code". | entire codebase |
+
+---
+
 ## 2. Adversary model
 
 We assume a **strong, adaptive, in-band adversary**: a compromised, misaligned, or

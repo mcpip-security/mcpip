@@ -23,7 +23,8 @@ docs/
 
 | Doc | What's inside |
 |---|---|
-| [GETTING_STARTED.md](start/GETTING_STARTED.md) | Quickstart · connect an agent (REST + MCP) · Claude/MCP client setup · standing up a gateway · the end-to-end request lifecycle · the runnable demo-company walkthrough. |
+| [GETTING_STARTED.md](start/GETTING_STARTED.md) | Quickstart · connect an agent (REST + MCP) · Claude/MCP client setup · standing up a gateway · the end-to-end request lifecycle · the runnable walkthrough. |
+| [API.md](start/API.md) | The HTTP API reference — the five-endpoint agent surface, the step-up flow, the operator and audit surfaces, and which five endpoints exist only in sandbox. |
 | [SDK.md](start/SDK.md) | The Python + TypeScript client SDKs — the three-client model, PIN ceremony, envelope builders, admin surface, opaque-deny semantics (full console parity). |
 | [CLI.md](start/CLI.md) | The first-class `mcpip` CLI (git/kubectl-style) — commands, flags, and plug-and-play usage. |
 
@@ -40,6 +41,7 @@ docs/
 | Doc | What's inside |
 |---|---|
 | [ARCHITECTURE.md](integrate/ARCHITECTURE.md) | The design references: the A2A side-effect choke point, the data-plane-fork owner memo, and the WORM group-commit throughput design. |
+| [REPOSITORY.md](integrate/REPOSITORY.md) | Where everything lives — the tree, the four pipeline stages module by module, the service layer, and the tests that carry specific weight. |
 | [INTEGRATIONS.md](integrate/INTEGRATIONS.md) | Cloud/identity integration patterns: workload identity (SPIFFE), the OAuth 2.1 resource-server metadata, the governed-alias pattern, and the DynamoDB cloud-IAM live-fire walkthrough. |
 | [EXTENSIBILITY.md](integrate/EXTENSIBILITY.md) | Author-your-own community **skills** (implemented) and **gates** (CEL runtime deferred) — reviewer-approval + WORM record + hash-pin. |
 | [WORKSPACE_GENERATE.md](integrate/WORKSPACE_GENERATE.md) | Brief → governed workspace scaffold: the draft/validate/apply endpoints, inference-free core with an optional local-first LLM toolchain. |

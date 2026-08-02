@@ -79,7 +79,7 @@ review: no TODOs, no stubs, no partially implemented paths.
 
 ## 3. The security core — read this before editing it
 
-The [seven security invariants](../README.md#security-invariants) are not
+The [seven security invariants](../docs/SECURITY_THREAT_MODEL.md#1b-the-security-invariants) are not
 guidelines. A change that weakens one will be rejected regardless of what else
 it improves. The paths below are the ones where an innocent-looking edit does
 the most damage:
