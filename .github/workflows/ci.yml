@@ -125,6 +125,14 @@ jobs:
         run: |
           npm ci
           npm run build
+      # The console's own suites were green locally but ungated: nothing in CI
+      # ran them, so a regression they cover could still merge. They pin the
+      # console-honesty contracts (a refused read is not an empty directory; a
+      # registry-server submission is not a skill) and the company-config store,
+      # which are exactly the kind of thing a later refactor collapses by accident.
+      - name: Console tests
+        working-directory: dashboard
+        run: npm test
       - name: TypeScript SDK build (incl. the mcpip bin)
         # Self-contained: cli.ts uses Node globals (process/Buffer), so the SDK
         # needs @types/node in scope — install locally (no lockfile in sdk/ts).
