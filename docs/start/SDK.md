@@ -12,10 +12,15 @@ the operator console can do against a gateway, an SDK can do too:
 | Runtime deps | `httpx` only | none (global `fetch`, Node ≥ 18) |
 | Types | `py.typed`, frozen dataclasses, `mypy --strict` | `.d.ts`, `strict: true` |
 
-Both speak the **identical wire protocol** and expose the same surface with
-the same method names (snake_case in Python, camelCase in TypeScript). This
-document is the shared contract; examples are Python-first with the
-TypeScript mirror noted at the end.
+Both speak the **identical wire protocol**, and the method surfaces are parallel:
+snake_case in Python, the same name in camelCase in TypeScript
+(`skills_register` ↔ `skillsRegister`). Two things do **not** transliterate — the class
+prefix (`MCPIPClient` in Python, `McpipClient` in TypeScript) and three admin methods,
+listed in §10. A test checks every identifier on this page against the shipped sources, so
+what follows is what actually exists.
+
+This document is the shared contract; examples are Python-first with the TypeScript mirror
+in §10.
 
 > **Prefer the command line?** The SDK you *import* also ships the `mcpip`
 > command you *run* — a fail-closed, opaque, git/kubectl-style CLI that wraps
@@ -32,9 +37,19 @@ TypeScript mirror noted at the end.
 
 | Python | TypeScript | Role |
 | --- | --- | --- |
-| `MCPIPClient` | `MCPIPClient` | Agent surface — authorize, catalog, MCP edge, health/version/license |
-| `SandboxClient` | `SandboxClient` | Agent surface **plus sandbox-only affordances** (404 in production, by design) |
-| `MCPIPAdminClient` | `MCPIPAdminClient` | `CAP_DIRECTORY_ADMIN` control plane |
+| `MCPIPClient` | `McpipClient` | Agent surface — authorize, catalog, MCP edge, health/version/license |
+| `SandboxClient` | `McpipSandboxClient` | Agent surface **plus sandbox-only affordances** (404 in production, by design) |
+| `MCPIPAdminClient` | `McpipAdminClient` | `CAP_DIRECTORY_ADMIN` control plane |
+
+Import the class names exactly as written — the prefix is the one thing that does not
+transliterate between the two.
+
+**Install**
+
+```bash
+pip install ./sdk/python            # or: pipx install ./sdk/python (also puts `mcpip` on PATH)
+npm install ./sdk/typescript        # @mcpip/sdk — ESM-only, zero runtime dependencies
+```
 
 ```python
 from mcpip_sdk import MCPIPClient
@@ -81,10 +96,12 @@ outcome = client.authorize("skill_spend_summary", {"period": "2026-Q2"})
 # → Allowed | Staged; raises MCPIPDenied on any policy deny
 ```
 
-- Default envelope is `raw_mcp`; pass `source_format=` any of
-  `openai_tool_call | anthropic_tool_use | gemini_function_call |
-  bedrock_tool_use | mcp_jsonrpc | raw_mcp` and the SDK builds that provider's
-  exact strict shape (`mcpip_sdk.envelopes` has the builders).
+- Default envelope is `raw_mcp`. Pass `source_format=` any of the seven shipped
+  dialects — `openai_tool_call`, `anthropic_tool_use`, `gemini_function_call`,
+  `bedrock_tool_use`, `mcp_jsonrpc`, `raw_mcp`, `a2a_task` — and the SDK builds that
+  provider's exact strict shape (`mcpip_sdk.envelopes` has the builders; the TypeScript
+  equivalents are the top-level `openaiToolCall`, `anthropicToolUse`,
+  `geminiFunctionCall`, `bedrockToolUse`, `mcpToolsCall`, `rawMcp`, `a2aTask`).
 - Or send a raw provider envelope verbatim:
   `client.authorize(tool_call={...}, source_format="anthropic_tool_use")` /
   `client.authorize(tool_call={...}, vendor="openai")` — exactly one of
@@ -239,13 +256,23 @@ It is held to a **higher bar than every other method on this client**:
 
 ## 9. Error semantics (both SDKs)
 
+Both hierarchies root at a base class — `MCPIPError` in Python, `McpipError` in
+TypeScript — so `except MCPIPError` / `catch (e) { if (e instanceof McpipError) }` catches
+everything the SDK raises.
+
 | Python | TypeScript | Wire trigger |
 | --- | --- | --- |
-| `MCPIPDenied(correlation_id, http_status)` | `MCPIPDeniedError` | 403/401/500 opaque envelope; MCP-edge JSON-RPC `-32000` (HTTP 200) |
-| `MCPIPInvalidRequest` | `MCPIPInvalidRequestError` | 422 (malformed envelope), 413 (body > 256 KiB), JSON-RPC `-32700/-32600/-32601` |
-| `MCPIPUnavailable(retry_after)` | `MCPIPUnavailableError` | 503 + `Retry-After`, timeouts, transport failures |
-| `MCPIPNotFound` | `MCPIPNotFoundError` | Unknown challenge / unsealed event on a live endpoint |
-| `MCPIPSandboxOnly` | `MCPIPSandboxOnlyError` | Sandbox-only endpoint on a production gateway (404, no body correlation id) |
+| `MCPIPDenied(correlation_id, http_status)` | `McpipDenied` | 403/401/500 opaque envelope; MCP-edge JSON-RPC `-32000` (HTTP 200) |
+| `MCPIPInvalidRequest` | `McpipInvalidRequest` | 422 (malformed envelope), 413 (body > 256 KiB), JSON-RPC `-32700/-32600/-32601` |
+| `MCPIPUnavailable(retry_after)` | `McpipUnavailable` | 503 + `Retry-After`, timeouts, transport failures |
+| `MCPIPNotFound` | *(none — folds into `McpipDenied`)* | Unknown challenge / unsealed event on a live endpoint |
+| `MCPIPSandboxOnly` | `McpipSandboxOnly` | Sandbox-only endpoint on a production gateway (404, no body correlation id) |
+
+The one asymmetry is deliberate. TypeScript raises `McpipSandboxOnly` for a 404 **only**
+on the routes that legitimately vanish in production; every other 404 folds into the
+opaque `McpipDenied`, so a caller cannot use a 404 to distinguish "does not exist" from
+"not permitted". Python keeps `MCPIPNotFound` as a distinct type for the same wire
+condition. If you write cross-language code, catch the base class.
 
 Invariants: a **staged step-up is a result, not an error** (`Staged`); denial
 bodies are exactly `{error, correlation_id}` and the SDK exposes exactly
@@ -255,18 +282,39 @@ the caller.
 
 ## 10. TypeScript mirror
 
-`@mcpip/sdk` (in `sdk/typescript`) exposes the same three clients and the
-same methods in camelCase — `authorize`, `complete`, `catalog`, `mcpCall`,
+`@mcpip/sdk` (in `sdk/typescript`) exposes the same three clients over the same wire
+contract. Every method is the Python name in camelCase, with three exceptions noted below.
+
+**`McpipClient`** — `authorize`, `complete`, `catalog`, `mcpCall`, `authzDecision`,
 `health`, `ready`, `version`, `license`, `auditAttestation`,
-`authzDecision`, `protectedResourceMetadata`; sandbox:
-`devToken`, `authenticatorCode`, `auditVerify`, `auditProof`; admin:
-`registerSkill`, `deregisterSkill`, `disableSkill`, `enableSkill`,
-`registeredSkills`, `disabledSkills`, `decisionsRecent`, `forensicGet`,
-`revokePrincipal`, `reactivatePrincipal`, `revokedPrincipals`, `quarantine`,
-`canaries`, `directoryGet`, `directoryPut`, `directoryRelations`,
-`workspaceDraft`, `workspaceValidate`, `workspaceApply`, `cloudEnvironments`,
-`cloudEnvironmentPut`, `cloudEnvironmentDelete`, `vaultSecrets`,
-`vaultSecretPut`, `vaultSecretDelete`.
+`protectedResourceMetadata`.
+
+**`McpipSandboxClient`** — everything above, plus `devToken`, `devTokenSource`,
+`authenticatorCode`, `auditVerify`, `auditProof`.
+
+**`McpipAdminClient`** — skills: `skillsRegister`, `skillsDeregister`, `skillsDisable`,
+`skillsEnable`, `skillsRegistered`, `skillsDisabled`. Principals: `principalsRevoke`,
+`principalsReactivate`, `principalsRevoked`, `quarantine`, `canaries`. Decisions and
+evidence: `decisionsRecent`, `decisionsQuery`, `forensicGet`, `complianceEvidence`,
+`stats`. Directory: `directoryGet`, `directoryPut`, `directoryRelations`. Policy:
+`policyGet`, `policyPut`, `policyDelete`. Extensions: `submitExtension`,
+`extensionsPending`, `extensionApprove`, `extensionReject`, `verifiedPublishers`,
+`verifiedPublishersPut`. Users: `usersList`, `usersInvite`, `usersUpdate`, `usersRemove`.
+Workspace: `workspaceDraft`, `workspaceValidate`, `workspaceApply`. Cloud and vault:
+`cloudEnvironmentsList`, `cloudEnvironmentsPut`, `cloudEnvironmentsDelete`,
+`vaultSecretsList`, `vaultSecretsPut`, `vaultSecretsDelete`.
+
+**The three that are not a straight camelCase conversion:** Python's
+`extension_submit` is `submitExtension`; Python's `verified_publishers_get` is
+`verifiedPublishers`; and Python's `decisions_iter` (a generator that pages
+`decisions_query` for you) has no TypeScript equivalent — page it yourself with
+`decisionsQuery` and the returned cursor.
+
+Error classes are `McpipError` and its subclasses `McpipDenied`,
+`McpipInvalidRequest`, `McpipUnavailable`, `McpipSandboxOnly` — not the `…Error`-suffixed
+names. `tests/test_sdk_docs_parity.py` checks every identifier on this page against the
+shipped sources, and pins those three exceptions, so the page fails the build rather than
+drifting again.
 
 ESM-only, zero runtime dependencies (global `fetch`), `AbortSignal`
 passthrough, and the identical no-retry/opaque-deny/token-slack rules. See
