@@ -170,7 +170,7 @@ agent-facing wire any less opaque. Without a credential it says so rather than g
 
 ## Connecting an Agent (REST + MCP)
 
-**Two edges, one pipeline, six declared dialects (never sniffed).** The gateway *is* the
+**Two edges, one pipeline, seven declared dialects (never sniffed).** The gateway *is* the
 MCP server the client connects to — it never forwards to an external MCP server.
 
 - `POST /v1/authorize` — REST. Identity via `Authorization: Bearer` (or body `jwt`).
@@ -213,7 +213,7 @@ curl -s localhost:8080/v1/catalog -H "authorization: Bearer $TOKEN"
 - **High-risk tools return a `202` step-up** — the `PIN_REQUIRED` alias returns a
   `challenge_id`, not data. A human approver completes it out-of-band via the enrolled
   authenticator (OTP) against the **same** payload; nothing about the amount can change
-  between challenge and execution. See [The human factor](#the-human-factor--pin-step-up).
+  between challenge and execution. See [The human factor](#the-human-factor--pin-step-up-).
 
 ---
 
@@ -766,10 +766,11 @@ no vendor keys, and opens no outbound connection of its own — after ALLOW it d
 through a transport table. Identity is **sovereign**: `tenant_id` / `agent_id` / `role`
 come *only* from a verified JWT; the `role` claim authorizes nothing; an identity- or
 capability-shaped key in a tool-call payload is a **hard deny, not a strip**. The reading
-path for the security owner, before any code runs: `README.md` (what it is + the 5
-invariants), the internal strategy notes (the design thesis),
+path for the security owner, before any code runs:
+[`README.md`](../../README.md) (what it is), the
+[seven security invariants](../SECURITY_THREAT_MODEL.md#1b-the-security-invariants),
 [`ARCHITECTURE.md`](../integrate/ARCHITECTURE.md) (attack → defense → code), [`OPERATIONS.md`](../operate/OPERATIONS.md)
-(control mapping), and the internal roadmap (delivered vs deferred, self-audit).
+(control mapping), and [`SECURITY_THREAT_MODEL.md`](../SECURITY_THREAT_MODEL.md) §15 (delivered vs deferred, with the residual-risk boundary).
 
 ### The human factor — PIN step-up 🙋
 
@@ -858,7 +859,7 @@ linearizable, NTP discipline), and your real catalog's policy.
 node-foothold adversary that forges attestation binds `cnf` to its own key and MCPIP
 verifies it flawlessly. That boundary is named, not hidden; the MCPIP-side roadmap
 (delegation-chain attenuation re-verified at execute, replay-guard Redis hardening, a PoP
-stage for the legacy pipeline) is tracked in the internal roadmap.
+stage for the legacy pipeline) is deferred, not shipped.
 
 ---
 

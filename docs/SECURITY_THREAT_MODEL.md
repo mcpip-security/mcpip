@@ -952,7 +952,7 @@ Every control above is exercised, not merely asserted:
 This section is the external-framework companion to the §11 attack→defense matrix. §11 organizes
 MCPIP's defenses around **MCPIP's own primitives** (T1–T17); this crosswalk re-projects those same
 T-items onto the **OWASP Top 10 for Agentic Applications 2026 (ASI01–ASI10)** — now the canonical
-buyer/auditor checklist (the internal strategy notes §5.1 **[verified]**). It adds **no new control**:
+buyer/auditor checklist. It adds **no new control**:
 every cell points back to a T-item and its code in §11/§12/§15. The map is deliberately honest — it
 claims dominance only where MCPIP structurally earns it and names the three categories MCPIP does
 **not** cover, because a sophisticated buyer will otherwise find those gaps first.
@@ -962,7 +962,7 @@ it governs *what a verified identity is authorized to execute*, not *why the age
 Categories rooted in the agent's reasoning, memory, or the inter-agent bus are therefore upstream of
 MCPIP's boundary. MCPIP **deliberately does not** add an in-agent probabilistic/behavioral-anomaly
 detector to reach for those rows — that is the "the fox can't guard the henhouse" posture stated in
-the internal strategy notes §5.7 and the the internal strategy notes §6 battlecard. Where MCPIP is out of scope, it says so and leads with the
+the positioning material. Where MCPIP is out of scope, it says so and leads with the
 deterministic **damage-limiting** it *does* provide (payload-bound OTP + velocity/amount engine +
 write-before-execute WORM), never with a detector it refuses to build.
 

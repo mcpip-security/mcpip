@@ -9,7 +9,7 @@ and the exact transitive footprint). Phase 3 (registry/marketplace) remains desi
 customers/community author **skills** and **gates** with a reviewer-approval workflow, so MCPIP builds
 fewer skills itself and turns users into the feature factory — without breaking the security invariants
 or the revenue model. This is the highest-risk feature in the roadmap: a user-authored *gate* runs
-inside a fail-closed authorizer. Companion to the internal roadmap, the internal strategy notes.*
+inside a fail-closed authorizer.*
 
 ---
 
@@ -138,7 +138,7 @@ Every protection is **by construction**, not by reviewer vigilance — which is 
 
 ## 5. Business fit — "fewer skills, no lost revenue"
 
-Anchored to the internal strategy notes (BSL core, price per governed agent identity, "mechanism open, feed paid"):
+Anchored to the licensing model (BSL core, price per governed agent identity, "mechanism open, feed paid" — [LICENSING.md](../policies/LICENSING.md)):
 
 | Free / community (BSL core) | Paid enterprise |
 |---|---|

@@ -11,9 +11,17 @@ throughput ceiling and the app-managed WAL design that would raise it). These
 are not redundant — they are separate concerns, each preserved here in full:
 exact invariants, envelopes, diagrams, tables, benchmarks, and pseudocode are
 unchanged from their originating design memos. Sibling references: operational
-and deployment concerns live in [docs/operate/OPERATIONS.md](../operate/OPERATIONS.md), connector
-and dialect extension in [docs/integrate/EXTENSIBILITY.md](EXTENSIBILITY.md), and
-future-wave sequencing in the internal roadmap.
+and deployment concerns live in [docs/operate/OPERATIONS.md](../operate/OPERATIONS.md), and connector
+and dialect extension in [docs/integrate/EXTENSIBILITY.md](EXTENSIBILITY.md).
+
+> **A note on citations.** Preserving these memos verbatim means they still cite the
+> internal planning documents they were written against — a roadmap and a set of strategy
+> notes that are **not published with this repository**. Those pointers are kept because
+> removing them would misrepresent what the memos argued from, but you cannot follow them,
+> and nothing here depends on them: every claim about shipped behavior is checkable against
+> the code, and the shipped-versus-deferred boundary is stated in
+> [SECURITY_THREAT_MODEL.md §15](../SECURITY_THREAT_MODEL.md). Treat a roadmap citation as
+> provenance, never as a commitment about what will be built.
 
 ---
 
@@ -163,15 +171,14 @@ not widened** — no new key was added to the set.
 
 *Does MCPIP ever enter the prompt path?*
 
-*Last updated: 2026-07-17 (2026-H2 reaffirmation, the internal roadmap **F2** — see §7). A decision memo for the single most consequential product decision MCPIP
+*Last updated: 2026-07-17 (2026-H2 reaffirmation — see §7). A decision memo for the single most consequential product decision MCPIP
 faces — whether to cross from post-reasoning tool-call **interception** into the model's **content /
-generation path** to build the two data-plane pillars (the internal roadmap Pillars 1–2: **oracle
+generation path** to build the two data-plane pillars (Pillars 1–2: **oracle
 inversion** and **cryptographic taint-tracking**). This is a **DESIGN DOCUMENT ONLY**: it writes no
 data-plane code, reserves no pointer token, and changes no behavior. It exists so the call is made
 **deliberately, by the owner** — the roadmap's explicit instruction: "decide it deliberately, don't
-drift into it" (the internal roadmap). Companions: `WHITEPAPER.md §2.2`
-(the "interceptor, not an LLM proxy" trust boundary), the internal strategy notes (primitive #7),
-the internal roadmap (the pillar sketches), `docs/operate/OPERATIONS.md` (sibling
+drift into it". Companions: `WHITEPAPER.md §2.2`
+(the "interceptor, not an LLM proxy" trust boundary), `docs/operate/OPERATIONS.md` (sibling
 FUTURE-wave design material).*
 
 ---
@@ -189,7 +196,7 @@ FUTURE-wave design material).*
   the model and holds vendor keys. These are different bets with different blast radii. **(B) is a
   do-not-build** (it *is* the "LLM proxy" the whitepaper disavows). (A) is the only version worth ever
   reconsidering, and only on the transports where MCPIP already dispatches inline.
-- **Crossing the line deletes a named product primitive.** The internal strategy notes primitive #7 —
+- **Crossing the line deletes a named product primitive.** The primitive —
   "self-hosted, **inference-free** data-plane; the gateway never calls a model, holds no vendor keys" — and
   the "the fox can't guard the henhouse; the authorizer must be independent of the thing it authorizes"
   battlecard are *positioning assets*, not incidental facts. The fork spends them.

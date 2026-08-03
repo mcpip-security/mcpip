@@ -121,8 +121,9 @@ which check fired, or whether the alias even exists. Reasons live in the audit l
 
 ## Connecting agents
 
-One ingress for every framework. Seven wire formats across 82 named vendor ids, selected by a
-declared `source_format` (or a `vendor` that the hash-pinned registry resolves to one).
+One ingress for every framework. Seven wire formats, selected by a declared `source_format`.
+82 named vendor ids resolve onto six of them through a hash-pinned registry — `raw_mcp` is the
+direct form and has no vendor alias. Every id is listed in [API.md](docs/start/API.md).
 
 | Format | Source |
 |---|---|
@@ -177,7 +178,7 @@ Version 3.0.0. Source-available core under BSL 1.1; SDKs under Apache-2.0.
 **Shipped and tested**
 
 - The full pipeline, fail-closed and opaque end to end
-- 7 wire formats across 82 vendor ids, with a hash-pinned registry that refuses to boot on drift
+- 7 wire formats, plus 82 named vendor ids mapping onto six of them through a hash-pinned registry that refuses to boot on drift
 - Payload-bound one-time step-up; a changed byte is a different request with no approval behind it
 - Ed25519 Merkle audit written before dispatch, with offline re-verification
 - Compartment and capability separation, canary tripwires, ReBAC projection, the operator console

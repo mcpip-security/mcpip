@@ -300,7 +300,7 @@ payload-lock change. Drivable end to end against the sandbox gateway
 MCPIP is an **authorization interceptor** on the agent's tool-call plane, not a proxy sitting in
 front of every third-party MCP server. It governs a call **only when the agent invokes it as an
 MCPIP alias**. Two real-world 2026 attack classes live *outside* that plane unless you bring the
-sensitive tool inside it (see the internal strategy notes §5.5):
+sensitive tool inside it:
 
 - **The MCP rug pull (`postmark-mcp`).** The first confirmed malicious MCP server in the wild:
   correct for 15 versions, then v1.0.16 silently BCC'd every agent-sent email to an attacker

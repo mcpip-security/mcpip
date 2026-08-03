@@ -312,7 +312,7 @@ attestation of conformity — those are external third-party processes (see §6.
 > are trimmed from the durable buffer; the signed Merkle **roots** + anchor are retained
 > indefinitely as cryptographic commitments, but the events themselves are not. **Long-term
 > record retention (e.g. the 5–7 year windows those regimes cite) is operator-provided** by
-> scheduling the read-only `mcpip_verify export-audit --verify --pubkey <worm pubkey>
+> scheduling the read-only `mcpip-verify export-audit --verify --pubkey <worm pubkey>
 > --require-anchor` export to a durable, immutable
 > archive (WORM-mode object store / S3 Object-Lock). That invocation re-verifies the Merkle
 > roots, each `epoch_hash`, the `prev_epoch_hash` chain linkage, the Ed25519 epoch signatures

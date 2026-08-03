@@ -16,8 +16,7 @@ need an unpacked release or air-gap bundle — see [Release](RELEASE.md).
 Deeper, still-authoritative references are linked where they stay separate:
 [`ARCHITECTURE.md`](../integrate/ARCHITECTURE.md) (components, invariants, SPIFFE / workload-identity model,
 OAuth resource-server surface), [`TELEMETRY.md`](TELEMETRY.md) (opt-in telemetry + privacy
-boundary), the internal strategy notes (positioning, GA readiness), the internal roadmap,
-[`COMPLIANCE.md`](COMPLIANCE.md) (auditor / attestation), and [`GETTING_STARTED.md`](../start/GETTING_STARTED.md)
+boundary), [`COMPLIANCE.md`](COMPLIANCE.md) (auditor / attestation), and [`GETTING_STARTED.md`](../start/GETTING_STARTED.md)
 (client + CLI onboarding).
 
 ---
@@ -166,7 +165,7 @@ write-before-execute). State the blast radius explicitly and design around it:
   2. Promote the synced replica to master (or restore Redis from AOF/snapshot — see
      [Backup](#backup)); repoint `MCPIP_REDIS_URL` if the endpoint changed.
   3. Verify the restored/promoted ledger did **not** roll back:
-     `mcpip_verify export-audit --verify --pubkey <worm pubkey> --anchor-path <anchor>` — a
+     `mcpip-verify export-audit --verify --pubkey <worm pubkey> --anchor-path <anchor>` — a
      restore older than the fsync'd anchor low-watermark is flagged as
      `audit chain: TAMPERED — anchor low-watermark failed at epoch <k>`, which is the correct
      signal to investigate, not to ignore. (The anchor file must survive the failover — it is
@@ -176,7 +175,7 @@ write-before-execute). State the blast radius explicitly and design around it:
      is not incrementing.
 
   Cross-region failover / tenant migration remains a **formally accepted deferred risk** (a
-  cross-region control plane is not shipped — see [Multi-region](#the-worm-ledger--anchor-across-regions)).
+  cross-region control plane is not shipped — see [Multi-region](#2-the-worm-ledger--anchor-across-regions)).
 
 - **Capacity ceiling.** The `appendfsync always` fsync rate is the true system throughput ceiling
   (the WORM emit rate = the authorize rate); horizontal gateway scaling lifts CPU, not this. Size
@@ -216,7 +215,7 @@ Then confirm: Redis is `appendfsync always`; the integrity manifest is fresh (re
 after the last source edit — it is the LAST source-touching ceremony step); the image is
 pinned **by digest, never by tag**; the license is present; the sender-constraint boot-lint
 passes; and the dark-flag posture (forensic capture / external-PDP / telemetry / MRT —
-[Opt-in / dark-feature flags](#opt-in--dark-feature-flags)) is reviewed and intended. Verify
+[Opt-in / dark-feature flags](#opt-in--dark-feature-flags--stated-honestly)) is reviewed and intended. Verify
 the deploy with `mcpip verify` (see [mcpip verify](#mcpip-verify--read-only-release-verification)).
 
 > **Version surfaces vs. signed provenance.** The running-version surfaces (`/healthz`,
@@ -245,7 +244,7 @@ to unlicensed. Absent the URL ⇒ byte-identical offline behavior.
 
 The **honest posture** these features report at runtime (states / reason codes, and the
 forensic-capture troubleshooting flow) is detailed under
-[Reading honest dark-feature posture](#reading-honest-dark-feature-posture) in Incident response.
+[Reading honest dark-feature posture](#reading-honest-dark-feature-posture-get-v1adminstats--features) in Incident response.
 
 ### No LLM egress, by design
 
@@ -574,7 +573,7 @@ the verifier is absent rather than returning a verdict it did not compute.
 `verification failed` to stderr (opaque — no reason, no path, no hash) and exits `2`.
 Success prints `verified: mcpip <version> (<n> artifacts)` and exits `0`. `export-audit
 --verify` is the one operator-facing exception to the opacity: it names the failed
-integrity check and the first bad epoch (see [Verify & export](#verify--export)) — that
+integrity check and the first bad epoch (see [Verify & export](#verify--export-read-only-production-safe)) — that
 output goes to the operator running the tool, never to an agent — and also exits `2`.
 The tool never writes anything except the explicit `--out` file of `export-audit`, and
 never self-updates anything.
@@ -848,7 +847,7 @@ that last distinction.
 Schedule `export-audit --verify --pubkey … --require-anchor` (cron/CI) as your
 continuous tamper check, and archive the JSONL exports as offline evidence. (For a
 cross-region "one pane of glass" auditor
-view, see [Multi-region — the deferred global auditor view](#the-worm-ledger--anchor-across-regions)
+view, see [Multi-region — the deferred global auditor view](#2-the-worm-ledger--anchor-across-regions)
 and [`COMPLIANCE.md`](COMPLIANCE.md).)
 
 #### Backup
@@ -1042,7 +1041,7 @@ Ship them with your platform's log collector (e.g. a Fluent Bit / Vector sidecar
 node agent) to your SIEM; there is no built-in remote sink. The WORM ledger is the
 authoritative audit record — forward the `export-audit --verify` JSONL to immutable
 long-term storage (WORM-mode object store / S3 Object-Lock) for retention beyond the
-in-system hot window (see [Verify & export](#verify--export)).
+in-system hot window (see [Verify & export](#verify--export-read-only-production-safe)).
 
 Suggested alerts: `readyz` failing (Redis down); `mcpip_worm_epoch` flat while
 `mcpip_authorize_decisions_total` rises; shed-rate > a few %; a scheduled
@@ -1074,7 +1073,7 @@ in-binary mechanism.
 
 *The answer to "an app-layer authorizer can be bypassed — do we need to be a layer on VPN?"
 Short answer: **no VPN; this is a packaging concern, not a design flaw.** Companion to
-the internal roadmap and the positioning in the internal strategy notes. The two
+the shipped-vs-deferred boundary in [`SECURITY_THREAT_MODEL.md`](../SECURITY_THREAT_MODEL.md) §15. The two
 packaging artifacts this called for now ship: `deploy/k8s/agent-egress-lockdown.networkpolicy.yaml`
 (agent-side egress lock) and the mesh reference in
 [Deploying behind a service mesh](#deploying-behind-a-service-mesh--identity-aware-proxy-compose).*
@@ -1455,7 +1454,7 @@ data. It probes `/healthz`, drives real `/v1/authorize`, scrapes `/metrics` for 
 independently re-verifies WORM inclusion proofs in-browser. The **Deployment · License & Usage**
 panel (Gateway → Updates & License) reads `GET /v1/admin/stats` for the real governed-agent count,
 decision totals, license state, and the honest dark-feature posture (see
-[Reading honest dark-feature posture](#reading-honest-dark-feature-posture)).
+[Reading honest dark-feature posture](#reading-honest-dark-feature-posture-get-v1adminstats--features)).
 
 ```bash
 cd dashboard && npm install && npm run dev     # Vite dev server on :5173
@@ -1615,7 +1614,7 @@ built from an older tree keeps showing its own baked version until it is rebuilt
 *The answer to "can MCPIP run region-pinned tenants with data residency?" Short answer: **yes as
 a deployment topology today — one MCPIP + Redis stack per region — because every Redis key is
 already tenant-prefixed; a cross-region control plane is deliberately DEFERRED.** Companion to
-the internal roadmap ("keep every Redis key tenant-prefixed so multi-region stays an edge
+the design rule ("keep every Redis key tenant-prefixed so multi-region stays an edge
 concern"). This wave ships this design plus a **behavior-neutral `MCPIP_REGION` observability
 tag** (`core/config.py`, surfaced read-only on `/healthz` + `/v1/version`); it changes NO routing,
 authorization, key, or storage behavior.*
@@ -1671,7 +1670,7 @@ Because a tenant's entire state (`mcpip:*:{tenant}:*`) lives in exactly one cell
 is region-pinned the moment its callers are routed to that cell. No data leaves the region. There
 is no shared write path across cells, so there is no cross-region consistency, replication, or
 split-brain question to solve inside the process — it is genuinely an **edge routing concern**,
-exactly as the internal roadmap claims.
+exactly as the deferred-set boundary in the threat model claims.
 
 #### Why tenant-prefixed keys are the whole argument
 
@@ -1769,7 +1768,7 @@ feature would add (all deferred, see [What stays deferred](#4-what-stays-deferre
 
 ### 4. What stays deferred (explicitly unbuilt)
 
-Per the internal roadmap ("None of the deferred set should be built speculatively — they are
+Per the deferred-set rule ("None of the deferred set should be built speculatively — they are
 enterprise procurement features, built on demand"), the following are **design intent, not code**:
 
 1. **A cross-region control plane.** An authoritative tenant→region directory, region-aware edge
