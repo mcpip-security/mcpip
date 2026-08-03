@@ -100,7 +100,7 @@ def _print_proof(base_url: str) -> None:
             att = sandbox.audit_attestation()
     except Exception as exc:  # noqa: BLE001 — warn-only beat, boot already verified
         print(f"! proof unavailable ({exc.__class__.__name__}) — the stack is up;")
-        print("  inspect the chain any time:  mcpip audit-attestation")
+        print("  inspect the chain any time:  mcpip audit attestation")
         return
     intact = "intact ✓" if att.intact else "NOT INTACT ✗"
     head = (
