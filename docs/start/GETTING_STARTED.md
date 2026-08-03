@@ -644,6 +644,40 @@ tampered license → the process will not start.
 
 ### Boot production (fail-closed, zero-hardcoded-secrets)
 
+> **Self-hosting is free, and so is everything a production boot needs.** Nothing here is
+> gated behind a purchase — a non-sandbox boot is gated behind *provisioning*, and you issue
+> all of it yourself against your own root. Four artifacts, one ceremony, verified end to
+> end:
+>
+> ```bash
+> # 1a. The gateway's own pair: WORM signing key + IdP (JWT) verification key.
+> python scripts/provision_gateway_keys.py
+>
+> # 1b. Your offline roots: the license root that signs 2, and the release root.
+> python scripts/gen_release_keys.py
+>
+> # 2. A signed license, minted against YOUR root — there is no vendor call.
+> python scripts/gen_license.py --customer "Your Org" --tier self-hosted --days 365 \
+>   --private-key license_root.pem --out license.json
+>
+> # 3. A signed boot-integrity manifest over the source tree you are deploying.
+> python scripts/gen_integrity_manifest.py --private-key license_root.pem \
+>   --out integrity.json
+>
+> # 4. Boot with all six paths set (plus your own issuer/audience).
+> MCPIP_SANDBOX_MODE=false \
+> MCPIP_JWT_PUBLIC_KEY_PATH=jwt.pub.pem MCPIP_WORM_SIGNING_KEY_PATH=worm.pem \
+> MCPIP_LICENSE_PATH=license.json MCPIP_LICENSE_PUBLIC_KEY_PATH=license_root.pub.pem \
+> MCPIP_INTEGRITY_MANIFEST_PATH=integrity.json \
+> MCPIP_INTEGRITY_PUBLIC_KEY_PATH=license_root.pub.pem \
+> MCPIP_JWT_ISSUER=your-idp MCPIP_JWT_AUDIENCE=your-gateway \
+>   uvicorn app.main:app --port 8080
+> ```
+>
+> Each missing piece is a named boot error, not a silent degradation — the gateway tells you
+> which pair is absent. It also warns on a plaintext `redis://` and on a key file that is
+> group-readable, because both are real production problems.
+
 Config + **paths** come from `.env.production` (copy `deploy/.env.production.example`). No
 committed `.env*` file contains a secret value — the only others in the repository are the
 console's three build-edition files, which set a single `VITE_MCPIP_EDITION` flag. Secret
