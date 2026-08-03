@@ -97,6 +97,25 @@ Three properties of the connector layer (`bridge/connectors/`) are load-bearing 
 
 ---
 
+## 1b. The security invariants
+
+These seven hold on every request, or the request does not run. They are not guidelines: a
+change that weakens one is rejected regardless of what else it improves. Every threat analyzed
+in the rest of this document is ultimately a question about whether one of these still holds.
+
+| # | Invariant | Mechanism | Enforced in |
+|---|---|---|---|
+| 1 | **Timing safety** | `secrets.compare_digest` for every token, hash, secret, and signature comparison. PIN and payload equality happen server-side inside the Lua `EVAL`, so there is zero Python check-then-act. | `interfaces.py`, `auth/*`, `audit/worm_logger.py` |
+| 2 | **TOCTOU payload lock** | A 6-digit PIN bound to `sha256(canonical_json(tenant, agent, alias, arguments))`. Fetch, compare and delete happen in **one atomic Redis Lua `EVAL`**. Only the PIN hash is stored, never the raw PIN. One byte of payload drift is an instant `PAYLOAD_MISMATCH`. | `auth/pin_validator.py` |
+| 3 | **Deep schema rigidity** | Every ingress model, including all nested ones, uses `ConfigDict(extra="forbid", strict=True)`. Depth ≤ 8, ≤ 64 keys per object, ≤ 256 elements per array, ≤ 16 KiB canonical arguments. Control characters, bidi overrides (`U+202A–202E`, `U+2066–2069`) and zero-width characters are rejected. | `interfaces.py`, `bridge/intent_parser.py` |
+| 4 | **M2M identity sovereignty** | `tenant_id`, `agent_id` and `role` come exclusively from a verified JWT. `alg=none` and HMAC confusion are rejected; `exp`/`iat`/`nbf`/`iss`/`aud` plus the three identity claims are required. Any identity- or capability-shaped key in the tool-call payload is a **hard deny, not a strip**. The `role` claim is validated but descriptive only — it authorizes nothing. | `auth/token_resolver.py`, `bridge/intent_parser.py` |
+| 4b | **Capabilities and compartments, never roles** | Privileged actions gate on capability **UUIDs** in the JWT `capabilities` claim (strict, size-bounded list) and Redis-held grants — never a role string. Compartmented aliases deny `compartment_denied` unless the caller holds a direct compartment claim or an active delegated grant, and `GET /v1/catalog` filters so another team's classified alias cannot even be enumerated. Grant issuance is itself an authorization-gated, payload-bound mandate. | `interfaces.py`, `auth/token_resolver.py`, `obfuscator/alias_registry.py`, `services/grant_store.py` |
+| 5 | **Fail-closed, opaque errors** | Any parse, validation, lookup or lock failure denies immediately. The caller receives only a generic message plus a `correlation_id`. Full diagnostics go **only** to the WORM log — no stack traces, paths, key names, or topology leak. | `interfaces.py` (`MCPIPDenied`), `main.py` |
+| 6 | **Stateless nodes** | All synchronization state — payload locks, the WORM event buffer, the monotonic sequence, the signed epoch chain, the event-location index, delegated grants, and the append/epoch locks — lives in Redis via `redis.asyncio`. No module-level mutable auth state. | `main.py`, `auth/pin_validator.py`, `audit/worm_logger.py`, `services/grant_store.py` |
+| 7 | **Zero placeholders** | No TODO or FIXME, no stub bodies, no "rest of code". | entire codebase |
+
+---
+
 ## 2. Adversary model
 
 We assume a **strong, adaptive, in-band adversary**: a compromised, misaligned, or
@@ -490,11 +509,11 @@ residual risk stated honestly below. None is an integrity or authorization bypas
 | # | Finding | Sev | Status | Residual / resolution |
 |---|---|---|---|---|
 | R1 | **Grant-governance alias enumerable by unprivileged same-tenant agents in `/v1/catalog`.** `ObfuscatorService.list_visible` (`services/obfuscator.py`) filters visibility by `compartment` only and never consults `entry.required_capability`, so `skill_compartment_grant` (compartment `None`, `required_capability=CAP_COMPARTMENT_GRANT`) is returned to every same-tenant agent — an uncompartmented `aegis-dynamics` agent sees `['skill_status_probe','skill_compartment_grant']`. | low | **Accepted** | Metadata-only disclosure: an unprivileged agent learns *that* a grant-issuing governance path exists. **No escalation** — execution stays UUID-capability-gated (every self-issue/smuggle attempt returned 403 `CAPABILITY_DENIED`) and no compartment UUIDs or real targets are revealed. Effectively an intended RESTRICTED operator-visible governance skill. **Optional hardening:** add a `required_capability` visibility check in `list_visible` (surface a governance alias only to holders of its capability), mirroring the compartment filter. |
-| R2 | **Sandbox/demo WORM buffer runs without fsync-durable AOF.** With `MCPIP_SANDBOX_MODE=true` the boot durability check (`assert_persistence_posture` with `require=False`, `app/main.py` L378) only logs an advisory when Redis reports `appendonly=no`/`appendfsync=everysec` (the state of the shipped `mcpip-v2-redis`); `emit` then returns after an in-memory-only `XADD`, so a crash before the next AOF window could lose an already-authorized action's event. | low | **Accepted (sandbox-only)** | Only reachable in sandbox posture. **Production (`sandbox_mode=false`) fail-closes at boot** unless `appendfsync=always`, so write-before-execute is enforced where it matters. No integrity/authorization bypass. **Optional:** run the demo Redis with `appendonly=yes appendfsync=always` so the sandbox mirrors production durability. (Same root cause as §14 finding R6 — the durability-invariant gap in the shipped dev posture.) |
+| R2 | **Sandbox/demo WORM buffer runs without fsync-durable AOF.** With `MCPIP_SANDBOX_MODE=true` the boot durability check (`assert_persistence_posture` with `require=False`, `app/main.py` L378) only logs an advisory when Redis reports `appendonly=no`/`appendfsync=everysec` (the state of the shipped `mcpip-v2-redis`); `emit` then returns after an in-memory-only `XADD`, so a crash before the next AOF window could lose an already-authorized action's event. | low | **Accepted (sandbox-only)** | Only reachable in sandbox posture. **Production (`sandbox_mode=false`) fail-closes at boot** unless `appendfsync=always`, so write-before-execute is enforced where it matters. No integrity/authorization bypass. **RESOLVED (3.0.0):** `scripts/quickstart.sh` and the documented manual Redis command now both start it with `--appendonly yes --appendfsync always`, so the sandbox mirrors production durability instead of advertising it. (Same root cause as §14 finding R6.) |
 | R3 | **Single-worker HTTP has no admission control (availability under load).** See §14 for the measured throughput/latency curve. | high | **Accepted (deployment gap)** | Availability, **not** security. The stateless-in-Redis design is meant to scale horizontally (N workers / N nodes); the residual is the absence of an in-process concurrency limiter that would `503`/`429` above a threshold instead of unbounded queueing. Fully documented as a capacity-planning + deployment item in §14. |
 | R4 | **PIN consume runs a 16 MiB / ~41 ms scrypt on every attempt before the atomic Lua** (`auth/pin_validator.py` L294 / `_SCRYPT_MAX_CONCURRENCY=min(4,cpu)` L77). | medium | **Accepted (deliberate tradeoff)** | This is the brute-force-resistance design (§14). Per-lock 5-attempt self-destruct + per-identity register rate-limit bound it; exactly-once integrity is fully preserved. Documented as a ~100 consume/s/process capacity number in §14. |
 | R5 | **Mandatory durable WORM `emit` (AOF `appendfsync=always`) serializes the AUTO allow-path on Redis fsync** (`audit/worm_logger.py` L418, `app/main.py` L819). | medium | **Accepted (inherent to write-before-execute)** | The audit-fsync, not the crypto, is the allow-path ceiling (§14). Cannot be pipelined/batched away without breaking the invariant. Scale Redis horizontally / fast NVMe; treat ~1k durable emit/s/shard as the allow-path capacity unit. |
-| R6 | **Shipped sandbox Redis runs `appendonly=no`/`appendfsync=everysec`, so the advertised write-before-execute invariant does not actually hold in the shipped dev posture** (`audit/worm_logger.py` L251 `require=False` in sandbox; `deploy/redis.conf`). | low | **Accepted (dev/sandbox only)** | Production is fail-closed; only the *runnable demo* under-delivers the durability it advertises, which could mislead capacity/durability testing. **Optional:** ship the dev Redis with `appendonly=yes appendfsync=always` or emit a louder startup banner. |
+| R6 | **Shipped sandbox Redis runs `appendonly=no`/`appendfsync=everysec`, so the advertised write-before-execute invariant does not actually hold in the shipped dev posture** (`audit/worm_logger.py` L251 `require=False` in sandbox; `deploy/redis.conf`). | low | **Accepted (dev/sandbox only)** | Production is fail-closed; only the *runnable demo* under-delivers the durability it advertises, which could mislead capacity/durability testing. **RESOLVED (3.0.0):** the quickstart and the documented manual command now start Redis with `appendonly=yes appendfsync=always`. The runnable demo now delivers the durability it demonstrates, so capacity and durability testing against it is representative. |
 | R7 | **ASGI framework overhead (~8 ms/req) dwarfs the security pipeline (~1 ms); per-request serial CPU is dominated by JWT Ed25519 verify** (`services/auth_engine.py` L76 → `auth/token_resolver.py` L106). | low | **Informational — no change** | The end-to-end ceiling on one worker is framework overhead + non-overlappable JWT-verify CPU, **not** the MCPIP engine (pydantic strict ~0.06 ms/req, `canonical_json` ~0.058 ms/req are minor). Optimization headroom is in transport/worker count, not the engine. Verified-token caching is intentionally **not** done (unsafe). |
 
 The **connector conformance round** (the bridge/connectors extension) likewise produced zero
@@ -915,7 +934,7 @@ against that real code.
 
 Every control above is exercised, not merely asserted:
 
-- **`python main.py`** runs the 10-gate proof (three allow-paths, seven attacks) and a final
+- **`python main.py`** runs the 29-check proof (7 allow-paths, 22 attacks) and a final
   `verify_chain`, exiting `0` only if all hold — the executable regression for T1–T9.
 - **`app/main.py` end-to-end** (sandbox): `POST /v1/dev/token` → AUTO alias `200`;
   `skill_wire_transfer` no PIN → `202` → fetch OTP via `/v1/authenticator/{challenge_id}` →
@@ -933,7 +952,7 @@ Every control above is exercised, not merely asserted:
 This section is the external-framework companion to the §11 attack→defense matrix. §11 organizes
 MCPIP's defenses around **MCPIP's own primitives** (T1–T17); this crosswalk re-projects those same
 T-items onto the **OWASP Top 10 for Agentic Applications 2026 (ASI01–ASI10)** — now the canonical
-buyer/auditor checklist (the internal strategy notes §5.1 **[verified]**). It adds **no new control**:
+buyer/auditor checklist. It adds **no new control**:
 every cell points back to a T-item and its code in §11/§12/§15. The map is deliberately honest — it
 claims dominance only where MCPIP structurally earns it and names the three categories MCPIP does
 **not** cover, because a sophisticated buyer will otherwise find those gaps first.
@@ -943,7 +962,7 @@ it governs *what a verified identity is authorized to execute*, not *why the age
 Categories rooted in the agent's reasoning, memory, or the inter-agent bus are therefore upstream of
 MCPIP's boundary. MCPIP **deliberately does not** add an in-agent probabilistic/behavioral-anomaly
 detector to reach for those rows — that is the "the fox can't guard the henhouse" posture stated in
-the internal strategy notes §5.7 and the the internal strategy notes §6 battlecard. Where MCPIP is out of scope, it says so and leads with the
+the positioning material. Where MCPIP is out of scope, it says so and leads with the
 deterministic **damage-limiting** it *does* provide (payload-bound OTP + velocity/amount engine +
 write-before-execute WORM), never with a detector it refuses to build.
 

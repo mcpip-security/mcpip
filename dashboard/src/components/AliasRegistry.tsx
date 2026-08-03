@@ -26,10 +26,34 @@ import {
   deregisterSkill,
 } from '../lib/skillGate';
 import { catalog as fetchCatalog, mintDevToken } from '../lib/api';
+import type { RegisterSkillResult } from '../lib/api';
 import { DEFENSE_TENANT, SEED_COMPARTMENT_LIST } from '../lib/protocol';
 import { useCompanyConfig } from '../lib/companyConfig';
 import type { CompanyTeam } from '../lib/companyConfig';
 import { Panel, Badge, Field, Input, Select, EmptyState, Detail } from './ui';
+
+/**
+ * Turn a refused registration into the operator's next action. The gateway
+ * distinguishes its conflicts deliberately, so this never collapses them into
+ * one generic "denied" — and it names the conflicting alias when the gateway
+ * disclosed it (a compartmented one is withheld server-side by design).
+ */
+function registrationMessage(res: Extract<RegisterSkillResult, { ok: false }>): string {
+  const detail = res.detail ? ` ${res.detail}.` : '';
+  switch (res.error) {
+    case 'alias_exists':
+      return `That alias already resolves for this tenant — registration is additive-only, so a config alias can never be shadowed.${detail}`;
+    case 'target_posture_conflict':
+      return (
+        `Another alias already binds this target at a stricter posture; a second alias may tighten it, never weaken it.${detail}` +
+        (res.conflictingAlias ? ` Conflicting alias: ${res.conflictingAlias}.` : '')
+      );
+    case 'unreachable':
+      return 'The gateway did not answer. Nothing was registered — retry once it is reachable.';
+    default:
+      return 'Registration was refused. The console may hold no CAP_DIRECTORY_ADMIN credential for this tenant.';
+  }
+}
 import type {
   RiskTier,
   TransportClass,
@@ -1221,7 +1245,7 @@ function RegisterDialog({
     if (!valid || busy) return;
     setBusy(true);
     setError(null);
-    const ok = await registerSkill(apiBase, tenant, {
+    const res = await registerSkill(apiBase, tenant, {
       alias: trimmedAlias,
       target: trimmedTarget,
       risk_tier: risk,
@@ -1229,11 +1253,14 @@ function RegisterDialog({
       service: trimmedService,
       access,
     });
-    if (ok) {
+    if (res.ok) {
       onRegistered([rowOf(trimmedAlias, trimmedService)]);
       return;
     }
-    setError('Registration denied. The alias may already resolve (config skills can never be shadowed), or the gateway rejected the request.');
+    // Show the gateway's OWN reason. It answers conflicts concretely on purpose,
+    // so an operator can tell "already registered" from "refused" — a generic
+    // message here trained them to ignore the refusal.
+    setError(registrationMessage(res));
     setBusy(false);
   };
 
@@ -1242,8 +1269,9 @@ function RegisterDialog({
     setBusy(true);
     setError(null);
     const succeeded: SkillRow[] = [];
+    let lastFailure: RegisterSkillResult | null = null;
     for (const it of bulkValid) {
-      const ok = await registerSkill(apiBase, tenant, {
+      const res = await registerSkill(apiBase, tenant, {
         alias: it.alias,
         target: it.target,
         risk_tier: risk,
@@ -1251,13 +1279,18 @@ function RegisterDialog({
         service: it.service,
         access,
       });
-      if (ok) succeeded.push(rowOf(it.alias, it.service));
+      if (res.ok) succeeded.push(rowOf(it.alias, it.service));
+      else lastFailure = res;
     }
     if (succeeded.length > 0) {
       onRegistered(succeeded);
       return;
     }
-    setError('No skills were registered — the names may already resolve, or the gateway rejected the request.');
+    setError(
+      lastFailure
+        ? `No skills were registered. ${registrationMessage(lastFailure)}`
+        : 'No skills were registered — the gateway rejected the request.',
+    );
     setBusy(false);
   };
 

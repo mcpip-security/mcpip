@@ -466,6 +466,32 @@ class SandboxClient(MCPIPClient):
             return legacy
         raise MCPIPError("dev-token response carried no jwt")
 
+    def capabilities(self) -> dict[str, str]:
+        """
+        SANDBOX ONLY — the well-known capability UUIDs by name
+        (``GET /v1/dev/capabilities``, unauthenticated).
+
+        Privileged actions gate on capability UUIDs in the JWT ``capabilities``
+        claim, never on a role string, so minting an admin token means knowing
+        the UUID. This is how you learn it without reading ``interfaces.py``::
+
+            caps = client.capabilities()
+            token = client.dev_token(capabilities=[caps["CAP_DIRECTORY_ADMIN"]])
+
+        Production mints no identity, so there is nothing to enumerate: raises
+        :class:`MCPIPSandboxOnly` there (404).
+        """
+        response = self._request(
+            "GET", "/v1/dev/capabilities", authenticated=False, tolerate=(404,)
+        )
+        if response.status_code == 404:
+            raise MCPIPSandboxOnly("/v1/dev/capabilities")
+        payload = _json_object(response)
+        caps = payload.get("capabilities")
+        if not isinstance(caps, dict):
+            raise MCPIPError("dev-capabilities response carried no capabilities map")
+        return {str(k): str(v) for k, v in caps.items()}
+
     def authenticator_code(self, challenge_id: str) -> str:
         """
         SANDBOX ONLY — fetch the one-time step-up code for a staged challenge

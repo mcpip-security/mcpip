@@ -20,13 +20,16 @@ real deny-reason never cross the boundary.
 > exercise the whole pipeline before provisioning anything; **never** run sandbox in
 > production.
 
-For deeper reading: the product overview and 7 security invariants live in `README.md`;
-the design thesis ("an interceptor, never a proxy") in the internal strategy notes; the
-attack → defense → code threat model and request pipeline in
-[`ARCHITECTURE.md`](../integrate/ARCHITECTURE.md); deploy, upgrade, compliance and runbook procedures
-in [`OPERATIONS.md`](../operate/OPERATIONS.md); workload-identity / provider-dialect / cloud-IAM
-integration in [`INTEGRATIONS.md`](../integrate/INTEGRATIONS.md); and what is delivered vs deferred
-(with the honest residual-risk boundary) in the internal roadmap.
+For deeper reading: the product overview is in [`README.md`](../../README.md) and the
+seven security invariants, the adversary model, and the attack → defense → code matrix are
+in [`SECURITY_THREAT_MODEL.md`](../SECURITY_THREAT_MODEL.md) — which also carries the
+honest residual-risk boundary, including what is deferred rather than shipped. The design
+thesis ("an interceptor, never a proxy") and the request pipeline are in
+[`ARCHITECTURE.md`](../integrate/ARCHITECTURE.md); deploy, upgrade, compliance and runbook
+procedures in [`OPERATIONS.md`](../operate/OPERATIONS.md); workload-identity,
+provider-dialect and cloud-IAM integration in
+[`INTEGRATIONS.md`](../integrate/INTEGRATIONS.md); and the full HTTP surface in
+[`API.md`](API.md).
 
 ---
 
@@ -100,8 +103,11 @@ never mints identities. `redis-server` needs Redis installed (`brew install redi
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
-# 1. Redis (a decision's WORM record is fsync-durable before the action is authorized)
-redis-server --port 63790 --daemonize yes
+# 1. Redis. The AOF flags are what make a decision's audit record fsync-durable BEFORE
+#    the action is authorized — the write-before-execute invariant. Production requires
+#    them (the gateway refuses to boot otherwise); set them here so the sandbox behaves
+#    like production rather than only claiming to.
+redis-server --port 63790 --daemonize yes --appendonly yes --appendfsync always
 
 # 2. The gateway, in sandbox mode (background). Wait ~2s, then check /healthz.
 MCPIP_SANDBOX_MODE=true MCPIP_REDIS_URL=redis://localhost:63790/0 \
@@ -114,7 +120,8 @@ sleep 2 && curl -s http://localhost:8080/healthz
 ### Smoke-test the invariants, then open the console
 
 ```bash
-python main.py                       # self-verifying 10+ adversarial gates — exits 0 iff every invariant holds
+python main.py                       # 29 checks: 7 allow-paths + 22 attacks — exits 0 iff every one holds
+                                     # (runs in its own Redis db 15; it RESETS what it uses)
 docker compose --profile demo up     # the same demo, containerized
 cd dashboard && npm install && npm run dev     # operator console → :5173
 ```
@@ -128,19 +135,42 @@ The gateway is **fail-closed**, so the most common first-run surprise is a call 
 denies for a reason the *agent* is never told (that opacity is the design — reasons live
 in the audit log, not on the wire). The fixes below cover what that usually means.
 
+When you have a `correlation_id` from a denial, start with **`mcpip why <correlation_id>`**.
+It resolves the id against the audit log and prints what happened plus the concrete next
+step, instead of leaving you to interpret a machine token:
+
+```console
+$ mcpip why ee843779451141798559da2f23acf4c4
+ee843779451141798559da2f23acf4c4  DENY
+  alias          skill_spend_summry
+  agent          agent-dev
+  format         raw_mcp
+  reason         unknown_alias  (catalog)
+  arguments      {'period': '2026-Q2'}
+
+The alias does not resolve for this tenant.
+
+  Fix: Check the spelling, and confirm the alias is in this tenant's catalog:
+  `mcpip catalog`. Registering one is `mcpip admin skills register`.
+```
+
+This reads the same capability-gated surfaces the console does — it does not make the
+agent-facing wire any less opaque. Without a credential it says so rather than guessing.
+
 | Symptom | Almost always means | Do this |
 |---|---|---|
-| **Every** call returns `MCPIP: request denied by policy` | The gateway is reachable but **not ready** — its Redis-backed WORM audit store is down, so it correctly refuses to execute anything it cannot first record. `GET /healthz` still says `live` (it checks the process, not Redis). | `curl localhost:8080/readyz` → if `redis` is not `up`, start Redis (`redis-server --port 63790`) and retry. `mcpip login` now prints `ready` + `redis` for exactly this reason. |
+| **Every** call returns `MCPIP: request denied by policy` | Two common causes, and they are easy to tell apart. (1) The gateway is reachable but **not ready** — its Redis-backed audit store is down, so it refuses to execute anything it cannot first record. `GET /healthz` still says `live`, because it checks the process, not Redis. (2) Your token's `tenant_id` owns none of the aliases you are calling, so every alias resolves to `unknown_alias`. Minting with `-d '{}'` takes the default tenant, which is a common mismatch. | `curl localhost:8080/readyz` first — if `redis` is not `up`, start it (`redis-server --port 63790`). If it *is* up, the audit log has the real reason: `mcpip why <correlation_id>`. Check the tenant you are calling as with `mcpip whoami`, and what it can see with `mcpip catalog`. |
 | `command not found: mcpip` | The CLI (the `mcpip-sdk` package) is not on your `PATH` — `quickstart.sh` builds the gateway's venv but does not install the CLI. | `source .venv/bin/activate && pip install ./sdk/python`, or `pipx install ./sdk/python` for a global command. |
-| One specific alias denies with exit `3` | Opaque deny — the identity is not entitled (wrong tenant/compartment, missing capability), or a `pin_required` alias needs the step-up. It is working as designed. | Read the real reason as an operator: `GET /v1/admin/decisions/recent` (needs `CAP_DIRECTORY_ADMIN`) shows the `deny_reason`. |
+| One specific alias denies with exit `3` | Opaque deny — the identity is not entitled (wrong tenant/compartment, missing capability), or a `pin_required` alias needs the step-up. It is working as designed. | `mcpip why <correlation_id>` — it reads the audit log and tells you the reason **and the fix**. Needs `CAP_FORENSIC_READ` or `CAP_DIRECTORY_ADMIN`; the agent wire stays opaque. |
 | A `pin_required` alias returns `202` with a `challenge_id` | Not an error — a payload-bound one-time PIN is staged. | Fetch the code (`sandbox authenticator <challenge_id>`) and complete the call with the same payload + pin. |
+| `/v1/audit/verify` reports `intact:false` (and the compliance evidence bundle agrees) | The chain and its **witness** disagree. The out-of-tamper-domain anchor records the highest epoch ever sealed, and lives outside Redis precisely so a rollback cannot erase it — so a store that was wiped while the anchor survived is, correctly, indistinguishable from a rollback. Until 3.0.0 the sandbox reproduced this routinely: Redis ran without AOF, so the documented stop line (`shutdown nosave`) discarded the chain and left the witness behind. | The quickstart now runs Redis with `--appendonly yes --appendfsync always`, so the chain survives a normal stop and this no longer happens. If you deliberately reset, wipe **both together**: `redis-cli -p 63790 flushall; rm -f mcpip_worm.jsonl.anchor`. Never delete the anchor in production — there, an anchor ahead of the chain is the incident it exists to surface. |
 | Production gateway **refuses to boot** | Also by design — `MCPIP_SANDBOX_MODE=false` fails closed until a valid license, integrity manifest, and key material are supplied. | See [Boot production](#boot-production-fail-closed-zero-hardcoded-secrets). For a quick local run, use sandbox mode. |
 
 ---
 
 ## Connecting an Agent (REST + MCP)
 
-**Two edges, one pipeline, six declared dialects (never sniffed).** The gateway *is* the
+**Two edges, one pipeline, seven declared dialects (never sniffed).** The gateway *is* the
 MCP server the client connects to — it never forwards to an external MCP server.
 
 - `POST /v1/authorize` — REST. Identity via `Authorization: Bearer` (or body `jwt`).
@@ -183,7 +213,7 @@ curl -s localhost:8080/v1/catalog -H "authorization: Bearer $TOKEN"
 - **High-risk tools return a `202` step-up** — the `PIN_REQUIRED` alias returns a
   `challenge_id`, not data. A human approver completes it out-of-band via the enrolled
   authenticator (OTP) against the **same** payload; nothing about the amount can change
-  between challenge and execution. See [The human factor](#the-human-factor--pin-step-up).
+  between challenge and execution. See [The human factor](#the-human-factor--pin-step-up-).
 
 ---
 
@@ -230,11 +260,37 @@ never touch stdout/argv/logs — a bearer is never accepted as a plain argv valu
 A `PIN_REQUIRED` alias submitted with no PIN stages a challenge; the client completes it
 with the out-of-band one-time code against the **same** payload:
 
+`authorize()` returns a union — `Allowed` (200) or `Staged` (202) — so you narrow on the
+type rather than checking a flag. The type checker then knows `challenge_id` exists only
+on the staged branch.
+
 ```python
-from mcpip_sdk import MCPIPClient
-result = client.authorize("skill_wire_transfer", {"payee": "enrolled:ACME_PAYROLL", "amount_cents": 2418000})
-if result.is_staged:                      # 202 — a challenge_id was returned
-    receipt = client.complete(result, pin=one_time_code)   # same payload + pin → 200
+from mcpip_sdk import MCPIPClient, Staged
+
+with MCPIPClient("http://localhost:8080", token=jwt) as client:
+    result = client.authorize(
+        "skill_wire_transfer",
+        {"payee": "enrolled:ACME_PAYROLL", "amount_cents": 2418000},
+    )
+    if isinstance(result, Staged):        # 202 — a challenge_id was returned
+        receipt = client.complete(result, pin=one_time_code)   # same payload + pin → 200
+```
+
+In sandbox you can read the code back through `SandboxClient`, which stands in for the
+out-of-band delivery your enrolled authenticator does in production:
+
+```python
+from mcpip_sdk import SandboxClient, Staged
+
+with SandboxClient("http://localhost:8080") as client:
+    client.set_token(client.dev_token(tenant_id="tenant-acme", agent_id="agent-1"))
+    result = client.authorize(
+        "skill_wire_transfer",
+        {"payee": "enrolled:ACME_PAYROLL", "amount_cents": 2418000},
+    )
+    if isinstance(result, Staged):
+        receipt = client.complete(result, pin=client.authenticator_code(result.challenge_id))
+        print(receipt.decision, receipt.worm_sequence)     # allow 179
 ```
 
 The payload lock is format-independent and byte-identical across all seven dialects; the
@@ -395,7 +451,8 @@ mcp❯ call skill_financial_wage_sheet
 ✓ ALLOW — committed
 ```
 
-It is also scriptable (`echo "login …\ntools" | python scripts/mcp_terminal.py`), and in
+It is also scriptable (`printf 'login\ntools\n' | python scripts/mcp_terminal.py` — `printf`
+rather than `echo`, which does not interpret `\n` in bash), and in
 production it uses your IdP-minted license via `MCPIP_TOKEN` instead of the sandbox minter.
 
 ### A note on console visibility
@@ -430,15 +487,29 @@ signed as the last step before the image is built (an air-gap bundle is availabl
 disconnected installs). These matter because the gateway **refuses to boot** in production
 unless the integrity manifest and license verify.
 
+Verifying *before* you install means you cannot rely on an installed command, so run the
+verifier straight from the checkout — it needs only Python, and never touches the network:
+
 ```bash
-# Offline-root-signed release manifest + every artifact hash (read-only, no network; exit 0 / 2):
-mcpip verify --manifest release/manifest.json \
+python -m mcpip_verify verify --manifest release/manifest.json \
   --pubkey release/keys/release_root_ed25519.pub.pem --base-dir .
-# Read-only WORM audit export + independent re-verification of the signed chain
-# (Merkle roots, epoch_hash, prev_epoch_hash linkage, Ed25519 epoch signatures, and the
-# out-of-tamper-domain anchor low-watermark). --pubkey is REQUIRED by --verify:
-mcpip export-audit --redis-url "$MCPIP_REDIS_URL" --out audit_export.jsonl --verify \
-  --pubkey worm_signing_ed25519.pub.pem
+```
+
+Exit `0` prints `verified: mcpip <version> (<n> artifacts)`. Any failure prints exactly
+`verification failed` and exits `2` — opaque on purpose, so a tampered artifact learns
+nothing about which check caught it.
+
+Once something is installed, the same verifier is `mcpip-verify verify …` (gateway
+distribution) or `mcpip verify …` (the SDK CLI passes through to it).
+
+The audit export is the same tool. `--verify` independently re-checks the whole signed
+chain: Merkle roots, `epoch_hash`, `prev_epoch_hash` linkage, the Ed25519 epoch
+signatures, and the out-of-tamper-domain anchor low-watermark. `--pubkey` is required by
+`--verify` — it refuses to report a verdict no signature backed.
+
+```bash
+python -m mcpip_verify export-audit --redis-url "$MCPIP_REDIS_URL" \
+  --out audit_export.jsonl --verify --pubkey worm_signing_ed25519.pub.pem
 ```
 
 Both are pure local cryptography — no network, no trust in us at runtime.
@@ -523,16 +594,18 @@ makes forgetting the flag a boot failure.
 Your license is an **Ed25519-signed entitlement document** that gates **process boot only**
 — it is *never* consulted by the per-request authorization pipeline (entitlement is a
 change-control matter; per-request authorization is the engine's). Production licenses are
-minted on Anthropic/your vendor's **offline license-root signer** and delivered
-out-of-band; you install the file + the license root **public** key.
+minted on the vendor's **offline license-root signer** and delivered out-of-band; you
+install the file plus the license root **public** key.
 
 **Generated** with `scripts/gen_license.py`, on the offline signer holding the license root
 private key (separate from the release root and the WORM key):
 
+`--tier` is one of `cloud`, `self-hosted`, or `air-gapped`.
+
 ```bash
 python scripts/gen_license.py \
   --customer "Hero Systems, Inc." \
-  --tier air-gapped \                         # cloud | self-hosted | air-gapped
+  --tier air-gapped \
   --days 365 \
   --entitlements authorize,mcp_edge,audit_export,metrics \
   --private-key <license_root_private.pem> \
@@ -571,9 +644,45 @@ tampered license → the process will not start.
 
 ### Boot production (fail-closed, zero-hardcoded-secrets)
 
-Config + **paths** come from `.env.production` (copy `deploy/.env.production.example` — the only
-committed `.env*`, containing zero secret values). Secret **material** is injected at
-deploy time from your secret store, never committed, never in the image:
+> **Self-hosting is free, and so is everything a production boot needs.** Nothing here is
+> gated behind a purchase — a non-sandbox boot is gated behind *provisioning*, and you issue
+> all of it yourself against your own root. Four artifacts, one ceremony, verified end to
+> end:
+>
+> ```bash
+> # 1a. The gateway's own pair: WORM signing key + IdP (JWT) verification key.
+> python scripts/provision_gateway_keys.py
+>
+> # 1b. Your offline roots: the license root that signs 2, and the release root.
+> python scripts/gen_release_keys.py
+>
+> # 2. A signed license, minted against YOUR root — there is no vendor call.
+> python scripts/gen_license.py --customer "Your Org" --tier self-hosted --days 365 \
+>   --private-key license_root.pem --out license.json
+>
+> # 3. A signed boot-integrity manifest over the source tree you are deploying.
+> python scripts/gen_integrity_manifest.py --private-key license_root.pem \
+>   --out integrity.json
+>
+> # 4. Boot with all six paths set (plus your own issuer/audience).
+> MCPIP_SANDBOX_MODE=false \
+> MCPIP_JWT_PUBLIC_KEY_PATH=jwt.pub.pem MCPIP_WORM_SIGNING_KEY_PATH=worm.pem \
+> MCPIP_LICENSE_PATH=license.json MCPIP_LICENSE_PUBLIC_KEY_PATH=license_root.pub.pem \
+> MCPIP_INTEGRITY_MANIFEST_PATH=integrity.json \
+> MCPIP_INTEGRITY_PUBLIC_KEY_PATH=license_root.pub.pem \
+> MCPIP_JWT_ISSUER=your-idp MCPIP_JWT_AUDIENCE=your-gateway \
+>   uvicorn app.main:app --port 8080
+> ```
+>
+> Each missing piece is a named boot error, not a silent degradation — the gateway tells you
+> which pair is absent. It also warns on a plaintext `redis://` and on a key file that is
+> group-readable, because both are real production problems.
+
+Config + **paths** come from `.env.production` (copy `deploy/.env.production.example`). No
+committed `.env*` file contains a secret value — the only others in the repository are the
+console's three build-edition files, which set a single `VITE_MCPIP_EDITION` flag. Secret
+**material** is injected at deploy time from your secret store, never committed, never in
+the image:
 
 ```bash
 cp deploy/.env.production.example .env.production            # edit non-secret config + paths
@@ -657,10 +766,11 @@ no vendor keys, and opens no outbound connection of its own — after ALLOW it d
 through a transport table. Identity is **sovereign**: `tenant_id` / `agent_id` / `role`
 come *only* from a verified JWT; the `role` claim authorizes nothing; an identity- or
 capability-shaped key in a tool-call payload is a **hard deny, not a strip**. The reading
-path for the security owner, before any code runs: `README.md` (what it is + the 5
-invariants), the internal strategy notes (the design thesis),
+path for the security owner, before any code runs:
+[`README.md`](../../README.md) (what it is), the
+[seven security invariants](../SECURITY_THREAT_MODEL.md#1b-the-security-invariants),
 [`ARCHITECTURE.md`](../integrate/ARCHITECTURE.md) (attack → defense → code), [`OPERATIONS.md`](../operate/OPERATIONS.md)
-(control mapping), and the internal roadmap (delivered vs deferred, self-audit).
+(control mapping), and [`SECURITY_THREAT_MODEL.md`](../SECURITY_THREAT_MODEL.md) §15 (delivered vs deferred, with the residual-risk boundary).
 
 ### The human factor — PIN step-up 🙋
 
@@ -749,7 +859,7 @@ linearizable, NTP discipline), and your real catalog's policy.
 node-foothold adversary that forges attestation binds `cnf` to its own key and MCPIP
 verifies it flawlessly. That boundary is named, not hidden; the MCPIP-side roadmap
 (delegation-chain attenuation re-verified at execute, replay-guard Redis hardening, a PoP
-stage for the legacy pipeline) is tracked in the internal roadmap.
+stage for the legacy pipeline) is deferred, not shipped.
 
 ---
 

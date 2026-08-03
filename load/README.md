@@ -6,12 +6,19 @@ hides the thing you need to know: which surface degrades first.
 
 ```
 load/
-└── k6/
-    ├── by-client-type.js   all five client types concurrently
-    └── lib/
-        ├── config.js       base URL, tokens, aliases, thresholds
-        └── envelopes.js    real wire shapes per client type
+├── k6/
+│   ├── by-client-type.js     all five client types concurrently, at a sustained rate
+│   └── lib/
+│       ├── config.js         base URL, tokens, aliases, thresholds
+│       └── envelopes.js      real wire shapes per client type
+├── cost_by_client_type.py    bytes and latency of ONE step, per client type
+└── concurrent_agents.py      many identities at once, optionally from many hosts
 ```
+
+The two Python harnesses need no k6 and no dependencies beyond the standard library.
+They answer narrower questions than the k6 suite: what a single governed step costs a
+caller, and whether attribution and per-identity verdicts hold when several agents
+fire at once. Both regenerate tables in `docs/evidence/`.
 
 ## Correctness first
 
@@ -30,6 +37,14 @@ export MCPIP_AGENT_TOKEN=... MCPIP_DEV_TOKEN=... \
 
 MCPIP_RATE=50 MCPIP_DURATION=45s k6 run load/k6/by-client-type.js
 k6 run --scenario agent load/k6/by-client-type.js     # a single client type
+
+# per-step cost, as the table in LOAD_AT_SCALE.md
+python load/cost_by_client_type.py --allow-alias <auto alias> \
+  --stepup-alias <pin_required alias> --markdown
+
+# many identities at once, as the tables in ORGANIZATION_AT_SCALE.md
+python load/concurrent_agents.py --agent name=token.jwt:alias [...] \
+  --calls 12 --workers 24 [--bind-source-ips]
 ```
 
 `MCPIP_RATE` is the **agent** arrival rate; other types scale from it (developer ÷2,

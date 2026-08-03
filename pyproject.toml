@@ -27,7 +27,18 @@ dependencies = [
 ]
 
 [project.scripts]
-mcpip = "mcpip_verify.cli:main"
+# `mcpip-verify`, NOT `mcpip`: the SDK distribution (mcpip-sdk) also declares a
+# `mcpip` console script, and two distributions claiming one name means whichever
+# was installed last silently wins. The documented install is
+# `pipx install ./sdk/python`, so users following the docs got the SDK CLI and
+# every documented `mcpip verify` invocation failed — including the release
+# verification COMPLIANCE.md lists as an auditable control.
+#
+# The verifier keeps a standalone entry point because that is its whole point: an
+# auditor verifies a signed release with no gateway, no SDK, and no network. The
+# SDK CLI additionally exposes `mcpip verify` / `mcpip export-audit`, which
+# delegate here when this package is importable.
+mcpip-verify = "mcpip_verify.cli:main"
 
 [tool.setuptools]
 packages = [

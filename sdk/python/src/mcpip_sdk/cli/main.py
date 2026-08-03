@@ -20,9 +20,12 @@ from mcpip_sdk.cli import config as cfg
 from mcpip_sdk.cli._runtime import Runtime
 from mcpip_sdk.cli.errors import CLIConfigError, ExitCode, map_exception
 from mcpip_sdk.cli.render import OutputMode, render_error
-from mcpip_sdk.cli.commands import admin, agent, connect, reads, sandbox, up
+from mcpip_sdk.cli.commands import admin, agent, connect, reads, sandbox, up, verify, why
 
 _S = argparse.SUPPRESS
+
+#: Subcommands dispatched straight to mcpip_verify, ahead of this CLI's parser.
+_PASSTHROUGH = frozenset({"verify", "export-audit"})
 Handler = Callable[[Runtime, argparse.Namespace], int]
 
 
@@ -85,9 +88,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     root = argparse.ArgumentParser(
         prog="mcpip",
-        description="MCPIP — authorize every AI action before execution. "
-        "Local sandbox in one command: mcpip up. "
-        "Zero-to-authorized in three commands: login, sandbox dev-token, authorize.",
+        description="MCPIP — authorize every AI action before execution.\n"
+        "\n"
+        "Local sandbox in one command:   mcpip up\n"
+        "Zero to authorized in three:    mcpip login, mcpip sandbox dev-token,\n"
+        "                                mcpip authorize",
         parents=[parent],
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -219,6 +224,25 @@ def _build_agent(sub: argparse._SubParsersAction[argparse.ArgumentParser], paren
     comp.add_argument("--credential-out", metavar="FILE", dest="credential_out", help="capture a vended cloud credential to FILE (O_EXCL 0600); never printed")
     _otp_flags(comp)
 
+    # `why` sits next to `authorize` deliberately: it is the command you reach for
+    # with the correlation id the previous line just printed. It reads the same
+    # capability-gated surfaces `admin forensic get` does — it does not soften the
+    # agent-facing opacity, it just makes the operator side answerable in one step.
+    w = _leaf(sub, "why", why.cmd_why, help="explain a denial from its correlation id", parent=parent)
+    w.add_argument("correlation_id")
+
+    # `verify` / `export-audit` are documented as `mcpip …` everywhere (Operations,
+    # Release, and Compliance, where release verification is an auditable control),
+    # but they live in the gateway's mcpip_verify package. Both are registered here
+    # so the documented command works for anyone who installed the SDK — which is
+    # what the docs tell you to install. Arguments pass straight through to the real
+    # parser rather than being re-declared, so the two can never drift.
+    # Registered so they appear in `mcpip --help`; dispatch happens BEFORE argparse
+    # (see main()) so mcpip_verify's own flags reach its parser untouched. Routing
+    # them through here would make `--manifest` collide with this parser's globals.
+    _leaf(sub, "verify", verify.cmd_verify, help="verify a signed release or air-gap bundle (read-only)", needs_resolve=False, parent=parent)
+    _leaf(sub, "export-audit", verify.cmd_export_audit, help="export the WORM audit stream, optionally re-verifying the signed chain", needs_resolve=False, parent=parent)
+
     dec = _leaf(sub, "decision", agent.cmd_decision, help="ask for an AuthZEN PDP verdict (nothing executes)", parent=parent)
     dec.add_argument("alias")
     dec.add_argument("--arg", action="append", metavar="K=V")
@@ -290,6 +314,11 @@ def _build_sandbox(sub: argparse._SubParsersAction[argparse.ArgumentParser], par
         help="session identity stamped into the token (WORM attribution); defaults to the context's stable id, minted once and reused",
     )
     dev.add_argument("--out", metavar="FILE", help="write the token to FILE (O_EXCL 0600) instead")
+
+    # The capability UUIDs gate every privileged action, and GETTING_STARTED points at
+    # /v1/dev/capabilities to discover them — but there was no command, so the CLI path
+    # ended at curl. needs_resolve=False: the endpoint is unauthenticated.
+    _leaf(ssub, "capabilities", sandbox.cmd_sandbox_capabilities, help="the well-known capability UUIDs, by name", needs_resolve=False, parent=parent)
 
     auth = _leaf(ssub, "authenticator", sandbox.cmd_sandbox_authenticator, help="fetch a step-up OTP and complete inline (never echoed)", parent=parent)
     auth.add_argument("challenge")
@@ -502,6 +531,16 @@ def _needs_group(rt: Runtime, args: argparse.Namespace) -> int:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    # `verify` / `export-audit` are handed to mcpip_verify's own parser verbatim.
+    # They are documented as `mcpip verify …` everywhere but implemented in the
+    # gateway distribution, and their flags (--manifest, --pubkey, --redis-url)
+    # would otherwise be parsed against this CLI's globals. Intercepting here keeps
+    # ONE argument contract instead of a mirrored copy that can drift. `--help`
+    # still falls through to argparse so the command documents itself.
+    tokens = list(sys.argv[1:] if argv is None else argv)
+    if tokens and tokens[0] in _PASSTHROUGH and "--help" not in tokens and "-h" not in tokens:
+        return verify.delegate(tokens[0], tokens[1:])
+
     parser = build_parser()
     try:
         args = parser.parse_args(argv)

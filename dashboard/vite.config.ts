@@ -33,6 +33,12 @@ const GATEWAY_PROXY = {
   '/healthz': 'http://127.0.0.1:8080',
   '/readyz': 'http://127.0.0.1:8080',
   '/v1': 'http://127.0.0.1:8080',
+  // The API-reference links (Developers → Protocol) point at these. Without them
+  // the same-origin fallback resolved both to the CONSOLE's own origin, which
+  // serves the SPA — so each link silently opened the dashboard instead of the
+  // gateway's OpenAPI document.
+  '/openapi.json': 'http://127.0.0.1:8080',
+  '/docs': 'http://127.0.0.1:8080',
 } as const;
 
 // https://vitejs.dev/config/

@@ -21,7 +21,7 @@ gateway.
 
 > **Current status.** The drafting client is retained for the model toolchain but
 > is **not wired into a console panel** today: workspace generation uses the
-> deterministic offline starter draft (`lib/starterKit.ts`). If you are looking for
+> deterministic offline starter draft (`dashboard/src/lib/starterKit.ts`). If you are looking for
 > a model-powered panel in the UI, it isn't there yet. Everything below describes
 > the contract that toolchain binds to.
 
@@ -69,12 +69,21 @@ authorization path never consults a model at all.
 `scripts/eval_workspace_model.py` scores any endpoint against held-out briefs
 using the same rules the gateway enforces:
 
+The eval set is generated, not committed — build it first, then score against it:
+
 ```bash
+# 1. Generate the dataset and its 10% held-out eval split (deterministic).
+python3 scripts/gen_workspace_dataset.py --out training/data/workspace.jsonl -n 2000 --split
+
+# 2. Score your endpoint against the held-out briefs.
 python3 scripts/eval_workspace_model.py \
   --data training/data/workspace.eval.jsonl \
   --endpoint http://localhost:8000/v1 \
   --model my-own-model
 ```
+
+Skipping step 1 is a `FileNotFoundError` — `training/data/` does not exist in a fresh
+checkout, because a generated corpus is not source.
 
 It prints `usable %` — the share of drafts the gateway would accept as-is. Pick
 the threshold that suits your operators. Run it with no `--endpoint` for an

@@ -179,9 +179,17 @@ export interface GatewayLive {
   fetchComplianceEvidence: (signal?: AbortSignal) => Promise<ComplianceEvidence | null>;
   /** LOCAL live deployment/license/usage stats (CAP_DIRECTORY_ADMIN; GET /v1/admin/stats). Fails soft — null offline/unauthorized. */
   fetchDeploymentStats: (signal?: AbortSignal) => Promise<DeploymentStats | null>;
-  /** Mint (cached) a CAP_DIRECTORY_ADMIN token for admin-surfaced console calls (e.g. the
-   * Users roster). Null offline / in production where the dev-token minter is 404 — the
-   * caller then shows an honest empty/unavailable state. */
+  /**
+   * The console's own identity for non-admin reads: an operator-pinned bearer
+   * when one is pinned, else a sandbox-forge token. Exposed so views never mint
+   * directly — minting bypasses the pinned bearer and breaks in production.
+   */
+  ensureToken: (signal?: AbortSignal) => Promise<string | null>;
+  /**
+   * The same precedence, for a CAP_DIRECTORY_ADMIN credential backing the admin
+   * reads (e.g. the Users roster). Null offline / in production where the
+   * dev-token minter is 404 — the caller then shows an honest unavailable state.
+   */
   ensureAdminToken: (signal?: AbortSignal) => Promise<string | null>;
   /** AUTHORITATIVE revoked-principal list for the operator's tenant. Null on failure. */
   fetchRevokedPrincipals: (signal?: AbortSignal) => Promise<string[] | null>;
@@ -376,7 +384,11 @@ export function useGatewayLive(): GatewayLive {
   const [ready, setReady] = useState<Readiness | null>(null);
   const [audit, setAudit] = useState<AuditVerifyResult | null>(null);
   const [catalogItems, setCatalogItems] = useState<CatalogItem[]>([]);
-  const [tenant, setTenant] = useState<string | null>(null);
+  // Seeded from a bearer pinned in a PREVIOUS session, so a reload shows the
+  // pinned credential's tenant immediately rather than null-until-first-mint.
+  const [tenant, setTenant] = useState<string | null>(
+    () => decodeClaims(readPinnedToken() ?? '').tenant,
+  );
   const [version, setVersion] = useState<VersionInfo | null>(null);
   const [license, setLicense] = useState<LicenseInfo | null>(null);
 
@@ -388,7 +400,9 @@ export function useGatewayLive(): GatewayLive {
   const baseRef = useRef<string | null>(null);
   const tokenRef = useRef<string | null>(null);
   const tokenExpRef = useRef<number | null>(null);
-  const tenantRef = useRef<string | null>(null);
+  // Seeded like `tenant` above, so the first read after a reload already
+  // reflects a pinned bearer's tenant rather than the company-config fallback.
+  const tenantRef = useRef<string | null>(decodeClaims(readPinnedToken() ?? '').tenant);
   const wormRef = useRef(0);
   const latenciesRef = useRef<number[]>([]);
   /** Latest /readyz redis verdict, for the health-history ring. */
@@ -961,6 +975,20 @@ export function useGatewayLive(): GatewayLive {
     tokenExpRef.current = null;
     adminTokenRef.current = null;
     adminTokenExpRef.current = null;
+    // Derive the tenant from whichever credential is ACTUALLY in use. Previously
+    // `tenant` was only ever set when a dev token was decoded, so pinning an
+    // operator bearer left it null or stale — and a single Settings view could
+    // then show two different tenants side by side (License & Usage read the
+    // pinned token's tenant, Cloud/Vault read the company-config one) with no
+    // indication. One credential, one tenant.
+    if (normalized !== null) {
+      const { tenant: pinnedTenant } = decodeClaims(normalized);
+      tenantRef.current = pinnedTenant;
+      setTenant(pinnedTenant);
+    } else {
+      tenantRef.current = null;
+      setTenant(null);
+    }
     setOperatorTokenState(normalized);
   }, []);
 
@@ -1100,6 +1128,7 @@ export function useGatewayLive(): GatewayLive {
       fetchAuditAttestation,
       fetchComplianceEvidence,
       fetchDeploymentStats,
+      ensureToken,
       ensureAdminToken,
       fetchRevokedPrincipals,
       fetchQuarantine,
@@ -1141,6 +1170,7 @@ export function useGatewayLive(): GatewayLive {
     fetchAuditAttestation,
     fetchComplianceEvidence,
     fetchDeploymentStats,
+    ensureToken,
     ensureAdminToken,
     fetchRevokedPrincipals,
     fetchQuarantine,

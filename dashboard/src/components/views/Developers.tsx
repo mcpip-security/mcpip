@@ -105,7 +105,7 @@ function mcpJsonSnippet(ctx: SnippetContext): string {
 function curlSnippet(ctx: SnippetContext): string {
   return `# Sandbox identity — in production your IdP mints the JWT (gateway is verify-only)
 TOKEN=$(curl -s -X POST ${ctx.base}/v1/dev/token \\
-  -H 'Content-Type: application/json' -d '{}' | jq -r .jwt)
+  -H 'Content-Type: application/json' -d '{"tenant_id":"${ctx.tenant}"}' | jq -r .jwt)
 
 # One tool call through the authorization choke point
 curl -s -X POST ${ctx.base}/v1/authorize \\

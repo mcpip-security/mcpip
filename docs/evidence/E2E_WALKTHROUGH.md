@@ -1,9 +1,25 @@
 # End-to-end walkthrough — a real production cycle
 
 Every command, input and output on this page was executed against a real MCPIP
-`3.0.0` gateway. Nothing is illustrative: the Cloudflare and GitHub responses are
-live API results, the correlation ids and `worm_sequence` values are the ones the
-gateway actually emitted, and the console screenshot is that run's own state.
+`3.0.0` gateway in production posture. Nothing is illustrative: the Cloudflare and
+GitHub responses are live API results, and the correlation ids and `worm_sequence`
+values are the ones the gateway actually emitted.
+
+> **Provenance — which run each section came from.** This page is assembled from two
+> executions of the same procedure against the same build, and it says which is
+> which rather than presenting them as one continuous session.
+>
+> - **§5, §6, §7, §9a and §12 were re-executed end to end in one session** for this
+>   revision — one boot, one catalog, one ledger. Every identifier in them, down to
+>   the Merkle root and the deleted stream id, comes from that single session.
+> - **§11's step-up cycle** was re-executed on that same gateway, in production
+>   posture, after enrolling a TOTP authenticator — see the note in that section.
+> - **§1–§4** (the key ceremony, license, integrity manifest and the four refused
+>   boots), **§8** (the provider responses) and **§13** (the console screenshots) are
+>   from the original run. §8 needs live Cloudflare and GitHub credentials, which the
+>   re-run environment does not have, so it was not re-captured.
+> - **§10's capability matrix** was re-run against the same build and reproduced cell
+>   for cell, including the auditor's `404`, so it is unchanged.
 
 Two agents are governed end to end — a Cloudflare platform agent and a GitHub
 release agent — plus the developer-facing path (SDK) and the operator-facing path
@@ -174,34 +190,39 @@ the third carries a capability.
 ```bash
 python3 scripts/mint_principal.py --idp-key keys/idp_signing_ed25519.key \
   --tenant acme-platform --agent cf-platform-agent-1 --role platform-ops \
-  --issuer prod-idp.hero --audience mcpip-gw.hero --ttl 3600
+  --issuer prod-idp.hero --audience mcpip-gw.hero --ttl 3600 --out cf.jwt
 ```
 
 Decoded claims:
 
 ```json
 {
-  "iss": "cloudflare-ops-idp.internal",
-  "aud": "mcpip-gw.cf-ops.internal",
-  "tenant_id": "cloudflare-ops",
+  "iss": "prod-idp.hero",
+  "aud": "mcpip-gw.hero",
+  "tenant_id": "acme-platform",
   "agent_id": "cf-platform-agent-1",
   "role": "platform-ops",
-  "exp": 1785326423, "iat": 1785322823, "nbf": 1785322823,
-  "jti": "9e36586c7097469582dadc2751148a81"
+  "exp": 1785748215, "iat": 1785744615, "nbf": 1785744615,
+  "jti": "8945663e93c646b19b4ae5f038da0f40"
 }
 ```
 
 ```console
-$ curl -s -H "Authorization: Bearer $JWT" http://127.0.0.1:8080/v1/whoami
+$ curl -s -H "Authorization: Bearer $(cat cf.jwt)" http://127.0.0.1:8080/v1/whoami
 {
-    "tenant_id": "cloudflare-ops",
+    "tenant_id": "acme-platform",
     "agent_id": "cf-platform-agent-1",
     "role": "platform-ops",
     "compartment": null,
     "capabilities": [],
+    "session_id": null,
     "sender_constrained": false
 }
 ```
+
+The operator principal is the same command plus one flag —
+`--capability b8e4a1d7-2c6f-4e93-9a05-7f1c3b5d8e20` — and that single UUID is the
+entire difference measured in §10.
 
 `role` is descriptive and authorizes nothing. Entitlement is the capability UUID
 list — empty here, which is exactly what §10 exploits.
@@ -227,7 +248,8 @@ curl -X POST http://127.0.0.1:8080/v1/admin/skills/register \
 | `gh.branches.list` | `auto` | `unclassified` | github | read |
 | `gh.repo.delete` | `pin_required` | `restricted` | github | write |
 
-What the **agent** sees — aliases only, never the real provider URLs:
+What the **agent** sees — the whole visible surface, aliases only, never the real
+provider URLs. This is the complete response, not an excerpt:
 
 ```console
 $ curl -s -H "Authorization: Bearer $AGENT" http://127.0.0.1:8080/v1/catalog
@@ -238,13 +260,32 @@ $ curl -s -H "Authorization: Bearer $AGENT" http://127.0.0.1:8080/v1/catalog
          "compartment": null, "access": "read"},
         {"alias": "cf.d1.query", "risk_tier": "pin_required",
          "transport_class": "cloud_rest", "classification": "restricted",
+         "compartment": null, "access": "write"},
+        {"alias": "gh.branches.list", "risk_tier": "auto",
+         "transport_class": "cloud_rest", "classification": "unclassified",
+         "compartment": null, "access": "read"},
+        {"alias": "gh.repo.delete", "risk_tier": "pin_required",
+         "transport_class": "cloud_rest", "classification": "restricted",
          "compartment": null, "access": "write"}
     ]
 }
 ```
 
-The alias indirection is the point: a compromised agent cannot discover the
-account id, the hostname, or the credential from anything MCPIP hands it.
+Note what this does **not** do: it does not hide the GitHub aliases from a
+Cloudflare agent. Visibility is scoped by tenant and by **compartment**, not by
+service name — every alias here has `"compartment": null`, and an un-compartmented
+alias is visible to **every** principal in the tenant. Narrowing this agent to the
+`cf.*` surface means registering the aliases you want hidden into a compartment and
+minting each team's token with `--compartment <uuid>` (or issuing a delegated grant
+to it). Nothing about the alias prefix does it for you.
+
+Seeing an alias is also not permission to call it. `cf.d1.query` is listed, and §7
+shows it denied. The catalog answers "what could I ask for", the choke point answers
+"may I, this time, with this payload".
+
+The alias indirection is the part that always holds: a compromised agent cannot
+discover the account id, the hostname, or the credential from anything MCPIP hands
+it, whatever it can see.
 
 ## 7. Governed calls — Cloudflare and GitHub
 
@@ -260,10 +301,10 @@ dialect **declared** (`vendor`), never sniffed from the payload.
 
 ```json
 {
-  "correlation_id": "517db613ec1042a1886e4778cc921969",
+  "correlation_id": "bedc0fa86d81463cb0bebb16f40c43b4",
   "decision": "allow",
   "status": "committed",
-  "transaction_ref": "txn_880bed37ae974502be7d7016fbc514b0",
+  "transaction_ref": "txn_35503175750b444eb9ca880e46f5e6ae",
   "executed_target_class": "cloud_rest",
   "worm_sequence": 5,
   "vended_credential": null
@@ -280,10 +321,10 @@ dialect **declared** (`vendor`), never sniffed from the payload.
 
 ```json
 {
-  "correlation_id": "3eaa2f4ef7564182810687f7233aea01",
+  "correlation_id": "41e7192a9b3b4b6d97d3848d746c53be",
   "decision": "allow",
   "status": "committed",
-  "transaction_ref": "txn_b49eb8dc010e49d29ddfc8f4aa394dc8",
+  "transaction_ref": "txn_4b936a4c7d464790a7eefa911ec0559e",
   "executed_target_class": "cloud_rest",
   "worm_sequence": 7,
   "vended_credential": null
@@ -294,13 +335,37 @@ dialect **declared** (`vendor`), never sniffed from the payload.
 ### CF-2 / GH-2 — destructive calls → denied
 
 `DROP TABLE customers` through `cf.d1.query`, and `gh.repo.delete` against this
-very repository:
+very repository. Both responses, in full:
 
 ```json
 {"error": "MCPIP: request denied by policy.",
- "correlation_id": "4f7774d648d24a21b732ad5e07cd2537"}
+ "correlation_id": "d9930470c28745b1b490c2a531972d3f"}
+```
+```json
+{"error": "MCPIP: request denied by policy.",
+ "correlation_id": "e0b4bd3a19674364a2d206a70850fed2"}
+```
+`HTTP 403` for both
+
+### X-2 — the GitHub agent reaching for a Cloudflare alias
+
+A plain `SELECT`, from the release agent, against an alias it can see in the
+catalog:
+
+```json
+{"vendor":"claude_code","tool_call":{"jsonrpc":"2.0","id":5,"method":"tools/call",
+ "params":{"name":"cf.d1.query","arguments":{"sql":"SELECT * FROM customers"}}}}
+```
+
+```json
+{"error": "MCPIP: request denied by policy.",
+ "correlation_id": "d904b27e67264f298dc7108ffa727462"}
 ```
 `HTTP 403`
+
+Read §14 before drawing the wrong conclusion from this one: both agents are in the
+same tenant with no compartment, so this refusal came from the `pin_required` risk
+gate, not from any separation between the two agents.
 
 ### X-1 — an alias that was never registered
 
@@ -311,7 +376,7 @@ very repository:
 
 ```json
 {"error": "MCPIP: request denied by policy.",
- "correlation_id": "33c33fb32edb439c8788155ec7ecb4c2"}
+ "correlation_id": "1d0b7026905d45748dabdf16ac395ab5"}
 ```
 `HTTP 403`
 
@@ -410,26 +475,79 @@ $ curl -X POST http://127.0.0.1:8080/v1/mcp -H "Authorization: Bearer $AGENT" \
   {"name":"cf.d1.databases.list","description":"risk_tier=auto; classification=unclassified","inputSchema":{"type":"object"}},
   {"name":"cf.d1.query","description":"risk_tier=pin_required; classification=restricted","inputSchema":{"type":"object"}},
   {"name":"gh.branches.list","description":"risk_tier=auto; classification=unclassified","inputSchema":{"type":"object"}},
-  {"name":"gh.repo.delete","description":"risk_tier=pin_required; classification=restricted","inputSchema":{"type":"object"}}]}}
+  {"name":"gh.repo.delete","description":"risk_tier=pin_required; classification=restricted","inputSchema":{"type":"object"}}],
+ "coaz":true}}
 ```
 
 The risk tier travels in the tool description, so a well-behaved host can warn
-before it proposes a `pin_required` call.
+before it proposes a `pin_required` call. The extra `"coaz": true` is additive
+advertising — MCP clients ignore result keys they do not know, and a COAZ-aware one
+learns from it that this gateway also exposes the AuthZEN decision surface in
+Option 5.
 
 **Option 4 — the `mcpip` CLI**, shipped with the Python SDK:
 
-```
+```console
+$ mcpip --help
 usage: mcpip [-h] [--gateway URL] [--context NAME] [--sandbox | --no-sandbox]
-             [--token-file PATH] [--token-stdin] [--token-cmd CMD] [--json] ...
+             [--config PATH] [--token-file PATH] [--token-stdin]
+             [--token-cmd CMD] [--json] [--quiet] [--no-color] [--version]
+             <command> ...
 
-  up          boot the local sandbox stack — Redis + gateway + walkthrough, one command
-  login       validate reachability and save a context
-  whoami      decode the active bearer and confirm the gateway accepts it
-  catalog     list the aliases this identity may see
-  authorize   authorize one tool call through the choke point
-  complete    finish a staged step-up from the persisted envelope
-  decision    ask for an AuthZEN PDP verdict (nothing executes)
+MCPIP — authorize every AI action before execution.
+
+Local sandbox in one command:   mcpip up
+Zero to authorized in three:    mcpip login, mcpip sandbox dev-token,
+                                mcpip authorize
+
+positional arguments:
+  <command>
+    up                  boot the local sandbox stack — Redis + gateway + live
+                        walkthrough, one command
+    login               validate reachability and save a context
+    whoami              decode the active bearer and confirm the gateway
+                        accepts it
+    config              read/write the config file
+    context             manage named contexts
+    catalog             list the aliases this identity may see
+    authorize           authorize one tool call through the choke point
+    complete            finish a staged step-up from the persisted envelope
+    why                 explain a denial from its correlation id
+    verify              verify a signed release or air-gap bundle (read-only)
+    export-audit        export the WORM audit stream, optionally re-verifying
+                        the signed chain
+    decision            ask for an AuthZEN PDP verdict (nothing executes)
+    mcp                 speak the MCP JSON-RPC edge
+    health              liveness probe (unauthenticated)
+    ready               readiness (503 is an honest ready=false)
+    version             running release + provenance
+    license             boot-verified entitlement view
+    discovery           public RFC 9728 resource metadata (no token)
+    audit               audit surfaces
+    sandbox             sandbox-only affordances (404 in production)
+    admin               the CAP_DIRECTORY_ADMIN control plane
+
+options:
+  -h, --help            show this help message and exit
+  --version             print the CLI + SDK version and exit (no gateway call)
+
+global options:
+  --gateway URL         gateway base URL
+  --context NAME        named context to use
+  --sandbox, --no-sandbox
+                        treat the gateway as a sandbox (--no-sandbox to force
+                        off)
+  --config PATH         alternate config file
+  --token-file PATH     read the bearer from a 0600 file
+  --token-stdin         read the bearer from stdin
+  --token-cmd CMD       run CMD; its stdout is the bearer
+  --json                emit JSON
+  --quiet, -q           print only load-bearing ids
+  --no-color            disable colored output
 ```
+
+`audit`, `sandbox` and `admin` are groups — `mcpip admin --help` lists the control
+plane underneath them.
 
 Named contexts plus `--token-cmd` mean a developer can point the same commands at
 sandbox and production without a token ever landing in shell history.
@@ -485,38 +603,70 @@ concurrent traffic — is in [`ORGANIZATION_AT_SCALE.md`](ORGANIZATION_AT_SCALE.
 
 ## 11. Step-up — the PIN cycle
 
-`pin_required` aliases stage rather than allow. The full cycle below was run
-against a **sandbox** gateway, because completing it needs an out-of-band OTP sink
-(see §14).
+`pin_required` aliases stage rather than allow. The cycle below was run **in
+production posture**, on the same gateway as §7.
+
+That is worth saying plainly, because a `pin_required` call in §7 failed closed with
+`otp_delivery_failed` and it would be easy to conclude production cannot complete
+one. It can. What the earlier calls lacked was not a webhook — it was an **enrolled
+authenticator**. Set `MCPIP_AUTHN_TOTP_KEY_PATH` and enroll the principal once
+(`POST /v1/authenticator/enroll`, then `/enroll/confirm` with a code from the
+authenticator app) and the gateway has an out-of-band channel it can reach a human
+on, without any outbound HTTP at all:
+
+```console
+$ curl -s -X POST http://127.0.0.1:8080/v1/authenticator/enroll \
+    -H "Authorization: Bearer $AGENT"
+{"secret": "...", "provisioning_uri": "otpauth://totp/MCPIP:cf-platform-agent-1?...",
+ "digits": 6, "period_s": 30}
+```
+
+The provisioning material is returned **exactly once**, and re-enrolling over a live
+authenticator is refused — swapping someone's second factor takes the disable
+ceremony and a valid current code, so a stolen bearer alone cannot do it.
 
 **Stage** — no allow is issued:
 
 ```json
 {
-  "correlation_id": "e3c9b4a151e24f6b9a2e401a03677bef",
+  "correlation_id": "8bb7bd187d124673bf9cdcfaeb615654",
   "action_required": "Step-up required: approve in your enrolled authenticator to obtain a one-time code, then resubmit with pin + challenge_id.",
-  "challenge_id": "a3ae0701a7e442fd8fb9f400dff4fbf6",
+  "challenge_id": "10b345070b784a1090b17502b97e0aa3",
   "risk_tier": "pin_required"
 }
 ```
 `HTTP 202`
 
-**Retrieve the payload-bound code** (sandbox-only disclosure; in production this
-is pushed to the enrolled authenticator over a signed webhook):
+**Release the payload-bound code** with a fresh code from the enrolled
+authenticator. This is `POST /v1/authenticator/reveal`, and it is not a sandbox
+affordance — it is the production ceremony. The release is single-use (`GETDEL`) and
+is WORM-logged *before* the code is returned; the code itself never enters the
+record:
 
-```json
-{"challenge_id": "a3ae0701a7e442fd8fb9f400dff4fbf6", "otp": "752398"}
+```console
+$ curl -s -X POST http://127.0.0.1:8080/v1/authenticator/reveal \
+    -H "Authorization: Bearer $AGENT" -H 'Content-Type: application/json' \
+    -d '{"challenge_id":"10b345070b784a1090b17502b97e0aa3","code":"<6-digit TOTP>"}'
+{"challenge_id": "10b345070b784a1090b17502b97e0aa3", "otp": "935150"}
 ```
+`HTTP 200`
+
+Two distinct secrets are in play, and conflating them is the usual mistake: the
+**TOTP code** proves a human is present, and the **OTP** it releases is bound to the
+canonical hash of *this* payload. Proving presence does not authorize an action; it
+only unseals the lock for the one action already staged.
 
 **Complete** — resubmit the identical payload with `pin` + `challenge_id`:
 
 ```json
 {
-  "correlation_id": "485197e83e424435adb0a3b803c5a800",
+  "correlation_id": "fb35ebced06543aebb78833e28650ac5",
   "decision": "allow",
   "status": "committed",
-  "transaction_ref": "txn_1d2e54f2e62f489cb5807f23063f4a7a",
-  "worm_sequence": 12
+  "transaction_ref": "txn_5501ea7e525647039ddbd209e6641eca",
+  "executed_target_class": "cloud_rest",
+  "worm_sequence": 16,
+  "vended_credential": null
 }
 ```
 `HTTP 200`
@@ -525,13 +675,22 @@ is pushed to the enrolled authenticator over a signed webhook):
 
 ```json
 {"error": "MCPIP: request denied by policy.",
- "correlation_id": "bcc82cd29d9e4127a4a8d4ab23ded744"}
+ "correlation_id": "9c50d6e609a6406ebccccd593b6a3945"}
+```
+`HTTP 403`
+
+**Reveal the same challenge again** — so is the release:
+
+```json
+{"error": "MCPIP: request denied by policy.",
+ "correlation_id": "67a1c57740b64332bd1cb40455a27219"}
 ```
 `HTTP 403`
 
 The code is bound to the canonical payload hash, so an approval for
 `DROP TABLE customers` cannot be replayed to authorize a different statement, and
-cannot be replayed at all a second time.
+cannot be replayed at all a second time. The refusals are opaque and identical: a
+spent lock and a challenge that never existed are indistinguishable to the caller.
 
 ## 12. Evidence — the WORM ledger
 
@@ -539,49 +698,78 @@ The agent got one opaque message for every denial. The ledger has the reasons:
 
 ```
 seq  decision  deny_reason            alias                  agent                correlation_id
-  5  allow     None                   cf.d1.databases.list   cf-platform-agent-1  517db613ec1042a1886e4778cc921969
-  6  deny      otp_delivery_failed    cf.d1.query            cf-platform-agent-1  4f7774d648d24a21b732ad5e07cd2537
-  7  allow     None                   gh.branches.list       gh-release-agent-1   3eaa2f4ef7564182810687f7233aea01
-  8  deny      otp_delivery_failed    gh.repo.delete         gh-release-agent-1   d615ea19dba94c1f8d58f8eed1122f87
-  9  deny      otp_delivery_failed    cf.d1.query            gh-release-agent-1   17d480e3425b49beb06142e3aa7a4242
- 10  deny      unknown_alias          gh.secrets.exfiltrate  gh-release-agent-1   33c33fb32edb439c8788155ec7ecb4c2
+  5  allow     None                   cf.d1.databases.list   cf-platform-agent-1  bedc0fa86d81463cb0bebb16f40c43b4
+  6  deny      otp_delivery_failed    cf.d1.query            cf-platform-agent-1  d9930470c28745b1b490c2a531972d3f
+  7  allow     None                   gh.branches.list       gh-release-agent-1   41e7192a9b3b4b6d97d3848d746c53be
+  8  deny      otp_delivery_failed    gh.repo.delete         gh-release-agent-1   e0b4bd3a19674364a2d206a70850fed2
+  9  deny      otp_delivery_failed    cf.d1.query            gh-release-agent-1   d904b27e67264f298dc7108ffa727462
+ 10  deny      unknown_alias          gh.secrets.exfiltrate  gh-release-agent-1   1d0b7026905d45748dabdf16ac395ab5
 ```
 
-Signed epoch attestation over those records:
+The signed attestation at the ledger head. `epoch` is the newest **sealed** epoch;
+because each epoch's `epoch_hash` chains the one before it, this single signature
+commits to every record above, not only to the epoch it names:
 
-```json
+```console
+$ curl -s -H "Authorization: Bearer $ADMIN" http://127.0.0.1:8080/v1/audit/attestation
 {
-  "epoch": 1,
-  "end_seq": 10,
-  "merkle_root": "ad98e05c96030e4df2f056c4c5de00198ad363791cc0f1269769d63087b2f339",
-  "epoch_hash": "4a721474c032a51c5288ead7bfe7c845db4c69e76a49702b7be1bbb17bbbd7d9",
-  "signature": "52a280129e963f2bea5f06a935de005b9796e7dad67c40517e652e01d26b16a4...",
-  "signing_key_id": "090da9528a854204cffe2d461e4b6826867a2d6c86543b8ca689ba4c56d17bf9",
-  "intact": true,
-  "first_bad_epoch": null,
-  "anchor_epoch": 1
+    "epoch": 0,
+    "end_seq": 10,
+    "merkle_root": "8e1e8b6b5b05537f53f45b19a3e7d89a9d491a8f0c76d5d828742ba260ba9f6f",
+    "epoch_hash": "7ddabda643dbaeeb0ae671894734d4858f94cbab643b3bfa3079becbf127ad76",
+    "signature": "73b1384b6979afb618c7da8448895a32308e471b833fa560d21689ab67c77dbdad9aecbbdcc87d872cb04cb3008a0c0cd8227452d9d5b0be38a0bf6670d35004",
+    "signing_key_id": "04121a608f7cd6853e2e2fce9d13963cd526cf4f5e0aea85010a6ff2c3e98fe6",
+    "intact": true,
+    "first_bad_epoch": null,
+    "anchor_epoch": 0,
+    "anchor_epoch_hash": "7ddabda643dbaeeb0ae671894734d4858f94cbab643b3bfa3079becbf127ad76"
 }
 ```
 
+`anchor_epoch` is the same head read back from the out-of-tamper-domain anchor file
+— a second, independent witness that lives outside Redis, so rolling the database
+back cannot roll the head back with it.
+
 ### Tamper detection
 
-One sealed event was deleted directly from the ledger's backing store, bypassing
-the gateway entirely:
+One sealed event was deleted directly from the ledger's backing store, bypassing the
+gateway entirely. The chosen record is `worm_sequence` 5 — the **allowed** Cloudflare
+read, which is the record an attacker actually wants gone:
 
 ```console
-$ redis-cli xdel mcpip:worm:events 1785322863572-0
+$ redis-cli -p 63795 xdel mcpip:worm:events 1785745222541-0
 1
 ```
 
 Re-verification, same endpoint, no restart:
 
 ```json
-{"epoch": 2, "end_seq": 8, "intact": false, "first_bad_epoch": 0, ...}
+{
+    "epoch": 0,
+    "end_seq": 10,
+    "merkle_root": "8e1e8b6b5b05537f53f45b19a3e7d89a9d491a8f0c76d5d828742ba260ba9f6f",
+    "epoch_hash": "7ddabda643dbaeeb0ae671894734d4858f94cbab643b3bfa3079becbf127ad76",
+    "signature": "73b1384b6979afb618c7da8448895a32308e471b833fa560d21689ab67c77dbdad9aecbbdcc87d872cb04cb3008a0c0cd8227452d9d5b0be38a0bf6670d35004",
+    "signing_key_id": "04121a608f7cd6853e2e2fce9d13963cd526cf4f5e0aea85010a6ff2c3e98fe6",
+    "intact": false,
+    "first_bad_epoch": 0,
+    "anchor_epoch": 0,
+    "anchor_epoch_hash": "7ddabda643dbaeeb0ae671894734d4858f94cbab643b3bfa3079becbf127ad76"
+}
 ```
 
-An operator with database access can destroy a record, but cannot destroy the
-*evidence* that a record was destroyed — the Merkle root no longer reconciles
-against the signed epoch head.
+**Read the two side by side: every signed field is byte-identical.** Same `epoch`,
+same `end_seq`, same `merkle_root`, same `epoch_hash`, same `signature`. That is the
+mechanism, not a coincidence — the deletion cannot reach the commitment, because the
+commitment was signed when the epoch sealed and is checked against a key the database
+does not hold. What changes is the *recomputation*: rebuilding the epoch's Merkle tree
+from the events that remain no longer reproduces the root that was signed, so `intact`
+flips to `false` and `first_bad_epoch` names the epoch — which is where an
+investigator starts reading.
+
+An operator with database access can destroy a record. They cannot destroy the
+*evidence* that a record was destroyed, and they cannot make the ledger lie about
+where it happened.
 
 ## 13. The operator console
 
@@ -617,7 +805,8 @@ production step-up refusal as §12, visible per call.
 Note the audit-chain tile reads **Unverified · external verifier required**. That
 is correct rather than a failure: `/v1/audit/verify` is sandbox-gated, so in
 production the console will not claim a verdict it cannot obtain. The signed
-attestation in §12 and `mcpip export-audit --verify` are the production paths.
+attestation in §12 and `mcpip-verify export-audit --redis-url <URL> --out audit.jsonl --verify --pubkey worm_signing_ed25519.pub.pem` are the production paths. The verifier ships in the
+gateway distribution as `mcpip-verify`; the SDK's `mcpip export-audit` passes through to it.
 
 ### 13.3 Against a sandbox gateway
 
@@ -698,11 +887,12 @@ an auditor's determination, not software's. See
 
 ## 14. What this run did not prove
 
-- **Step-up in production.** `MCPIP_AUTHN_WEBHOOK_URL` and
-  `MCPIP_AUTHN_WEBHOOK_SECRET_PATH` were unset, so every production `pin_required`
-  call failed closed with `otp_delivery_failed` (seq 6, 8, 9 above) — correct
-  behaviour, but it means §11 was completed on a sandbox gateway, not in
-  production.
+- **Webhook push.** `MCPIP_AUTHN_WEBHOOK_URL` and `MCPIP_AUTHN_WEBHOOK_SECRET_PATH`
+  were unset for §7, so those `pin_required` calls failed closed with
+  `otp_delivery_failed` (seq 6, 8, 9 above) — correct behaviour with no channel to
+  reach a human on. §11 then completed the full cycle in the same production posture
+  using an enrolled TOTP authenticator instead, so what remains untested here is the
+  *webhook* channel specifically, not step-up in production.
 - **Cross-tenant isolation.** Both agents shared tenant `acme-platform`, so the
   seq-9 denial (`gh-release-agent-1` reaching for `cf.d1.query`) came from the
   risk gate, *not* from tenant or compartment separation. Compartment scoping is

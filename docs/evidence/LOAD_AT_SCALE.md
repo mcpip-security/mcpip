@@ -83,8 +83,8 @@ unanswered          0.00%
 
 **The overload *response* is not.** MCPIP has a designed load shedder: past
 `MCPIP_MAX_IN_FLIGHT` (default 64) a new arrival gets an opaque `503` +
-`Retry-After`, and the limiter "only ever REJECTS or TIMES OUT — it never lets a
-request skip a gate" (`app/main.py:2457-2464`). Measured directly, 250 concurrent
+`Retry-After`, and the limiter "only ever REJECTS (503) or TIMES OUT — it never lets
+a request skip a gate" (`app/main.py`, `EdgeGateMiddleware`). Measured directly, 250 concurrent
 clients against `max_in_flight=64`:
 
 ```
@@ -175,30 +175,51 @@ treat the token columns as a floor):
 
 | client type | step | HTTP | req B | resp B | ~in tok | ~out tok | ms |
 |---|---|---:|---:|---:|---:|---:|---:|
-| agent | authorize · allow | 200 | 152 | 234 | 38 | 59 | 13.0 |
-| agent | authorize · staged | 403 | 172 | 96 | 43 | 24 | 8.7 |
-| agent | authorize · deny | 403 | 153 | 96 | 39 | 24 | 15.6 |
-| developer | `POST /v1/mcp` tools/list | 200 | 51 | 660 | 13 | 165 | 4.4 |
-| developer | `GET /v1/catalog` | 200 | 0 | 748 | 0 | 187 | 2.2 |
-| pdp | authz decision | 200 | 150 | 17 | 38 | 5 | 4.9 |
-| operator | decisions/recent (25) | 200 | 0 | 10,731 | 0 | 2,683 | 84.0 |
-| operator | admin/stats | 200 | 0 | 1,107 | 0 | 277 | 3.7 |
-| auditor | audit/attestation | 200 | 0 | 560 | 0 | 140 | 526.3 |
+| agent | authorize · allow | 200 | 139 | 231 | 34 | 57 | 5.5 |
+| agent | authorize · step-up staged | 202 | 158 | 273 | 39 | 68 | 46.8 |
+| agent | authorize · deny | 403 | 141 | 96 | 35 | 24 | 5.8 |
+| developer | `POST /v1/mcp` tools/list | 200 | 46 | 546 | 11 | 136 | 1.5 |
+| developer | `GET /v1/catalog` | 200 | 0 | 608 | 0 | 152 | 1.4 |
+| pdp | authz decision | 200 | 94 | 17 | 23 | 4 | 4.4 |
+| operator | decisions/recent (25) | 200 | 0 | 11,507 | 0 | 2,876 | 4.8 |
+| operator | admin/stats | 200 | 0 | 1,096 | 0 | 274 | 2.9 |
+| auditor | audit/attestation | 200 | 0 | 551 | 0 | 137 | 12.4 |
 
-**A governed call costs an agent ~97 tokens round-trip** (38 in + 59 out). For
+Reproduce with [`load/cost_by_client_type.py`](../../load/cost_by_client_type.py)
+(`--markdown` prints this table). Like the k6 suite it is supplied tokens and mints
+none. **Read the `ms` column against its environment**: this run is a single worker,
+loopback, one tenant, an unloaded box and a **68-event ledger**. Sizes are stable
+properties of the wire contract; the timings are floors. In particular the
+`audit/attestation` row is *not* the 526 ms measured earlier on a longer chain under
+concurrency — `verify_chain` grows with history, which is exactly the amplification
+described above. Do not quote 12.4 ms as attestation's cost.
+
+**A governed call costs an agent ~91 tokens round-trip** (34 in + 57 out). For
 comparison, that is smaller than most tool *results* the call would return.
 
-**The opaque deny is also a cost control.** A denied call is 63 tokens and the tool
+**The opaque deny is also a cost control.** A denied call is 59 tokens and the tool
 never runs — versus executing it and pulling the result into context. The opacity
 that exists as a security property (no reason, no target, no topology) turns out to
 be the cheapest possible response: 96 bytes. Denying early saves the caller both the
 execution and the context it would have consumed.
 
-The PDP verdict is the cheapest surface on the gateway at **5 output tokens**
+**The staged row is the one to read carefully, and it used to be wrong here.** An
+earlier version of this table labelled a row `authorize · staged` and recorded
+`403` / 96 bytes. That was not a staged step-up at all — it was the opaque deny a
+`pin_required` alias returns when the deployment has no way to reach a human, and
+96 bytes is the deny body, byte-identical to the row below it. A real staged
+challenge is `202` with an envelope carrying `challenge_id`, `risk_tier` and the
+action-required text: 273 bytes, and **~47 ms against ~6 ms for an allow**. That
+cost is the point of it — the gateway is sealing a payload-bound one-time code and
+handing it to an out-of-band channel before it answers. The row above was measured
+with an enrolled TOTP authenticator (`MCPIP_AUTHN_TOTP_KEY_PATH` set), which is what
+makes a `pin_required` alias stage rather than fail closed.
+
+The PDP verdict is the cheapest surface on the gateway at **4 output tokens**
 (`{"decision":true}`) — sensible for a PEP that already knows what it wants to do
 and only needs a yes/no.
 
-The expensive row is `decisions/recent?limit=25` at **~2,683 tokens**. That is a
+The expensive row is `decisions/recent?limit=25` at **~2,876 tokens**. That is a
 human/dashboard surface and never touches agent context — but if you ever hand an
 agent `CAP_DIRECTORY_ADMIN` and let it poll the decision feed, that is what each
 poll costs it. Page it or filter it; do not put it in a loop.
@@ -208,8 +229,8 @@ poll costs it. Page it or filter it; do not put it in a loop.
 | cost | per what | measured |
 |---|---|---|
 | tokens (MCPIP itself) | any decision | **0** — no model, no inference dependency |
-| tokens (caller's context) | governed call | ~97 allow / ~63 deny |
-| CPU + latency | authorize | 8.2 ms p50 unloaded, 35–49 ms under load |
+| tokens (caller's context) | governed call | ~91 allow / ~59 deny |
+| CPU + latency | authorize | 5.5–8.2 ms p50 unloaded, 35–49 ms under load |
 | fsync | **every allow** | one durable ledger write *before* the allow returns |
 | storage | every decision | one WORM record, retained indefinitely by design |
 
@@ -273,7 +294,12 @@ measurement before anyone should quote a capacity number.
 - **The per-allow cost is deliberate.** Every allow requires an fsync-durable ledger
   write *before* it returns. That is write-before-execute being paid for. Raise
   throughput with workers and Redis, never by weakening durability.
-- **No step-up completions under load** — completing them needs an out-of-band OTP sink.
+- **No step-up completions under load.** Completing one needs an out-of-band OTP
+  sink, and every virtual user would need its own enrolled authenticator. A single
+  cycle *does* complete in production posture — stage, 2FA-gated reveal, complete,
+  replay-denied — and is transcribed in
+  [`E2E_WALKTHROUGH.md` §11](E2E_WALKTHROUGH.md#11-step-up--the-pin-cycle); what is
+  untested is doing it concurrently at rate.
 - **No cross-tenant load**, so nothing here exercises tenant isolation.
 - **The amplification test used a synthetic reader loop**, not a real dashboard; the
   32× figure is the shape of the contention, not a prediction for your monitoring.
@@ -287,6 +313,10 @@ export MCPIP_AGENT_TOKEN=... MCPIP_DEV_TOKEN=... \
 
 MCPIP_RATE=50 MCPIP_DURATION=45s k6 run load/k6/by-client-type.js
 k6 run --scenario auditor load/k6/by-client-type.js        # one client type
+
+# The per-step cost table above, regenerated:
+python load/cost_by_client_type.py --allow-alias cf.d1.databases.list \
+  --stepup-alias cf.d1.query --markdown
 ```
 
 Tokens are supplied, never minted by the harness — MCPIP never issues identity, so a

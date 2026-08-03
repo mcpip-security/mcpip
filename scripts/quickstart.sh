@@ -64,7 +64,12 @@ if redis-cli -p "$REDIS_PORT" ping >/dev/null 2>&1; then
   note "redis already answering on :${REDIS_PORT} — reusing it"
 else
   say "starting redis on :${REDIS_PORT}"
-  redis-server --port "$REDIS_PORT" --daemonize yes --dir "${TMPDIR:-/tmp}"
+  # AOF with appendfsync=always is what makes an audit record fsync-durable BEFORE the
+  # action is authorized — the write-before-execute invariant MCPIP advertises.
+  # Production refuses to boot without it; the sandbox previously ran with AOF off, so
+  # the runnable demo did not actually deliver the durability it was demonstrating.
+  redis-server --port "$REDIS_PORT" --daemonize yes --dir "${TMPDIR:-/tmp}" \
+    --appendonly yes --appendfsync always
   sleep 1
   redis-cli -p "$REDIS_PORT" ping >/dev/null 2>&1 || die "redis failed to start"
 fi
@@ -107,4 +112,9 @@ ${BOLD}Next steps${RESET}
   ${DIM}Workspace model:${RESET}   ./scripts/provision_workspace_model.sh
                       (slim, local, air-gapped model for workspace generation — needs Ollama; training/README.md)
   ${DIM}Stop everything:${RESET}    kill %1 2>/dev/null; redis-cli -p ${REDIS_PORT} shutdown nosave
+  ${DIM}Reset the audit chain:${RESET}  after stopping, delete the AOF dir AND the anchor together —
+                      redis-cli -p ${REDIS_PORT} flushall; rm -f mcpip_worm.jsonl.anchor
+                      (the anchor is the out-of-tamper-domain witness for the chain; wiping one
+                      without the other is exactly what a rollback looks like, so verify reports
+                      intact:false — correctly — until they agree again)
 NEXT

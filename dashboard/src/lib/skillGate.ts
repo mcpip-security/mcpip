@@ -18,6 +18,7 @@ import {
   deregisterSkill as apiDeregisterSkill,
   mintDevToken,
   type RegisterSkillBody,
+  type RegisterSkillResult,
   type RegisteredSkill,
 } from './api';
 import { CAP_DIRECTORY_ADMIN } from './protocol';
@@ -69,9 +70,11 @@ export async function registerSkill(
   tenantId: string,
   body: RegisterSkillBody,
   signal?: AbortSignal,
-): Promise<boolean> {
+): Promise<RegisterSkillResult> {
   const token = await adminToken(apiBase, tenantId, signal);
-  if (!token) return false;
+  if (!token) {
+    return { ok: false, error: 'denied', detail: null, conflictingAlias: null };
+  }
   return apiRegisterSkill(token, body, { base: apiBase, signal });
 }
 

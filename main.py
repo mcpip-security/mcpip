@@ -105,7 +105,11 @@ from services import (
 from services.policy_engine import POLICY_SCHEMA
 
 # Default Redis endpoint — host port 63790 maps to the container's 6379.
-DEFAULT_REDIS_URL = "redis://localhost:63790/0"
+# Database 15, NOT 0: this proof RESETS the ledger before it runs, and database 0 is
+# where the sandbox gateway (and the quickstart) keeps its live chain. Sharing that
+# default meant the documented smoke test destroyed the audit evidence of whatever was
+# already running. The proof needs no shared state with anything, so it gets its own.
+DEFAULT_REDIS_URL = "redis://localhost:63790/15"
 
 
 # ---------------------------------------------------------------------------
@@ -1258,14 +1262,21 @@ class _DemoRunner:
         # A goal-hijacked agent sweeps the catalog and selects a bait skill; the
         # tripwire denies CANARY_TRIPPED and quarantines it, so its NEXT call — an
         # ordinary AUTO skill — is denied AGENT_QUARANTINED before any real work.
-        canary_agent = idp.mint(tenant_id="tenant-acme", agent_id="agent-hijacked-1")
+        # The agent id is RUN-UNIQUE because the quarantine this gate creates is real
+        # and durable: it outlives the process. With a fixed id, a second run against
+        # the same Redis had the agent already frozen, so the canary call denied
+        # AGENT_QUARANTINED before reaching the tripwire and C11 reported FAIL — the
+        # proof failing on a correctly-working gateway. Re-running the proof must be
+        # safe, since it is what an operator does to confirm a deployment.
+        hijacked_id = f"agent-hijacked-{uuid.uuid4().hex[:12]}"
+        canary_agent = idp.mint(tenant_id="tenant-acme", agent_id=hijacked_id)
         await self._expect_deny(
             "C11 canary tripwire trips",
             self._gw.authorize_and_execute(
                 canary_agent,
                 _openai_call("skill_export_all_credentials", {}),
                 SourceFormat.OPENAI_TOOL_CALL,
-                _make_trace("agent-hijacked-1"),
+                _make_trace(hijacked_id),
             ),
             DenyReason.CANARY_TRIPPED,
         )
@@ -1275,7 +1286,7 @@ class _DemoRunner:
                 canary_agent,
                 _openai_call("skill_spend_summary", {"period": "Q1"}),
                 SourceFormat.OPENAI_TOOL_CALL,
-                _make_trace("agent-hijacked-1"),
+                _make_trace(hijacked_id),
             ),
             DenyReason.AGENT_QUARANTINED,
         )
@@ -1484,9 +1495,35 @@ def _banner(redis_url: str, worm_path: str) -> None:
     print()
 
 
+def _reset_permitted(redis_client: "redis.Redis") -> bool:
+    """Did the operator explicitly consent to wiping the target database?"""
+    return "--reset" in sys.argv
+
+
+async def _ledger_is_populated(redis_client: "redis.Redis") -> bool:
+    """Does the target Redis already hold WORM state worth protecting?
+
+    Cheap and conservative: any WORM key at all counts. A false positive costs a
+    flag; a false negative costs an audit trail.
+    """
+    try:
+        for key in ALL_WORM_KEYS:
+            if await redis_client.exists(key):
+                return True
+        async for _ in redis_client.scan_iter(match="mcpip:worm:*", count=16):
+            return True
+    except Exception:  # noqa: BLE001 — an unreadable Redis is not a reason to wipe it.
+        return True
+    return False
+
+
 async def _amain() -> int:
     redis_url = os.environ.get("MCPIP_REDIS_URL", DEFAULT_REDIS_URL)
-    worm_path = os.environ.get("MCPIP_WORM_PATH", "./mcpip_worm.jsonl")
+    # A distinct default ledger path, so the anchor this proof advances is its own.
+    # Sharing ./mcpip_worm.jsonl.anchor with a running gateway made each advance the
+    # other's low-watermark, and the gateway then reported its own intact chain as
+    # rolled back — a false tamper alarm from nothing but a shared file name.
+    worm_path = os.environ.get("MCPIP_WORM_PATH", "./mcpip_proof.jsonl")
 
     # decode_responses=True: string replies come back as str; integer Lua replies
     # (the lock codes) still arrive as int, which PinValidator normalizes. A pooled
@@ -1511,6 +1548,26 @@ async def _amain() -> int:
     # blocks; a production gateway REFUSES to boot without appendfsync=always — see
     # app.main._lifespan / audit.worm_logger.assert_persistence_posture).
     await assert_persistence_posture(redis_client, require=False)
+
+    # The proof needs a clean slate, so it WIPES the WORM chain, pin locks, grants,
+    # step-ups and policies from MCPIP_REDIS_URL — whose default is the sandbox
+    # gateway's own Redis. Running it against a live ledger destroys the audit
+    # evidence, and the operator docs used to recommend it inside a section headed
+    # "read-only, production-safe". Refuse rather than trust the reader.
+    # Wiping the proof's OWN database is the point — it must stay re-runnable. The
+    # danger is an operator who pointed MCPIP_REDIS_URL at a gateway's database, so
+    # that is the only case that needs consent.
+    if redis_url != DEFAULT_REDIS_URL and not _reset_permitted(redis_client):
+        if await _ledger_is_populated(redis_client):
+            print(
+                f"◐ MCPIP: refusing to run — {redis_url} already holds a WORM ledger.\n"
+                "  This proof RESETS the chain, grants, pin locks and policies before it\n"
+                "  runs, which would destroy that audit evidence.\n"
+                "  Point it at an empty database (MCPIP_REDIS_URL=redis://localhost:63790/15),\n"
+                "  or pass --reset if wiping this one is genuinely what you want."
+            )
+            await redis_client.aclose()
+            return 1
 
     await _reset_state(redis_client, worm_path)
 

@@ -20,7 +20,7 @@ class Mcpip < Formula
   include Language::Python::Virtualenv
 
   desc "CLI for the MCPIP zero-trust authorization gateway — authorize every AI action"
-  homepage "https://github.com/mcpip/mcpip"
+  homepage "https://github.com/mcpip-security/mcpip"
   license "Apache-2.0"
 
   # ---------------------------------------------------------------------------
@@ -38,7 +38,7 @@ class Mcpip < Formula
   version "0.1.0"
 
   # Bleeding edge, works TODAY without any published release.
-  head "https://github.com/mcpip/mcpip.git", branch: "main"
+  head "https://github.com/mcpip-security/mcpip.git", branch: "main"
 
   depends_on "python@3.12"
 

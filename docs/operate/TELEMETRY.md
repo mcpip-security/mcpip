@@ -136,7 +136,7 @@ kill-switch), opaque-deny, and tenant-scoped.
 
 ```json
 {
-  "version": "2.1.0",
+  "version": "3.0.0",
   "governed_agent_identity_count": 42,
   "decisions": { "allow": 1201, "deny": 88, "staged": 17 },
   "license": { "licensed": false },

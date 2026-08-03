@@ -34,6 +34,7 @@ os.environ.setdefault(
     os.path.join(os.path.dirname(__file__), ".mcpip_test_cli_worm.jsonl"),
 )
 
+import argparse
 import asyncio
 import json
 import stat
@@ -45,7 +46,7 @@ import pytest
 import redis as redis_sync
 from pathlib import Path
 
-from interfaces import CAP_DIRECTORY_ADMIN
+from interfaces import CAP_DIRECTORY_ADMIN, CAP_FORENSIC_READ
 
 from app.main import _components, app
 
@@ -344,8 +345,19 @@ def cli_env(
         admin_token = minter.dev_token(
             agent_id="agent-cli-admin", capabilities=[CAP_DIRECTORY_ADMIN]
         )
+        # `mcpip why` reads the forensic surface first, which is a HIGHER bar than
+        # directory-admin: CAP_FORENSIC_READ is deliberately distinct, so an
+        # investigator token needs both to exercise the fallback path too.
+        forensic_token = minter.dev_token(
+            agent_id="agent-cli-investigator",
+            capabilities=[CAP_FORENSIC_READ, CAP_DIRECTORY_ADMIN],
+        )
     monkeypatch.setenv("MCPIP_TOKEN", token)
-    yield {"token": token, "admin_token": admin_token}
+    yield {
+        "token": token,
+        "admin_token": admin_token,
+        "forensic_token": forensic_token,
+    }
 
 
 def _run(argv: list[str], capsys: Any) -> tuple[int, str, str]:
@@ -676,3 +688,286 @@ def test_up_render_proposal_is_pure_and_tolerant() -> None:
     assert "deny-by-default" in text
     # Degenerate plan: still renders the header + footer, no exception.
     assert _render_proposal({}, "org_units=0 teams=0 skills=0")
+
+
+# ---------------------------------------------------------------------------
+# `mcpip why` — the deny-diagnosis command.
+#
+# The point of these tests is the HONESTY of the command, not its happy path. It
+# reads capability-gated operator surfaces and must never invent a reason it did
+# not read: without the capability, without a matching decision, or for a reason
+# newer than this CLI, it has to say so. A `why` that guessed would be worse than
+# no `why` at all, because a wrong remediation sends an operator down a false path.
+# ---------------------------------------------------------------------------
+
+
+def test_why_remedy_table_covers_every_deny_reason() -> None:
+    """Every DenyReason the gateway can emit has guidance and a family.
+
+    Adding a reason to `interfaces.DenyReason` without adding it here would make
+    `mcpip why` fall through to "no guidance for this reason" — honest, but a
+    silent downgrade. This fails the build instead.
+    """
+    from interfaces import DenyReason
+    from mcpip_sdk.cli.diagnose import FAMILY, REMEDIES
+
+    reasons = {r.value for r in DenyReason}
+    assert not (reasons - set(REMEDIES)), "deny reasons with no remedy text"
+    assert not (reasons - set(FAMILY)), "deny reasons with no family"
+    # And nothing invented on our side that the gateway cannot produce.
+    assert not (set(REMEDIES) - reasons), "remedy text for a non-existent reason"
+
+
+def test_why_remedies_are_actionable() -> None:
+    """Guidance must tell the operator what to DO, not restate the enum."""
+    from mcpip_sdk.cli.diagnose import REMEDIES
+
+    for reason, remedy in REMEDIES.items():
+        assert remedy.means.strip().endswith("."), reason
+        assert len(remedy.fix) > 40, f"{reason}: fix is too thin to act on"
+        # Restating the machine token is what we are replacing.
+        assert remedy.fix.strip() != reason
+
+
+def test_why_explains_a_real_denial(cli_env: dict[str, str], capsys: Any) -> None:
+    """End to end: deny a call, then resolve its correlation id to a next action."""
+    code, out, _ = _run(["--json", "authorize", "skill_cli_nope"], capsys)
+    assert code == ExitCode.DENIED
+    corr = json.loads(out)["correlation_id"]
+
+    code, out, _ = _run(
+        ["--json", "--token-cmd", f"printf %s {cli_env['forensic_token']}", "why", corr],
+        capsys,
+    )
+    assert code == ExitCode.OK
+    payload = json.loads(out)
+    assert payload["correlation_id"] == corr
+    assert payload["decision"] == "deny"
+    assert payload["deny_reason"] == "unknown_alias"
+    assert payload["family"] == "catalog"
+    assert payload["means"] and payload["fix"]
+
+
+def test_why_without_capability_says_so_and_invents_nothing(
+    cli_env: dict[str, str], capsys: Any
+) -> None:
+    """A caller with no investigative capability gets an honest miss, not a guess."""
+    code, out, _ = _run(["--json", "authorize", "skill_cli_nope_2"], capsys)
+    corr = json.loads(out)["correlation_id"]
+
+    # The default MCPIP_TOKEN is a plain agent bearer: no forensic, no directory admin.
+    code, out, _ = _run(["--json", "why", corr], capsys)
+    assert code == ExitCode.NOT_FOUND
+    payload = json.loads(out)
+    assert payload["deny_reason"] is None
+    assert payload["means"] is None and payload["fix"] is None
+    # It must name what it lacked rather than shrugging.
+    joined = " ".join(payload["notes"]).lower()
+    assert "capability" in joined or "cap_" in joined.lower()
+
+
+def test_why_on_an_unknown_correlation_id_is_an_honest_miss(
+    cli_env: dict[str, str], capsys: Any
+) -> None:
+    code, out, _ = _run(
+        [
+            "--json",
+            "--token-cmd",
+            f"printf %s {cli_env['forensic_token']}",
+            "why",
+            "0" * 32,
+        ],
+        capsys,
+    )
+    assert code == ExitCode.NOT_FOUND
+    payload = json.loads(out)
+    assert payload["deny_reason"] is None
+    assert payload["notes"]
+
+
+def test_why_on_an_allow_reports_nothing_to_fix(
+    cli_env: dict[str, str], capsys: Any
+) -> None:
+    code, out, _ = _run(
+        ["--json", "authorize", _AUTO_ALIAS, "--arg", "period=2026-Q2"], capsys
+    )
+    corr = json.loads(out)["correlation_id"]
+    code, out, _ = _run(
+        ["--json", "--token-cmd", f"printf %s {cli_env['forensic_token']}", "why", corr],
+        capsys,
+    )
+    assert code == ExitCode.OK
+    payload = json.loads(out)
+    assert payload["decision"] == "allow"
+    assert payload["deny_reason"] is None
+
+
+# ---------------------------------------------------------------------------
+# The `mcpip` console-script collision.
+#
+# Two distributions used to declare the SAME `mcpip` entry point: the gateway
+# (mcpip_verify.cli:main — verify / export-audit) and the SDK
+# (mcpip_sdk.cli:main — login / authorize / admin / …). Whichever was installed
+# last silently won. The documented install is `pipx install ./sdk/python`, so a
+# user following the docs got the SDK CLI and every documented `mcpip verify`
+# failed — including the release verification COMPLIANCE.md lists as control T2.
+# ---------------------------------------------------------------------------
+
+
+def test_only_one_distribution_declares_the_mcpip_script() -> None:
+    """No two pyprojects may claim `mcpip`, or installation order decides the CLI."""
+    import tomllib
+
+    claimants = []
+    for path in ("pyproject.toml", os.path.join("sdk", "python", "pyproject.toml")):
+        full = os.path.join(_REPO_ROOT, path)
+        with open(full, "rb") as handle:
+            data = tomllib.load(handle)
+        scripts = data.get("project", {}).get("scripts", {})
+        if "mcpip" in scripts:
+            claimants.append((path, scripts["mcpip"]))
+    assert len(claimants) <= 1, f"two distributions claim `mcpip`: {claimants}"
+    # And the one that does must be the user-facing client.
+    if claimants:
+        assert claimants[0][1].startswith("mcpip_sdk"), claimants
+
+
+def test_verify_and_export_audit_are_reachable_from_the_documented_cli() -> None:
+    """`mcpip verify` / `mcpip export-audit` must exist on the CLI the docs install."""
+    parser = build_parser()
+    actions = [
+        a for a in parser._actions if isinstance(a, argparse._SubParsersAction)
+    ]
+    assert actions, "root parser has no subcommands"
+    names = set(actions[0].choices)
+    assert {"verify", "export-audit"} <= names, sorted(names)
+
+
+def test_verify_passthrough_reaches_the_real_parser(capsys: Any) -> None:
+    """The verifier's own flags must not be parsed against this CLI's globals.
+
+    `--manifest` is not an `mcpip` global; routing it through this parser made it
+    an 'unrecognized arguments' usage error instead of a verification attempt.
+    """
+    code = main(["verify", "--manifest", "/nonexistent", "--pubkey", "/nonexistent"])
+    captured = capsys.readouterr()
+    # Fail-closed and opaque: the verifier's documented contract on any failure.
+    assert code == 2, captured
+    assert "verification failed" in captured.err
+    assert "unrecognized arguments" not in captured.err
+
+
+def test_verify_help_still_documents_itself(capsys: Any) -> None:
+    """`--help` falls through to argparse rather than being passed through."""
+    code = main(["verify", "--help"])
+    assert code == ExitCode.OK
+    assert "verify a signed release" in capsys.readouterr().out
+
+
+def test_verify_reports_an_honest_absence_without_the_gateway_package(
+    monkeypatch: Any, capsys: Any
+) -> None:
+    """With mcpip_verify absent, say so — never report a verdict nothing computed."""
+    import importlib
+
+    from mcpip_sdk.cli.commands import verify as verify_cmd
+
+    def _refuse(name: str) -> Any:
+        raise ImportError(name)
+
+    monkeypatch.setattr(importlib, "import_module", _refuse)
+    code = verify_cmd.delegate("verify", ["--manifest", "x"])
+    captured = capsys.readouterr()
+    assert code == ExitCode.UNAVAILABLE
+    assert "mcpip-verify" in captured.err and "python -m mcpip_verify" in captured.err
+    # It must not claim anything about the artifact it never read.
+    assert "verified" not in captured.err.lower()
+
+
+def test_cli_doc_documents_every_shipped_command() -> None:
+    """docs/start/CLI.md must not omit a command the CLI ships.
+
+    Three admin groups (`users`, `compliance`, `publishers`) shipped undocumented,
+    so the only way to discover them was `--help`. A reference that silently
+    lags the binary teaches people the binary cannot be trusted.
+    """
+    doc_path = os.path.join(_REPO_ROOT, "docs", "start", "CLI.md")
+    with open(doc_path, encoding="utf-8") as handle:
+        doc = handle.read()
+
+    parser = build_parser()
+    groups = [a for a in parser._actions if isinstance(a, argparse._SubParsersAction)]
+    top = set(groups[0].choices)
+    missing_top = sorted(name for name in top if f"mcpip {name}" not in doc)
+    assert not missing_top, f"CLI.md omits top-level commands: {missing_top}"
+
+    admin = groups[0].choices["admin"]
+    admin_subs = [a for a in admin._actions if isinstance(a, argparse._SubParsersAction)]
+    admin_groups = set(admin_subs[0].choices) if admin_subs else set()
+    missing_admin = sorted(g for g in admin_groups if f"mcpip admin {g}" not in doc)
+    assert not missing_admin, f"CLI.md omits admin groups: {missing_admin}"
+
+
+def test_sandbox_capabilities_lists_the_real_uuids(
+    cli_env: dict[str, str], capsys: Any
+) -> None:
+    """`mcpip sandbox capabilities` closes the "what do I pass to --cap?" gap.
+
+    Every privileged action gates on a capability UUID, and Getting Started points
+    at /v1/dev/capabilities to discover them — but there was no command, so the
+    CLI path ended at curl.
+    """
+    from interfaces import CAP_CATALOG_REVIEWER, CAP_DIRECTORY_ADMIN, CAP_FORENSIC_READ
+
+    code, out, _ = _run(["--json", "sandbox", "capabilities"], capsys)
+    assert code == ExitCode.OK
+    rows = {row["name"]: row["uuid"] for row in json.loads(out)}
+    assert rows["CAP_DIRECTORY_ADMIN"] == CAP_DIRECTORY_ADMIN
+    assert rows["CAP_FORENSIC_READ"] == CAP_FORENSIC_READ
+    assert rows["CAP_CATALOG_REVIEWER"] == CAP_CATALOG_REVIEWER
+
+
+def test_sandbox_capabilities_mints_a_working_admin_token(
+    cli_env: dict[str, str], capsys: Any, monkeypatch: Any
+) -> None:
+    """The documented flow end to end: discover the UUID, then mint with it.
+
+    MCPIP_TOKEN is cleared first because it outranks the context the mint wires —
+    documented precedence, and the reason `dev-token` now warns when it applies.
+    """
+    monkeypatch.delenv("MCPIP_TOKEN", raising=False)
+    code, out, _ = _run(["--json", "sandbox", "capabilities"], capsys)
+    admin_uuid = next(
+        row["uuid"] for row in json.loads(out) if row["name"] == "CAP_DIRECTORY_ADMIN"
+    )
+    code, _, _ = _run(
+        ["sandbox", "dev-token", "--agent", "ops-admin", "--cap", admin_uuid], capsys
+    )
+    assert code == ExitCode.OK
+    # The minted token must actually satisfy an admin-gated read.
+    code, out, _ = _run(["--json", "admin", "skills", "ls"], capsys)
+    assert code == ExitCode.OK, out
+
+
+def test_dev_token_warns_when_a_higher_precedence_source_shadows_it(
+    cli_env: dict[str, str], capsys: Any
+) -> None:
+    """Minting into a context that MCPIP_TOKEN outranks must say so.
+
+    `dev-token` reports `context_wired: true`, which is accurate — but with
+    MCPIP_TOKEN set, the very next command uses a different identity, and the
+    mismatch surfaces as an opaque 403 with nothing pointing at the cause. The
+    precedence is correct and documented; the silence was the problem.
+    """
+    # cli_env sets MCPIP_TOKEN to a plain agent bearer.
+    code, out, _ = _run(["sandbox", "dev-token", "--agent", "shadowed"], capsys)
+    assert code == ExitCode.OK
+    assert "MCPIP_TOKEN" in out and "outranks" in out
+
+    code, out, _ = _run(["--json", "sandbox", "dev-token", "--agent", "shadowed"], capsys)
+    assert code == ExitCode.OK
+    payload = json.loads(out)
+    assert payload["context_wired"] is True
+    assert "MCPIP_TOKEN" in (payload["shadowed_by"] or "")
+    # The token itself must never be printed, warning or not.
+    assert "eyJ" not in out

@@ -11,6 +11,7 @@ into an inline ``complete`` or written to a 0600 file, NEVER echoed.
 from __future__ import annotations
 
 import argparse
+import os
 import uuid
 from dataclasses import replace
 
@@ -18,7 +19,7 @@ from mcpip_sdk.cli import config as cfg
 from mcpip_sdk.cli._runtime import Runtime
 from mcpip_sdk.cli.commands.agent import _discard_staged, _load_staged, _render_receipt
 from mcpip_sdk.cli.errors import CLIConfigError, ExitCode
-from mcpip_sdk.cli.render import block, emit_object
+from mcpip_sdk.cli.render import block, emit_list, emit_object, table
 
 
 def cmd_sandbox_dev_token(rt: Runtime, args: argparse.Namespace) -> int:
@@ -66,6 +67,18 @@ def cmd_sandbox_dev_token(rt: Runtime, args: argparse.Namespace) -> int:
         cfg.save(replace(config, contexts=contexts, current_context=current))
         wired = True
 
+    # A higher-precedence source silently outranks what we just wired, so the next
+    # command would use a DIFFERENT identity and the mismatch would surface as an
+    # opaque 403 with nothing pointing at the cause. Say so here instead.
+    shadow: str | None = None
+    if wired:
+        if os.environ.get("MCPIP_TOKEN"):
+            shadow = "MCPIP_TOKEN is set and outranks the context — unset it, or pass --token-file"
+        elif rt.token_file or rt.token_stdin or rt.token_cmd:
+            shadow = "an explicit --token-* flag outranks the context for this invocation"
+    if shadow is not None and not rt.mode.quiet and not rt.mode.json:
+        print(f"warning: {shadow}")
+
     # NEVER print the token — only where it landed.
     emit_object(
         rt.mode,
@@ -73,6 +86,7 @@ def cmd_sandbox_dev_token(rt: Runtime, args: argparse.Namespace) -> int:
             "token_written": True,
             "path": path,
             "context_wired": wired,
+            "shadowed_by": shadow,
             "agent_id": args.agent,
             "session_id": session_id,
         },
@@ -158,3 +172,25 @@ __all__ = [
     "cmd_sandbox_audit_verify",
     "cmd_sandbox_audit_proof",
 ]
+
+
+def cmd_sandbox_capabilities(rt: Runtime, args: argparse.Namespace) -> int:
+    """The well-known capability UUIDs, by name.
+
+    Every privileged action gates on a capability UUID in the JWT `capabilities`
+    claim — never on a role string — so minting an admin token requires knowing
+    the UUID. The endpoint existed and the docs recommended it, but there was no
+    command for it, which left `curl` as the only way to answer "what do I pass
+    to --cap?" from a terminal.
+    """
+    with rt.sandbox_client() as client:
+        caps = client.capabilities()
+    rows = sorted(caps.items())
+    emit_list(
+        rt.mode,
+        [{"name": name, "uuid": value} for name, value in rows],
+        "capabilities",
+        table(("name", "uuid"), rows),
+        quiet_ids=[value for _, value in rows],
+    )
+    return ExitCode.OK

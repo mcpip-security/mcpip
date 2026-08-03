@@ -1,6 +1,6 @@
 # ◐ MCPIP — Compliance Control-Mapping Pack
 
-**Release:** 2.0.0 · **Date:** 2026-07-14
+**Release:** 3.0.0 · **Date:** 2026-08-03
 
 ## Scope & honesty statement (read first)
 
@@ -150,7 +150,7 @@ is both **sealed** and **still retained**:
 | Event's position | Individually provable? | What still covers it |
 |---|---|---|
 | In the current, unsealed epoch | **No** — no signed root commits to it yet | Durably recorded before its action executed (write-before-execute); provable once the epoch seals, ~`EPOCH_INTERVAL_S` later |
-| In a sealed epoch inside the window (`WORM_HOT_EPOCHS = 32`) | **Yes** — `GET /v1/audit/proof/{event_id}` | Full per-event Merkle path to a signed root |
+| In a sealed epoch inside the window (`WORM_HOT_EPOCHS = 32`) | **In principle yes; not on a production gateway today** | The proof exists — `inclusion_proof()` computes a full per-event Merkle path to a signed root — but the only surface that emits one, `GET /v1/audit/proof/{event_id}`, is **sandbox-only and 404s in production**. See the note below. |
 | In a sealed epoch older than the window | **No** — `_trim_retention` drops the eventloc entry and the epoch's leaf-digest vector, then `XTRIM`s the buffer | The signed epoch chain, which still commits to that epoch and its sequence range |
 
 The mechanics live in `audit/worm_logger.py` (`inclusion_proof`, `_trim_retention`).
@@ -159,10 +159,20 @@ from live state, and `GET /v1/admin/compliance/evidence` returns it as the bundl
 `evidence_scope.proof_window` — including `proof_bearing_events`, the exact count of
 decisions provable at that instant.
 
+> **Honest gap: there is no production inclusion-proof surface.** `GET /v1/audit/proof/{event_id}`
+> is mounted only when `MCPIP_SANDBOX_MODE=true` and returns `404` otherwise, and no other
+> production path emits a per-event proof — not `export-audit`, not the SDKs, not the CLI,
+> not the console. What production *does* provide is the signed epoch chain
+> (`export-audit --verify`, offline and network-free) and the portable signed attestation
+> (`GET /v1/audit/attestation`), both of which commit to the epoch containing an event
+> without isolating that event. If your control objective needs a per-event proof in
+> production, treat it as **not met today** rather than met by a sandbox endpoint.
+
 **What this means for a deployment.** If your control objective requires per-event proofs
 over a period longer than the window, the operator must either export proofs inside the
-window or widen retention. The long-term record of retention is the **export archive**,
-not the in-system buffer — an open gap rather than a solved one.
+window or widen retention — and, per the note above, exporting them today means running
+the proof surface in a non-production posture. The long-term record of retention is the
+**export archive**, not the in-system buffer — an open gap rather than a solved one.
 
 ---
 
@@ -286,7 +296,7 @@ attestation of conformity — those are external third-party processes (see §6.
 | | Detection of alteration/deletion | Out-of-tamper-domain anchor low-watermark (T7) | A signed anchor head outside the tamper domain detects tail truncation/rollback; the bundle surfaces the anchor watermark + `first_bad_epoch`. |
 | **DORA** (Reg. (EU) 2022/2554) | Art. 9 — ICT logging integrity & retention | Durable WORM (Redis AOF `appendfsync always`) + tamper-evident retention (T7) | Prod refuses to boot without AOF `always`; the retention low-watermark ties content integrity to the retention window so recent-epoch deletion reads as tamper. |
 | | Art. 17 — ICT incident management | Fail-closed boot + opaque fail-closed deny posture (T6) | Ambiguity/dependency failure fails closed; concrete reasons are preserved only in the tamper-evident log for incident reconstruction. |
-| **NIST SP 800-53 r5** | AU-10 — Non-repudiation | Per-epoch Ed25519 signatures over the retained chain + per-event inclusion proofs inside the retention window (T7) | Every sealed epoch is signed and root-chained under the public `signing_key_id`. A per-event Merkle proof is producible while the event's epoch is sealed and retained; outside that window the signed chain covers the epoch and its sequence range, not the individual event. The bundle reports the measured window ([§3.1](#31-what-au-10-actually-covers--two-claims-of-different-strength)). |
+| **NIST SP 800-53 r5** | AU-10 — Non-repudiation | Per-epoch Ed25519 signatures over the retained chain + per-event inclusion proofs inside the retention window (T7) | Every sealed epoch is signed and root-chained under the public `signing_key_id`. A per-event Merkle proof is *computable* while the event's epoch is sealed and retained, but the only surface that emits one is sandbox-only — treat per-event non-repudiation as **not met in production today** ([§3.1](#31-what-au-10-actually-covers--two-claims-of-different-strength)). Outside the window the signed chain covers the epoch and its sequence range, not the individual event. The bundle reports the measured window ([§3.1](#31-what-au-10-actually-covers--two-claims-of-different-strength)). |
 | | AC-3 — Access enforcement | Capability-UUID gating; role authorizes nothing (T8/T9) | Privileged actions gate on capability UUIDs matched constant-time. |
 | | AC-6 — Least privilege | Compartments + TTL-bounded scoped grants (T9) | Compartmented aliases deny without a direct claim or an active delegated grant. |
 | | IA-2 / IA-9 — Identification & service auth | JWT-only verified identity + identity-key hard deny (T8) | Identity comes only from a verified JWT (EdDSA/RS256); identity-shaped argument keys hard-deny. |
@@ -302,7 +312,7 @@ attestation of conformity — those are external third-party processes (see §6.
 > are trimmed from the durable buffer; the signed Merkle **roots** + anchor are retained
 > indefinitely as cryptographic commitments, but the events themselves are not. **Long-term
 > record retention (e.g. the 5–7 year windows those regimes cite) is operator-provided** by
-> scheduling the read-only `mcpip_verify export-audit --verify --pubkey <worm pubkey>
+> scheduling the read-only `mcpip-verify export-audit --verify --pubkey <worm pubkey>
 > --require-anchor` export to a durable, immutable
 > archive (WORM-mode object store / S3 Object-Lock). That invocation re-verifies the Merkle
 > roots, each `epoch_hash`, the `prev_epoch_hash` chain linkage, the Ed25519 epoch signatures
@@ -331,8 +341,9 @@ state** as a single portable bundle. The read-only, `CAP_DIRECTORY_ADMIN`-gated 
 - `disclaimer` — the evidence ≠ certification statement (§6.2).
 
 The bundle contains **no** hidden target, payload, PIN/OTP, or vended credential — only
-already-public signed commitments (the same set `/v1/audit/proof` + `/v1/audit/attestation`
-surface) plus static mapping text. Any auth or engine failure is an opaque `MCPIPDenied`.
+already-public signed commitments (the same class of material `/v1/audit/attestation`
+surfaces — that endpoint is production-available, unlike the sandbox-only
+`/v1/audit/proof`) plus static mapping text. Any auth or engine failure is an opaque `MCPIPDenied`.
 Implemented by `services/compliance_evidence.py`; tests in
 `tests/test_compliance_evidence.py`.
 

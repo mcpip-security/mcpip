@@ -5,6 +5,15 @@
 > Philosophy: **AI Reasons. MCPIP Authorizes. Systems Execute.**
 > Pipeline: `◐ Bridge → Obfuscator → Auth → Audit`
 
+> **Status: design specification, not shipped.** The `/v2/*` REST and WebSocket surface below
+> does not exist on the gateway — `GET /openapi.json` serves no `/v2` path. This is the contract a
+> team would build a dedicated human-in-the-loop approval UI against, kept because the trust-boundary
+> analysis in §1 is the reasoning any such surface has to satisfy. The **shipped** operator console
+> is `dashboard/`, which drives the step-up through the ordinary `/v1/authorize` ceremony documented
+> in [`API.md`](../start/API.md); production out-of-band delivery is the webhook channel in
+> [`OPERATIONS.md`](../operate/OPERATIONS.md). Do not integrate against the endpoints below expecting
+> them to answer.
+
 This document is the **frontend implementation contract** for the human-in-the-loop (HITL)
 validation surface that renders MCPIP payload-lock challenges to a human operator and drives the
 exactly-once lock consume. It is written for enterprise UI/integration engineers. Every JSON field
@@ -271,7 +280,7 @@ taken from the operator session and is never accepted from the body.**
 | `intent.alias` | `NormalizedIntent.alias` | 1..256, `reject_unsafe_string` |
 | `intent.arguments` | `NormalizedIntent.arguments` | depth ≤ 8, ≤ 16 KiB canonical, ≤ 64 keys/obj, ≤ 256/array |
 | `intent.trace` | `NormalizedIntent.trace` (`SwarmTrace`) | |
-| `intent.source_format` | `NormalizedIntent.source_format` (`SourceFormat`) | `openai_tool_call` \| `anthropic_tool_use` \| `raw_mcp` \| `gemini_function_call` \| `bedrock_tool_use` \| `mcp_jsonrpc` — declared by the caller, never sniffed |
+| `intent.source_format` | `NormalizedIntent.source_format` (`SourceFormat`) | `openai_tool_call` \| `anthropic_tool_use` \| `raw_mcp` \| `gemini_function_call` \| `bedrock_tool_use` \| `mcp_jsonrpc` \| `a2a_task` — declared by the caller, never sniffed |
 | `trace.trace_id` | `SwarmTrace.trace_id` | must parse as UUID |
 | `trace.hops[]` | `SwarmTrace.hops` | 1..16 (`MAX_CHAIN_HOPS`) |
 | `hops[].hop_index` | `Hop.hop_index` | `0 ≤ n < 16`, equals list position |
@@ -828,7 +837,7 @@ source .venv/bin/activate
 pip install -r requirements.txt
 
 export MCPIP_REDIS_URL=redis://localhost:63790/0   # default; optional
-python main.py         # runs the 10-gate proof, exits 0 iff all hold
+python main.py         # runs the 29-check proof, exits 0 iff all hold
 ```
 
 The console/agent web surfaces described here embed the same framework-free gateway core. The

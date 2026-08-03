@@ -37,9 +37,9 @@ gracefully, which is what you want from the one that fronts someone else's PEP.
 
 | step | HTTP | req B | resp B | ~in tok | ~out tok | ms |
 |---|---|---:|---:|---:|---:|---:|
-| authz decision | `200` | 150 | 17 | 38 | 5 | 4.9 |
+| authz decision | `200` | 94 | 17 | 23 | 4 | 4.4 |
 
-**The cheapest surface on the gateway at 5 output tokens.** 17 bytes.
+**The cheapest surface on the gateway at 4 output tokens.** 17 bytes.
 
 ## What to watch
 

@@ -36,6 +36,7 @@ import {
   Loader2,
   PlugZap,
   Send,
+  Server,
   ShieldAlert,
   ShieldCheck,
   UserCheck,
@@ -547,7 +548,7 @@ function ReviewPanel({
   const pendingCount = Array.isArray(pending) ? pending.length : null;
 
   const label = (row: PendingExtension): string =>
-    row.kind === 'skill' ? row.alias : row.gate_id;
+    row.kind === 'gate' ? row.gate_id : row.alias;
 
   const doApprove = async (row: PendingExtension): Promise<void> => {
     if (!tenant) return;
@@ -674,19 +675,27 @@ function ReviewRow({
   onReject: () => void;
 }): JSX.Element {
   const isGate = row.kind === 'gate';
-  const approveBlocked = isGate && !row.approvable;
+  const isRegistry = row.kind === 'registry_server';
+  // Only the gateway's OWN fail-closed refusals disable the button, so the
+  // console never promises an approve the gateway would deny: a gate without a
+  // CEL engine, and a registry server whose publisher namespace is not currently
+  // allow-listed. (An alias conflict is also refused, but it is badged rather
+  // than disabled — it can be resolved without re-submitting.)
+  const approveBlocked = (isGate && !row.approvable) || (isRegistry && !row.verified);
+  const kindTone = isGate ? 'staged' : isRegistry ? 'verified' : 'ink';
+  const KindIcon = isGate ? FileCode : isRegistry ? Server : Blocks;
   return (
     <div className="border-b border-hairline/50 px-4 py-3 last:border-0">
       <div className="flex items-start gap-2">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <Badge tone={isGate ? 'staged' : 'ink'}>
-              {isGate ? <FileCode size={10} /> : <Blocks size={10} />} {row.kind}
+            <Badge tone={kindTone}>
+              <KindIcon size={10} /> {row.kind === 'registry_server' ? 'registry server' : row.kind}
             </Badge>
             <span className="truncate font-mono text-[12.5px] text-ink">
-              {row.kind === 'skill' ? row.alias : row.gate_id}
+              {row.kind === 'gate' ? row.gate_id : row.alias}
             </span>
-            {row.kind === 'skill' && row.conflicts_existing_alias ? (
+            {row.kind !== 'gate' && row.conflicts_existing_alias ? (
               <Badge tone="denied">
                 <ShieldAlert size={10} /> alias conflict
               </Badge>
@@ -701,10 +710,24 @@ function ReviewRow({
                 {row.approvable ? 'approvable' : 'engine deferred'}
               </Badge>
             ) : null}
+            {isRegistry ? (
+              <Badge tone={row.verified ? 'verified' : 'denied'}>
+                {row.verified ? <ShieldCheck size={10} /> : <ShieldAlert size={10} />}{' '}
+                {row.verified ? 'publisher verified' : 'publisher not verified'}
+              </Badge>
+            ) : null}
           </div>
 
           <div className="mt-1.5 grid grid-cols-2 gap-x-4 gap-y-1 text-[10.5px] text-slate-500">
-            {row.kind === 'skill' ? (
+            {row.kind === 'gate' ? (
+              <>
+                <span>lang · {row.language}</span>
+                <span>cost · {row.max_cost ?? '—'}</span>
+                <span className="col-span-2 break-all">
+                  reads · <span className="font-mono text-slate-400">{row.referenced_context_fields.join(', ') || 'none'}</span>
+                </span>
+              </>
+            ) : (
               <>
                 <span className="col-span-2 break-all">
                   target · <span className="font-mono text-slate-400">{row.target}</span>
@@ -714,15 +737,32 @@ function ReviewRow({
                 </span>
                 <span>class · {row.classification}</span>
               </>
-            ) : (
+            )}
+            {row.kind === 'registry_server' ? (
               <>
-                <span>lang · {row.language}</span>
-                <span>cost · {row.max_cost ?? '—'}</span>
                 <span className="col-span-2 break-all">
-                  reads · <span className="font-mono text-slate-400">{row.referenced_context_fields.join(', ') || 'none'}</span>
+                  publisher ·{' '}
+                  <span className={`font-mono ${row.verified ? 'text-slate-400' : 'text-denied'}`}>
+                    {row.publisher_namespace || '—'}
+                  </span>
+                </span>
+                <span className="col-span-2 break-all">
+                  server ·{' '}
+                  <span className="font-mono text-slate-400">
+                    {row.server_name || '—'}
+                    {row.server_version ? ` @ ${row.server_version}` : ''}
+                  </span>
+                </span>
+                {/* Upstream server.json `_meta`: recorded to WORM, never trusted for
+                    authorization — labelled so a reviewer cannot read it as a verdict. */}
+                <span className="col-span-2 break-all" title="Upstream server.json _meta — recorded to the audit log, never trusted for authorization.">
+                  provenance ·{' '}
+                  <span className="font-mono text-slate-400">
+                    {row.provenance ? `${Object.keys(row.provenance).length} field(s), recorded not trusted` : 'none declared'}
+                  </span>
                 </span>
               </>
-            )}
+            ) : null}
             <span className="break-all">
               by · <span className="font-mono text-slate-400">{row.submitter_agent_id || row.author || '—'}</span>
             </span>
@@ -740,9 +780,11 @@ function ReviewRow({
             onClick={onApprove}
             disabled={busy || approveBlocked}
             title={
-              approveBlocked
+              isGate && approveBlocked
                 ? 'Gate approval is refused until a CEL engine is registered (no approve-without-proof)'
-                : 'Approve — WORM-record then mint through the hardened overlay path'
+                : approveBlocked
+                  ? 'Registry-server approval is refused fail-closed until the publisher namespace is on this tenant’s verified allow-list'
+                  : 'Approve — WORM-record then mint through the hardened overlay path'
             }
             className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-verified/30 bg-verified/5 px-2.5 py-1.5 text-[11.5px] font-medium text-verified transition-colors hover:bg-verified/10 disabled:cursor-not-allowed disabled:opacity-40"
           >

@@ -46,11 +46,11 @@ was allowed, no deny body leaked a reason. It sheds by denying, never by allowin
 
 | step | HTTP | req B | resp B | ~in tok | ~out tok | ms |
 |---|---|---:|---:|---:|---:|---:|
-| authorize · allow | `200` | 152 | 234 | 38 | 59 | 13.0 |
-| authorize · staged | `403` | 172 | 96 | 43 | 24 | 8.7 |
-| authorize · deny | `403` | 153 | 96 | 39 | 24 | 15.6 |
+| authorize · allow | `200` | 139 | 231 | 34 | 57 | 5.5 |
+| authorize · step-up staged | `202` | 158 | 273 | 39 | 68 | 46.8 |
+| authorize · deny | `403` | 141 | 96 | 35 | 24 | 5.8 |
 
-**A governed call costs ~97 tokens round-trip** (38 in + 59 out) — smaller than most
+**A governed call costs ~91 tokens round-trip** (34 in + 57 out) — smaller than most
 tool *results* the same call would return. MCPIP's own token cost is zero and
 structurally so: there is no inference library in `requirements.txt` to call a model
 with.

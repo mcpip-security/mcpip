@@ -26,20 +26,44 @@ mcpip [global options] <command> [args]
 
 ## Install
 
-`mcpip` ships in the `mcpip-sdk` distribution. Any of:
+`mcpip` ships in the `mcpip-sdk` distribution. **Neither distribution is on PyPI yet**, so
+install from this checkout:
 
 ```bash
-pipx install ./sdk/python        # from this checkout — isolated, mcpip on PATH
-pip  install ./sdk/python        # into the active environment
-pipx install mcpip-sdk           # once published to PyPI
+pipx install ./sdk/python        # isolated, puts mcpip on PATH — recommended
+pip install ./sdk/python         # into the active environment (venv or otherwise)
 ```
 
-**Homebrew (macOS/Linux).** A real virtualenv formula lives at
-`packaging/homebrew/mcpip.rb`. It works **today**, before any published release,
-straight from git:
+No pipx? `python3 -m pip install --user ./sdk/python` needs nothing but Python and puts
+`mcpip` in your user bin — `$(python3 -m site --user-base)/bin`, which you may need to add
+to `PATH`. Once the package is importable by any route, `python3 -m mcpip_sdk <args>` runs
+the identical CLI, which is useful inside a venv or with `PYTHONPATH=sdk/python/src` set
+from a checkout.
+
+Once published, `pipx install mcpip-sdk` will be the one-liner. Until then, any instruction
+of that shape will fail with "No matching distribution found" — that is the package not
+existing yet, not a broken environment.
+
+The release verifier is a separate, deliberately standalone tool — an auditor
+must be able to verify a signed release with no gateway, no SDK and no network.
+It ships in the **gateway** distribution as `mcpip-verify`, and `mcpip verify` /
+`mcpip export-audit` here pass straight through to it when it is importable:
 
 ```bash
-brew install --HEAD mcpip/tap/mcpip     # bleeding edge, builds from the repo
+pip install mcpip                # the gateway distribution: adds mcpip-verify
+python -m mcpip_verify verify    # or run it from a checkout, nothing installed
+```
+
+Only one distribution may claim the `mcpip` command; a test fails the build if
+both ever do again, because installation order would otherwise decide which CLI
+a user gets.
+
+**Homebrew (macOS/Linux).** A real virtualenv formula lives at
+`packaging/homebrew/mcpip.rb`. The `mcpip/tap` tap is **not published yet**, so
+`brew install mcpip/tap/mcpip` has nothing to tap. Install the formula from this checkout:
+
+```bash
+brew install --HEAD --build-from-source packaging/homebrew/mcpip.rb
 ```
 
 After a tagged release, the stable tap:
@@ -77,6 +101,11 @@ Highest wins:
    `MCPIP_CONFIG_HOME`, or the exact path with `MCPIP_CONFIG`).
 4. **Built-in fallback** — `base_url = http://localhost:8080` when nothing else
    resolves.
+
+A consequence worth knowing: `mcpip sandbox dev-token` wires the minted token into the
+context (level 3), so `MCPIP_TOKEN` or a `--token-*` flag still wins afterwards. The next
+command would then run as a *different* identity and fail with an opaque 403. `dev-token`
+warns when that applies — unset `MCPIP_TOKEN`, or keep using it deliberately.
 
 The config file is **kubeconfig-shaped**: a `current-context` plus named
 `[context.NAME]` tables, each holding `base_url`, `sandbox`, and a **token-source
@@ -161,7 +190,9 @@ Human-readable by default: aligned column tables for lists, `key: value` blocks
 for single objects, rendered from the frozen SDK models. `--json` emits the model
 as stable JSON; `--quiet` prints only the load-bearing id (`transaction_ref`,
 `correlation_id`, …). An empty list prints `No <resource>.` (human) or `[]`
-(JSON) — **never an invented row**. Color/tables auto-disable off a TTY.
+(JSON) — **never an invented row**. Color auto-disables off a TTY (`isatty()`); tables do
+not — they render identically to a pipe, so column output stays stable in scripts. For
+machine consumption use `--json`, which is the supported contract.
 
 A **deny renders identically everywhere** and discloses only the correlation id:
 
@@ -223,6 +254,9 @@ discriminator. Exit code `3` is the single, uniform deny signal.
 | `mcpip mcp initialize` | `MCPIPClient.mcp_call('initialize')` |
 | `mcpip mcp tools list` | `MCPIPClient.mcp_call('tools/list')` |
 | `mcpip mcp tools call <ALIAS> [--arg k=v …] [--otp-stdin]` | `MCPIPClient.mcp_call('tools/call', …)`; an `isError` step-up is completed format-independently |
+| `mcpip verify <...>` | The release verifier (`mcpip_verify`), read-only and network-free. Arguments pass straight through, so `mcpip verify --manifest … --pubkey …` and `mcpip verify bundle …` behave exactly as [Operations](../operate/OPERATIONS.md) documents. Ships in the **gateway** distribution; with only the SDK installed this reports that and names `mcpip-verify` / `python -m mcpip_verify` rather than returning a verdict |
+| `mcpip export-audit <...>` | Read-only WORM export, with `--verify` re-verifying the signed chain offline. Same passthrough and same absence behavior as `verify` |
+| `mcpip why <CORRELATION_ID>` | Resolves a denial to its reason **and the fix**. Reads `admin.forensic_get()` first (`CAP_FORENSIC_READ`), falling back to the decision projection (`CAP_DIRECTORY_ADMIN`). Changes nothing about agent-facing opacity; with neither capability it reports what it lacked rather than guessing. `--json` returns a stable shape (nulls, never missing keys); `--quiet` prints the bare reason token |
 
 ### Reads
 
@@ -239,12 +273,26 @@ discriminator. Exit code `3` is the single, uniform deny signal.
 
 | Command | Wraps |
 | --- | --- |
+| `mcpip sandbox capabilities` | `SandboxClient.capabilities()` — the well-known capability UUIDs by name, so minting an admin token needs no source-reading |
 | `mcpip sandbox dev-token [--tenant --agent --role --cap UUID … --compartment --session-id UUID] [--out FILE]` | `SandboxClient.dev_token()`; writes the JWT into the 0600 token store (or `--out`, `O_EXCL 0600`), **never printed**. Stamps a stable per-context `session_id` (minted once, reused on re-mints) so the WORM chain attributes this context's calls to one session; `--session-id` overrides |
 | `mcpip sandbox authenticator <CHALLENGE_ID> [--out FILE]` | `SandboxClient.authenticator_code()`; completes the staged challenge inline (or writes the OTP to a 0600 file), **never echoed** |
 | `mcpip sandbox audit verify` | `SandboxClient.audit_verify()` |
 | `mcpip sandbox audit proof <EVENT_ID>` | `SandboxClient.audit_proof()` |
 
 ### Admin (`CAP_DIRECTORY_ADMIN`, except where noted)
+
+Capabilities are UUIDs in the JWT `capabilities` claim — a role string never grants one. In
+sandbox, list the well-known ones and mint a token carrying what you need:
+
+```bash
+mcpip sandbox capabilities                            # the UUIDs, by name
+mcpip sandbox dev-token --agent ops-admin \
+  --cap b8e4a1d7-2c6f-4e93-9a05-7f1c3b5d8e20          # CAP_DIRECTORY_ADMIN
+```
+
+In production the gateway mints nothing — your IdP issues a token carrying the capability,
+and a missing one is the same opaque deny as any other refusal. `mcpip whoami` echoes what
+the token you are presenting actually carries, which is faster than probing.
 
 | Command | Wraps |
 | --- | --- |
@@ -262,6 +310,12 @@ discriminator. Exit code `3` is the single, uniform deny signal.
 | `mcpip admin workspace draft […] \| validate --file @plan \| apply --file @plan` | `workspace_draft/validate/apply()` |
 | `mcpip admin cloud-env ls \| put <ENV_ID> --provider --role --region [--compartment --session-ttl --vault-secret-id] \| rm <ENV_ID>` | `cloud_environments_list/put/delete()` |
 | `mcpip admin vault ls \| put <SECRET_ID> --vendor [--description] (--material-file @json\|--material-stdin) \| rm <SECRET_ID>` | `vault_secrets_list/put/delete()` — material never via argv |
+| `mcpip admin users ls \| invite <EMAIL> [--role] \| update <EMAIL> [--role] [--status] \| rm <EMAIL>` | `users_list/invite/update/remove()` — the console team roster. `role` is a management label; it authorizes nothing |
+| `mcpip admin compliance evidence` | `compliance_evidence()` — the portable evidence bundle. Evidence, never a certification |
+| `mcpip admin publishers get \| set <NAMESPACE>...` | `verified_publishers_get/put()` — the reverse-DNS allow-list a registry-server approval is checked against (`CAP_CATALOG_REVIEWER`) |
+| `mcpip admin decisions-history [--from-ms] [--to-ms] [--cursor] [--limit] [--filter K=V] [--all]` | `decisions_query()` / `decisions_iter()` — the date-ranged, multi-filtered, cursor-paged decision history. `--all` walks every page for an export; `--filter correlation_id=…` is the direct lookup behind `mcpip why` |
+| `mcpip admin canaries` | `canaries()` — the seeded decoy aliases. Nothing legitimate calls one, so a hit is an enumeration signal |
+| `mcpip admin stats` | `stats()` — local deployment, license and usage counters, plus telemetry state |
 
 ---
 
@@ -278,7 +332,17 @@ is a candidate for a follow-up if demand warrants it.
 
 ## TypeScript parity
 
-A thin, zero-dependency `mcpip` bin ships with `@mcpip/sdk` mirroring the same
-command tree, config precedence, token/OTP rules, opaque-deny rendering, and exit
-codes. Until it is published, run it with `npx @mcpip/sdk mcpip <args>`. See
-[`docs/start/SDK.md`](SDK.md).
+A thin, zero-dependency `mcpip` bin ships with `@mcpip/sdk`, mirroring the same command
+tree, config precedence, token/OTP rules, opaque-deny rendering, and exit codes.
+
+`@mcpip/sdk` is not on npm yet, so `npx @mcpip/sdk` has nothing to fetch. Build and run it
+from the checkout:
+
+```bash
+cd sdk/typescript && npm install && npx tsc -p tsconfig.json
+node dist/cli.js --help
+```
+
+Installing the package (`npm install -g ./sdk/typescript`) puts its own `mcpip` on your
+PATH. If you also installed the Python SDK, whichever comes first in `PATH` wins — keep one,
+or invoke the TypeScript build by path. See [`SDK.md`](SDK.md).
