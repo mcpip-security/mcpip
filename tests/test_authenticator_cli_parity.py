@@ -17,11 +17,18 @@ from __future__ import annotations
 import inspect
 import os
 import re
-
-from mcpip_sdk.cli.main import build_parser
-from mcpip_sdk.client import MCPIPClient, SandboxClient
+import sys
 
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+# CI installs the gateway's requirements but NOT the SDK distribution, so
+# `mcpip_sdk` is only importable from the source tree — the same insert
+# `tests/test_cli.py` does, and for the same reason. Without it this module fails
+# at collection in CI while passing locally, which is exactly how it shipped red.
+sys.path.insert(0, os.path.join(_REPO_ROOT, "sdk", "python", "src"))
+
+from mcpip_sdk.cli.main import build_parser  # noqa: E402
+from mcpip_sdk.client import MCPIPClient, SandboxClient  # noqa: E402
 
 #: Route → the client method that must reach it. The sandbox stand-in is listed
 #: separately because it legitimately lives on SandboxClient.
