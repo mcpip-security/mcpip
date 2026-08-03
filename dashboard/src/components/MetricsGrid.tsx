@@ -50,7 +50,7 @@ function chainCell(audit: AuditVerifyResult | null, m: MetricsSnapshot): CellSta
     return {
       value: 'Unverified',
       tone: 'muted',
-      detail: 'external verifier required · mcpip export-audit',
+      detail: 'external verifier required · mcpip-verify export-audit',
     };
   }
   if (!audit.intact) {

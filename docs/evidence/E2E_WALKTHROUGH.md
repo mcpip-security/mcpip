@@ -617,7 +617,8 @@ production step-up refusal as §12, visible per call.
 Note the audit-chain tile reads **Unverified · external verifier required**. That
 is correct rather than a failure: `/v1/audit/verify` is sandbox-gated, so in
 production the console will not claim a verdict it cannot obtain. The signed
-attestation in §12 and `mcpip export-audit --verify` are the production paths.
+attestation in §12 and `mcpip-verify export-audit --redis-url <URL> --out audit.jsonl --verify --pubkey worm_signing_ed25519.pub.pem` are the production paths. The verifier ships in the
+gateway distribution as `mcpip-verify`; the SDK's `mcpip export-audit` passes through to it.
 
 ### 13.3 Against a sandbox gateway
 

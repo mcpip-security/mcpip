@@ -451,7 +451,8 @@ printed (private bytes never touch stdout/logs), refuses overwrite without `--fo
 ```bash
 python scripts/provision_gateway_keys.py --keys-dir <offline> --public-dir <staging>
 #  worm_signing_ed25519.key  -> MCPIP_WORM_SIGNING_KEY_PATH  (private, gateway-held)
-#  worm_signing_ed25519.pub  -> auditors (mcpip export-audit --verify --pubkey ...)
+#  worm_signing_ed25519.pub  -> auditors
+#     mcpip-verify export-audit --redis-url <URL> --out audit.jsonl --verify --pubkey <this>
 #  idp_signing_ed25519.key   -> the token minter / KMS (NEVER the gateway)
 #  idp_signing_ed25519.pub   -> MCPIP_JWT_PUBLIC_KEY_PATH   (public, gateway verifies)
 ```

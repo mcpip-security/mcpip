@@ -299,7 +299,7 @@ Enrolling and using the authenticator that answers a step-up.
 | `GET /v1/audit/proof/{event_id}` | **Sandbox only.** O(log n) Merkle inclusion proof. `CAP_DIRECTORY_ADMIN`, tenant-scoped. |
 | `GET /v1/admin/forensic/{correlation_id}` | The real arguments behind one decision. `CAP_FORENSIC_READ`. |
 
-For offline verification of an exported log, see `mcpip export-audit --verify` in
+For offline verification of an exported log, see `mcpip-verify export-audit --redis-url <URL> --out audit.jsonl --verify --pubkey worm_signing_ed25519.pub.pem` in
 [CLI](CLI.md) and [Release](../operate/RELEASE.md).
 
 ## The operator surface

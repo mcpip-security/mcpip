@@ -2,7 +2,16 @@
 
 Real runs against a production-posture `3.0.0` gateway (`MCPIP_SANDBOX_MODE=false`,
 license verified, fsync-durable Redis), with transcripts, screenshots and the harness
-that produced each figure. Nothing here is illustrative.
+that produced each figure.
+
+> **What "real" means here, and where it stops.** Every figure below was measured, not
+> estimated. But these are records of runs at a point in time, not a live check: commands,
+> flags and outputs can drift as the product changes, and some transcripts are stitched
+> from more than one session (a `403` table and a latency table on the same page can need
+> different tokens — see the note in [auditor](clients/auditor.md)). Treat a transcript as
+> evidence that something *did* work, not as a copy-paste recipe; the runnable paths are in
+> [Getting Started](../start/GETTING_STARTED.md) and [API](../start/API.md), which are
+> re-executed against a live gateway when they change.
 
 Two axes, because they answer different questions.
 
@@ -17,7 +26,7 @@ refused**, its measured latency, and what a call costs it.
 | [**developer**](clients/developer.md) | `+ /v1/catalog`, `/v1/whoami` | *(no capability)* | ÷2 |
 | [**PDP consumer**](clients/pdp.md) | `POST /v1/authz/decision` | *(no capability)* | ÷5 |
 | [**operator**](clients/operator.md) | `/v1/admin/decisions`, `/stats`, `skills/register` | `CAP_DIRECTORY_ADMIN` | ÷10 |
-| [**auditor**](clients/auditor.md) | `/v1/audit/attestation`, `/admin/forensic` | `CAP_FORENSIC_READ` | ÷20 |
+| [**auditor**](clients/auditor.md) | `/admin/forensic` (`CAP_FORENSIC_READ`); `/v1/audit/attestation` needs `CAP_DIRECTORY_ADMIN` — [two disjoint capabilities](clients/auditor.md) | `CAP_FORENSIC_READ` | ÷20 |
 | [**reviewer**](clients/reviewer.md) | `/v1/admin/extensions/pending` | `CAP_CATALOG_REVIEWER` | not load-tested |
 
 Read any two of these side by side and the non-hierarchical capability model becomes

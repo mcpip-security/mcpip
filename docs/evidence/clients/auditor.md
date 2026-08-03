@@ -7,8 +7,23 @@ client type at all.
 
 | | |
 |---|---|
-| **Surface** | `GET /v1/audit/attestation` · `/v1/audit/verify` · `GET /v1/admin/forensic/{corr}` · `mcpip export-audit --verify` |
+| **Surface** | `GET /v1/admin/forensic/{corr}` · `/v1/audit/verify` (sandbox) · `mcpip-verify export-audit --verify` (offline, no gateway) |
 | **Capabilities** | `CAP_FORENSIC_READ` = `d5f0c9a2-4b71-4e6a-9c83-1a7f2e6b4d90` |
+| **Second identity** | `GET /v1/audit/attestation` and `GET /v1/admin/compliance/evidence` are **`CAP_DIRECTORY_ADMIN`**-gated — the measurements for them below were taken with an operator token, not this one |
+
+> **Two capabilities, deliberately disjoint.** `CAP_FORENSIC_READ` opens
+> `/v1/admin/forensic/{corr}` and nothing else; `CAP_DIRECTORY_ADMIN` opens attestation,
+> stats and the evidence bundle but is **refused** on the forensic route. Neither contains
+> the other, so a real audit function either carries both claims or is two identities. That
+> is the no-super-admin property working, and it is why this page's `403` table and its
+> attestation numbers cannot come from one token. Verified live:
+>
+> | route | `CAP_FORENSIC_READ` | `CAP_DIRECTORY_ADMIN` |
+> |---|---|---|
+> | `GET /v1/admin/forensic/{corr}` | `200` | `403` |
+> | `GET /v1/audit/attestation` | `403` | `200` |
+> | `GET /v1/admin/stats` | `403` | `200` |
+> | `GET /v1/admin/compliance/evidence` | `403` | `200` |
 | **Share of load** | ÷20 |
 | **Transcript** | [`E2E_WALKTHROUGH.md` §12, §13a](../E2E_WALKTHROUGH.md#12-evidence--the-worm-ledger) · [`ORGANIZATION_AT_SCALE.md` §5a](../ORGANIZATION_AT_SCALE.md#5a-reporting-across-the-period) |
 
@@ -63,7 +78,7 @@ behind it is not. Cost here is CPU, not tokens.
 
 * **Do not poll attestation.** Run it on a schedule, off-peak, or against a read
   replica. It is a verification sweep, not a health check.
-* **`mcpip export-audit --verify` is the continuous check**, not `/v1/audit/verify`
+* **`mcpip-verify export-audit --verify` is the continuous check**, not `/v1/audit/verify`
   (which is sandbox-gated). It runs the same five checks `verify_chain` runs — chain
   linkage, Merkle roots, `epoch_hash` recomputation, Ed25519 epoch signatures, and the
   out-of-tamper-domain anchor low-watermark — read-only, no lock, offline.
