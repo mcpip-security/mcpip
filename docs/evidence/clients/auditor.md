@@ -69,10 +69,17 @@ behaviour. Details and the correction of an earlier wrong reading in
 
 | step | HTTP | req B | resp B | ~in tok | ~out tok | ms |
 |---|---|---:|---:|---:|---:|---:|
-| `audit/attestation` | `200` | 0 | 560 | 0 | 140 | 526.3 |
+| `audit/attestation` | `200` | 0 | 551 | 0 | 137 | 12.4 → 526.3 |
 
-560 bytes out for half a second of work: the response is small and the computation
-behind it is not. Cost here is CPU, not tokens.
+**The `ms` column is a range because this is the one surface whose cost is not a
+constant.** The response size is fixed by the wire contract; the work behind it is
+`verify_chain` over the whole signed history, so it grows with the ledger and
+degrades under concurrency. 12.4 ms is a 68-event ledger on an unloaded box —
+a floor, and a misleading one to quote. 526.3 ms is the same call in the k6 run
+above. Plan against the second number, not the first.
+
+~550 bytes out for up to half a second of work: the response is small and the
+computation behind it is not. Cost here is CPU, not tokens.
 
 ## What to watch
 

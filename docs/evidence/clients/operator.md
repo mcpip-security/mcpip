@@ -40,10 +40,10 @@ or extension approval** — those belong to [`auditor.md`](auditor.md) and
 
 | step | HTTP | req B | resp B | ~in tok | ~out tok | ms |
 |---|---|---:|---:|---:|---:|---:|
-| `decisions/recent?limit=25` | `200` | 0 | 10,731 | 0 | 2,683 | 84.0 |
-| `admin/stats` | `200` | 0 | 1,107 | 0 | 277 | 3.7 |
+| `decisions/recent?limit=25` | `200` | 0 | 11,507 | 0 | 2,876 | 4.8 |
+| `admin/stats` | `200` | 0 | 1,096 | 0 | 274 | 2.9 |
 
-`decisions/recent` at **~2,683 tokens** is the most expensive surface on the gateway.
+`decisions/recent` at **~2,876 tokens** is the most expensive surface on the gateway.
 It is a human/dashboard surface and never touches agent context — but if you ever hand
 an agent `CAP_DIRECTORY_ADMIN` and let it poll the decision feed, that is what each
 poll costs it. Page it or filter it; do not put it in a loop.

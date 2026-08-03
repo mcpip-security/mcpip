@@ -53,8 +53,8 @@ The fastest of the five authorizing client types at 50/s, because `tools/list` a
 
 | step | HTTP | req B | resp B | ~in tok | ~out tok | ms |
 |---|---|---:|---:|---:|---:|---:|
-| `POST /v1/mcp` `tools/list` | `200` | 51 | 660 | 13 | 165 | 4.4 |
-| `GET /v1/catalog` | `200` | 0 | 748 | 0 | 187 | 2.2 |
+| `POST /v1/mcp` `tools/list` | `200` | 46 | 546 | 11 | 136 | 1.5 |
+| `GET /v1/catalog` | `200` | 0 | 608 | 0 | 152 | 1.4 |
 
 `tools/list` never leaks a target — that is a thresholded invariant, not a
 convention. What the developer sees is the alias surface, not the URLs behind it.

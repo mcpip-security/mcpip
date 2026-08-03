@@ -21,7 +21,7 @@ gateway.
 
 > **Current status.** The drafting client is retained for the model toolchain but
 > is **not wired into a console panel** today: workspace generation uses the
-> deterministic offline starter draft (`lib/starterKit.ts`). If you are looking for
+> deterministic offline starter draft (`dashboard/src/lib/starterKit.ts`). If you are looking for
 > a model-powered panel in the UI, it isn't there yet. Everything below describes
 > the contract that toolchain binds to.
 

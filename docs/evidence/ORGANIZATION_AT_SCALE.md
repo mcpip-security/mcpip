@@ -9,12 +9,20 @@ middle of it.
 Every number, status code and ledger row below came from a real run against a
 production-posture `3.0.0` gateway (`MCPIP_SANDBOX_MODE=false`).
 
+> **Provenance.** §2, §2.1, §2.2, §3 and §4 were re-executed for this revision
+> against a freshly provisioned production gateway, using the committed harness in
+> [Reproducing](#reproducing) — so every figure in them can be regenerated rather
+> than taken on trust. §3 and the shape of §4 reproduced exactly; the throughput and
+> sequence numbers are this run's. §5's tenant totals and §5a's period report are
+> from the original fleet run, which had more history behind it than a fresh gateway
+> can have.
+
 ---
 
 ## 1. The organization
 
-One tenant, `acme-platform`. Eight machine identities and four kinds of human,
-all minted by the same IdP, all verified by the gateway against one public key.
+One tenant, `acme-platform`. Six machine identities and three kinds of human, all
+minted by the same IdP, all verified by the gateway against one public key.
 
 | principal | role claim | capability | what it is |
 |---|---|---|---|
@@ -36,32 +44,42 @@ ordinary agent.
 production gateway:
 
 ```
-fired 72 concurrent authorize calls in 0.21s  (336 req/s, 24 workers)
-latency  p50=61.1ms  p95=89.3ms  max=98.7ms
+fired 72 concurrent authorize calls in 0.35s  (204 req/s, 24 workers)
+latency  p50=81.4ms  p95=152.1ms  max=175.6ms
 
-agent           alias                     200  202  403
-cf-agent-a      cf.d1.databases.list       12    0    0
-cf-agent-b      cf.d1.databases.list       12    0    0
-gh-agent-a      gh.branches.list           12    0    0
-gh-agent-b      gh.branches.list           12    0    0
-ci-agent-1      gh.branches.list           12    0    0
-data-agent-1    cf.d1.query                 0    0   12
+agent         alias                      200  202  403
+cf-agent-a    cf.d1.databases.list        12    0    0
+cf-agent-b    cf.d1.databases.list        12    0    0
+gh-agent-a    gh.branches.list            12    0    0
+gh-agent-b    gh.branches.list            12    0    0
+ci-agent-1    gh.branches.list            12    0    0
+data-agent-1  cf.d1.query                  0   12    0
 ```
 
 Two things to read here.
 
 **Concurrency does not blur attribution.** Every one of the 72 decisions carries
 its own correlation id, its own `worm_sequence`, and the verified `agent_id` of
-the caller. Six agents interleaving at 336 req/s produce six cleanly separable
-audit trails, not one merged stream.
+the caller. Six agents interleaving produce six cleanly separable audit trails,
+not one merged stream.
 
 **One agent's posture does not leak into another's.** `data-agent-1` reached for
-`cf.d1.query` — a `pin_required`, `restricted` alias — and was refused all 12
-times while five peers ran clean at full rate. The refusal is per-call and
-per-identity; there is no circuit that trips for everyone.
+`cf.d1.query` — a `pin_required`, `restricted` alias — and was held for step-up all
+12 times while five peers ran clean at full rate. Not one of the twelve became an
+allow. The verdict is per-call and per-identity; there is no circuit that trips for
+everyone, and no amount of peer traffic softens it.
 
-Every `403` above is byte-identical to the caller. The reasons live in the
-ledger, not in the response.
+`202` rather than `403` on that row is a **deployment** difference, not a policy
+one: this gateway has a TOTP channel configured (`MCPIP_AUTHN_TOTP_KEY_PATH`), so a
+`pin_required` alias can seal a challenge and stage. With no channel configured at
+all the same twelve calls fail closed with `403` / `otp_delivery_failed` instead —
+the shape MCPIP takes when it has no way to reach a human. Either way the alias is
+never allowed without a completed step-up, which is the invariant; and staging is
+not permission — completing it needs an enrolled authenticator, which
+`data-agent-1` does not have.
+
+Every deny is byte-identical to the caller. The reasons live in the ledger, not in
+the response.
 
 ### 2.1 Same run, six distinct client hosts
 
@@ -71,21 +89,22 @@ loopback source IP**, so the gateway sees six separate client hosts opening
 independent connections:
 
 ```
-6 agents x 25 calls = 150 requests, each agent from its OWN source IP
-wall 0.44s  ->  344 req/s
-latency p50=16.0ms  p95=28.2ms  max=38.5ms
+fired 150 concurrent authorize calls in 0.66s  (228 req/s, 24 workers), each agent from its OWN source IP
+latency  p50=59.4ms  p95=242.6ms  max=270.4ms
 
-agent         source ip   alias                     200  202  403
-cf-agent-a    127.0.0.2   cf.d1.databases.list       25    0    0
-cf-agent-b    127.0.0.3   cf.d1.databases.list       25    0    0
-gh-agent-a    127.0.0.4   gh.branches.list           25    0    0
-gh-agent-b    127.0.0.5   gh.pr.list                 25    0    0
-ci-agent-1    127.0.0.6   gh.branches.list           25    0    0
-data-agent-1  127.0.0.7   cf.d1.query                 0    0   25
+agent         source ip   alias                      200  202  403
+cf-agent-a    127.0.0.2   cf.d1.databases.list        25    0    0
+cf-agent-b    127.0.0.3   cf.d1.databases.list        25    0    0
+gh-agent-a    127.0.0.4   gh.branches.list            25    0    0
+gh-agent-b    127.0.0.5   gh.pr.list                  25    0    0
+ci-agent-1    127.0.0.6   gh.branches.list            25    0    0
+data-agent-1  127.0.0.7   cf.d1.query                  0   25    0
 ```
 
 No transport errors, and the verdicts are identical to the shared-source run:
-distinct hosts change throughput characteristics, not decisions.
+distinct hosts change throughput characteristics, not decisions. (`gh-agent-b`
+switches alias between the two runs — `gh.branches.list` to `gh.pr.list` — because
+both are `auto`; the point is that the *decision* does not move.)
 
 ### 2.2 The network contributes nothing to identity
 
@@ -93,17 +112,17 @@ Worth proving rather than assuming. The same `cf-agent-a` token, dialled from
 three different client hosts:
 
 ```
-token=cf-agent-a  source_ip=127.0.0.8   -> HTTP 200  seq=389  corr=7fa6368d42d7…
-token=cf-agent-a  source_ip=127.0.0.9   -> HTTP 200  seq=390  corr=07a3a1741720…
-token=cf-agent-a  source_ip=127.0.0.10  -> HTTP 200  seq=391  corr=b4d8881d2e95…
+token=cf-agent-a  source_ip=127.0.0.8    -> HTTP 200  seq=298  corr=c7be25dd4831…
+token=cf-agent-a  source_ip=127.0.0.9    -> HTTP 200  seq=299  corr=afeac940186b…
+token=cf-agent-a  source_ip=127.0.0.10   -> HTTP 200  seq=300  corr=464e7d2aaceb…
 ```
 
 Ledger attribution for those three calls:
 
 ```
-seq 391  agent_id=cf-agent-a  tenant=acme-platform  alias=cf.d1.databases.list
-seq 390  agent_id=cf-agent-a  tenant=acme-platform  alias=cf.d1.databases.list
-seq 389  agent_id=cf-agent-a  tenant=acme-platform  alias=cf.d1.databases.list
+seq 300  agent_id=cf-agent-a  tenant=acme-platform  alias=cf.d1.databases.list
+seq 299  agent_id=cf-agent-a  tenant=acme-platform  alias=cf.d1.databases.list
+seq 298  agent_id=cf-agent-a  tenant=acme-platform  alias=cf.d1.databases.list
 ```
 
 Identical attribution from three different addresses. Identity comes from the
@@ -150,33 +169,45 @@ one does not compound into the other.
 A platform operator suspects `cf-agent-a`'s key is compromised while the fleet is
 running. The agent holds a valid, unexpired, correctly-signed JWT.
 
-```console
-$ # the agent is working normally
-$ POST /v1/authorize   (cf-agent-a)                        -> HTTP 200
+Six calls, in order. The token is never re-issued, edited or re-signed at any
+point — the same bearer is presented throughout:
 
-$ # operator pulls the kill-switch
-$ POST /v1/admin/principals/cf-agent-a/revoke
-  -H "Authorization: Bearer $OPERATOR" -d '{"reason":"suspected key compromise"}'
-{"revoked":"cf-agent-a"}
-
-$ # SAME token, still cryptographically valid, still unexpired
-$ POST /v1/authorize   (cf-agent-a)                        -> HTTP 403
-$ POST /v1/authorize   (cf-agent-b)                        -> HTTP 200   <- peer unaffected
-
-$ # after the key is rotated
-$ POST /v1/admin/principals/cf-agent-a/reactivate -d '{"reason":"key rotated"}'
-{"reactivated":"cf-agent-a","removed":true}
-$ POST /v1/authorize   (cf-agent-a)                        -> HTTP 200
-```
+| # | call | as | result |
+|---|---|---|---|
+| 1 | `POST /v1/authorize` | `cf-agent-a` | `200` |
+| 2 | `POST /v1/admin/principals/cf-agent-a/revoke`<br>`{"reason":"suspected key compromise"}` | operator | `{"revoked":"cf-agent-a"}` |
+| 3 | `POST /v1/authorize` — same token, still valid, still unexpired | `cf-agent-a` | **`403`** |
+| 4 | `POST /v1/authorize` | `cf-agent-b` | `200` — peer unaffected |
+| 5 | `POST /v1/admin/principals/cf-agent-a/reactivate`<br>`{"reason":"key rotated"}` | operator | `{"reactivated":"cf-agent-a","removed":true}` |
+| 6 | `POST /v1/authorize` | `cf-agent-a` | `200` |
 
 The ledger, with the reason the agent never saw:
 
 ```
-seq 93  allow                       cf-agent-a
-seq 91  allow                       cf-agent-b
-seq 90  deny   principal_revoked    cf-agent-a
-seq 88  allow                       cf-agent-a
+seq 314  allow                       cf-agent-a
+seq 312  allow                       cf-agent-b
+seq 311  deny   principal_revoked    cf-agent-a
+seq 309  allow                       cf-agent-a
 ```
+
+The gaps are the point, not an omission. The decision feed lists *decisions*; 310
+and 313 are the revoke and the reactivate themselves, sitting in the same ledger as
+admin actions:
+
+```json
+{
+  "actor_agent_id": "mcpip-admin",
+  "admin_action": "principal_revoke",
+  "correlation_id": "b481f8e3d3e54581a8ae3c4e46f2c3aa",
+  "decision": "admin_action",
+  "deny_reason": null,
+  "reason": "suspected key compromise",
+  "subject_agent_id": "cf-agent-a",
+  "tenant_id": "acme-platform"
+}
+```
+
+Actor, subject and reason, written before the kill-switch takes effect.
 
 Three properties worth naming:
 
@@ -195,15 +226,33 @@ JWT cannot be waited out until expiry.
 
 ## 5. What the tenant looks like afterwards
 
+`GET /v1/admin/stats` answers in JSON. Reduced to the three lines that matter here:
+
 ```console
-$ curl -H "Authorization: Bearer $OPERATOR" /v1/admin/stats
-  governed agent identities: 8
-  decisions: {'allow': 63, 'deny': 17, 'staged': 0}
-  license  : Cloudflare Platform Ops | self-hosted
+$ curl -s -H "Authorization: Bearer $OPERATOR" "$GW/v1/admin/stats" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+print("governed agent identities:", d["governed_agent_identity_count"])
+print("decisions               :", d["decisions"])
+print("license                 :", d["license"]["customer"], "|", d["license"]["tier"])'
 ```
 
-Eight identities discovered from traffic, not from a roster someone maintained by
-hand — the count is what the gateway actually verified.
+which for this run printed:
+
+```
+governed agent identities: 8
+decisions               : {'allow': 63, 'deny': 17, 'staged': 0}
+license                 : Cloudflare Platform Ops | self-hosted
+```
+
+That count is discovered from traffic, not read from a roster someone maintained by
+hand. It is a HyperLogLog cardinality over the distinct `agent_id`s the gateway
+verified on the authorization path during the run — so it counts identities that
+actually did something, and it is a number, never a list: the ids themselves are
+never stored or exposed by this endpoint. The full response carries
+more than these three fields (telemetry and response-playbook state, and a
+`features` block explaining why forensic capture is off by default in production);
+the reduction above is this document's, not the gateway's.
 
 The console view of the same state (from the sandbox instance used for the
 screenshot, since the console authenticates via a sandbox-only route — see
@@ -231,22 +280,49 @@ breakdowns that each carry their sequence range and sample correlation ids. See
 
 ## 6. Scaling notes, honestly
 
-- **The 336–344 req/s figures are a shape, not a benchmark.** Single worker,
-  local Redis, loopback, one tenant. Production runs `--workers N` behind a load
-  balancer. Treat them as evidence that concurrent multi-agent traffic keeps
-  clean per-identity attribution, not as capacity numbers.
+- **The 204–228 req/s figures are a shape, not a benchmark.** Single worker,
+  local Redis, loopback, one tenant, on a shared box. Production runs
+  `--workers N` behind a load balancer. Treat them as evidence that concurrent
+  multi-agent traffic keeps clean per-identity attribution, not as capacity
+  numbers — an earlier run of the same harness on a quieter machine reached
+  336 req/s with the identical verdicts.
 - **"Different source IPs" here means loopback aliases,** not separate machines.
   It exercises distinct client hosts and independent connections against the same
   kernel — it does not exercise real network latency, NAT, TLS termination, or a
   load balancer's connection reuse.
-- **p50 61 ms is dominated by the durability contract.** Every allow requires an
+- **The p50 is dominated by the durability contract.** Every allow requires an
   fsync-durable ledger write *before* it returns (`appendfsync always`). That is
   the write-before-execute guarantee being paid for, and it is the right trade
   for an audit-bearing choke point.
 - **One tenant only.** Cross-tenant isolation is a real control but was not
-  exercised here — every principal above shares `acme-platform`. The `403`s in §2
+  exercised here — every principal above shares `acme-platform`. The refusals in §2
   and §3 come from risk tiers and capabilities, not from tenant separation.
 - **Compartments were not used.** All aliases were registered with
   `compartment: null`. Compartment scoping is how a large organization stops
   `gh-agent-*` from even *seeing* the Cloudflare aliases; this run relied on the
   risk gate instead.
+
+## Reproducing
+
+Two committed harnesses, both supplied tokens and neither minting any — MCPIP never
+issues identity, so a harness must not either. Mint with `scripts/mint_principal.py`.
+
+```bash
+export GW=http://127.0.0.1:8080
+
+# 2 — everyone at once
+python load/concurrent_agents.py --base $GW \
+  --agent cf-agent-a=cf_a.jwt:cf.d1.databases.list \
+  --agent cf-agent-b=cf_b.jwt:cf.d1.databases.list \
+  --agent gh-agent-a=gh_a.jwt:gh.branches.list \
+  --agent gh-agent-b=gh_b.jwt:gh.branches.list \
+  --agent ci-agent-1=ci.jwt:gh.branches.list \
+  --agent data-agent-1=data.jwt:cf.d1.query \
+  --calls 12 --workers 24
+
+# 2.1 — the same run, each agent from its own client host
+python load/concurrent_agents.py --base $GW --bind-source-ips --calls 25 [--agent ...]
+```
+
+Sustained-rate figures and the per-client-type comparison come from the k6 suite
+instead — see [`LOAD_AT_SCALE.md`](LOAD_AT_SCALE.md#reproducing).

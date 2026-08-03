@@ -5,13 +5,20 @@ license verified, fsync-durable Redis), with transcripts, screenshots and the ha
 that produced each figure.
 
 > **What "real" means here, and where it stops.** Every figure below was measured, not
-> estimated. But these are records of runs at a point in time, not a live check: commands,
-> flags and outputs can drift as the product changes, and some transcripts are stitched
-> from more than one session (a `403` table and a latency table on the same page can need
-> different tokens — see the note in [auditor](clients/auditor.md)). Treat a transcript as
-> evidence that something *did* work, not as a copy-paste recipe; the runnable paths are in
+> estimated, and each scenario document opens with a **provenance note** naming which of
+> its sections came from which run — because a page assembled from two sessions and
+> presented as one continuous transcript is misleading even when every line in it is
+> genuine. Where a section could not be re-executed (a live provider credential, a longer
+> ledger than a fresh gateway can have), it says so at the point of use.
+>
+> These remain records of runs at a point in time, not a live check: commands, flags and
+> outputs drift as the product changes. Treat a transcript as evidence that something
+> *did* work, not as a copy-paste recipe; the runnable paths are in
 > [Getting Started](../start/GETTING_STARTED.md) and [API](../start/API.md), which are
-> re-executed against a live gateway when they change.
+> re-executed against a live gateway when they change. The measurement tables have
+> committed harnesses — [`load/cost_by_client_type.py`](../../load/cost_by_client_type.py)
+> and [`load/concurrent_agents.py`](../../load/concurrent_agents.py) — so you can
+> regenerate them here rather than trust ours.
 
 Two axes, because they answer different questions.
 

@@ -17,7 +17,8 @@ refined afterwards from **Skills & Tools** (the Alias Registry) like any other s
 
 - **The safety is deterministic; the intelligence is optional.** The draft is a pure,
   inference-free heuristic — `services/workspace_plan.py`'s `draft_plan_from_brief` on the
-  gateway, mirrored client-side by `lib/starterKit.ts` for the offline setup flow. It
+  gateway, mirrored client-side by `dashboard/src/lib/starterKit.ts` for the offline setup
+  flow. It
   ships and is fully tested with **no model**. A richer **local-model draft** (below) is an
   OPTIONAL packaged toolchain that produces the SAME plan shape and would flow through the
   identical validate → review → apply path. **The gateway core stays inference-free.**

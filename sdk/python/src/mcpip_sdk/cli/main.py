@@ -88,9 +88,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     root = argparse.ArgumentParser(
         prog="mcpip",
-        description="MCPIP — authorize every AI action before execution. "
-        "Local sandbox in one command: mcpip up. "
-        "Zero-to-authorized in three commands: login, sandbox dev-token, authorize.",
+        description="MCPIP — authorize every AI action before execution.\n"
+        "\n"
+        "Local sandbox in one command:   mcpip up\n"
+        "Zero to authorized in three:    mcpip login, mcpip sandbox dev-token,\n"
+        "                                mcpip authorize",
         parents=[parent],
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
