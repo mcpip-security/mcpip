@@ -14,6 +14,7 @@ only that following it lands somewhere real.
 from __future__ import annotations
 
 import glob
+import sys
 import os
 import re
 
@@ -91,3 +92,40 @@ def test_cross_file_anchors_resolve() -> None:
             if anchor not in anchors:
                 broken.append(f"{os.path.relpath(path, _REPO_ROOT)} -> {target}")
     assert not broken, "cross-file anchors that match no heading:\n  " + "\n  ".join(broken)
+
+
+def test_documented_test_count_is_a_floor_that_still_holds() -> None:
+    """A claimed test count must be a floor the suite still clears.
+
+    An exact count rots the moment anyone adds a test — this session put three
+    stale ones in the tree that way. Stating a floor ("1,600+") is honest, stays
+    true as the suite grows, and is checkable; this asserts it has not been
+    overtaken, which is the only way it can become a lie.
+    """
+    import subprocess
+
+    claimed: set[int] = set()
+    pattern = re.compile(r"([\d,]+)\+?\s+tests\b")
+    for path in _DOCS:
+        if not os.path.exists(path):
+            continue
+        for raw in pattern.findall(_read(path)):
+            digits = raw.replace(",", "")
+            if digits.isdigit() and int(digits) > 100:  # skip "3 tests" style prose
+                claimed.add(int(digits))
+    if not claimed:
+        return  # no count claimed anywhere is a perfectly good state
+
+    out = subprocess.run(
+        [sys.executable, "-m", "pytest", "--collect-only", "-q"],
+        cwd=_REPO_ROOT, capture_output=True, text=True, timeout=300,
+    ).stdout
+    match = re.search(r"(\d+) tests? collected", out)
+    assert match, f"could not read the collected-test count from pytest:\n{out[-500:]}"
+    actual = int(match.group(1))
+
+    overtaken = sorted(c for c in claimed if c > actual)
+    assert not overtaken, (
+        f"documentation claims {overtaken} tests but the suite collects {actual} — "
+        "a claimed count must be a floor the suite clears, not a number it fell below"
+    )

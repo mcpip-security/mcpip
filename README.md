@@ -182,7 +182,7 @@ Version 3.0.0. Source-available core under BSL 1.1; SDKs under Apache-2.0.
 - Payload-bound one-time step-up; a changed byte is a different request with no approval behind it
 - Ed25519 Merkle audit written before dispatch, with offline re-verification
 - Compartment and capability separation, canary tripwires, ReBAC projection, the operator console
-- 1,590 tests, `mypy --strict`, and a self-verifying 29-check proof that exits non-zero if any check fails
+- 1,600+ tests, `mypy --strict`, and a self-verifying 29-check proof that exits non-zero if any check fails
 
 **Being wired up**
 

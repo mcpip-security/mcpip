@@ -33,7 +33,7 @@ mcpip/
   scripts/             Operational and build scripts
   load/                Load-generation harnesses
   training/            Dataset and model tooling for the optional drafting path
-  tests/               The suite (1,590 tests)
+  tests/               The suite (1,600+ tests)
   docs/                This documentation
 ```
 
@@ -189,7 +189,7 @@ deny surfaces only a `correlation_id`, and neither auto-retries.
 
 ## Tests
 
-`tests/` holds 1,590 tests. A few carry specific weight:
+`tests/` holds 1,600+ tests. A few carry specific weight:
 
 | File | What it protects |
 |---|---|
