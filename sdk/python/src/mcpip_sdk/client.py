@@ -406,6 +406,70 @@ class MCPIPClient(_BaseClient):
         response = self._request("GET", "/v1/audit/attestation")
         return AuditAttestation.from_wire(_json_object(response))
 
+    # -- authenticator (production step-up) --------------------------------
+    #
+    # A `pin_required` alias stages rather than allows, and completing the cycle
+    # needs a one-time code that reached a human out of band. In the sandbox the
+    # code is simply disclosed (``SandboxClient.authenticator_code``). In
+    # PRODUCTION the channel is an enrolled RFC 6238 authenticator, and these are
+    # the four calls that drive it. They had no client and no CLI, so the only
+    # production step-up path was hand-rolled HTTP — for the feature the product
+    # leads with.
+
+    def authenticator_status(self) -> dict[str, Any]:
+        """Whether this principal has an authenticator enrolled, and since when."""
+        return _json_object(self._request("GET", "/v1/authenticator"))
+
+    def authenticator_enroll(self) -> dict[str, Any]:
+        """
+        Begin enrollment: mint a TOTP secret and return the provisioning material
+        EXACTLY ONCE (``secret``, ``provisioning_uri``, ``digits``, ``period_s``).
+
+        Refused while an active enrollment exists — replacing a live authenticator
+        takes the disable ceremony and a valid current code, so a stolen bearer
+        alone can never swap the human's second factor. **The return value carries
+        the secret**: write it somewhere safe and do not log it.
+        """
+        return _json_object(self._request("POST", "/v1/authenticator/enroll"))
+
+    def authenticator_confirm(self, code: str) -> bool:
+        """Finish enrollment by proving possession with a live code."""
+        payload = _json_object(
+            self._request("POST", "/v1/authenticator/enroll/confirm", json_body={"code": code})
+        )
+        return bool(payload.get("enrolled"))
+
+    def authenticator_reveal(self, challenge_id: str, code: str) -> str:
+        """
+        Release the payload-bound one-time code for ``challenge_id``, gated on a
+        fresh code from this principal's enrolled authenticator.
+
+        Single-use (``GETDEL``) and WORM-logged BEFORE the code is returned; the
+        code itself never enters the record. Two distinct secrets are in play and
+        conflating them is the usual mistake: ``code`` proves a human is present,
+        and the OTP it releases is bound to the canonical hash of *this* payload.
+        Proving presence does not authorize an action — it only unseals the lock
+        for the one action already staged.
+        """
+        payload = _json_object(
+            self._request(
+                "POST",
+                "/v1/authenticator/reveal",
+                json_body={"challenge_id": challenge_id, "code": code},
+            )
+        )
+        otp = payload.get("otp")
+        if not isinstance(otp, str):
+            raise MCPIPError("authenticator reveal returned no otp")
+        return otp
+
+    def authenticator_disable(self, code: str) -> bool:
+        """Retire the enrolled authenticator. Requires a valid current code."""
+        payload = _json_object(
+            self._request("POST", "/v1/authenticator/disable", json_body={"code": code})
+        )
+        return bool(payload.get("disabled", True))
+
 
 class SandboxClient(MCPIPClient):
     """

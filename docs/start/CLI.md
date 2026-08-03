@@ -269,6 +269,41 @@ discriminator. Exit code `3` is the single, uniform deny signal.
 | `mcpip discovery` | `MCPIPClient.protected_resource_metadata()` (public RFC 9728; no token sent) |
 | `mcpip audit attestation` | `MCPIPClient.audit_attestation()` (signed WORM snapshot; `CAP_DIRECTORY_ADMIN`) |
 
+### Authenticator — completing a step-up in production
+
+A `pin_required` alias stages rather than allows, and finishing the cycle needs a
+one-time code that reached a human out of band. In the sandbox the code is simply
+disclosed (`mcpip sandbox authenticator`). **In production the channel is an
+enrolled RFC 6238 authenticator**, and these commands drive it — before they
+existed, `mcpip authorize` would stage, tell you to run `mcpip complete`, and that
+command could not succeed, because no command could fetch the code.
+
+| Command | Wraps |
+| --- | --- |
+| `mcpip authenticator status` | `MCPIPClient.authenticator_status()` — is an authenticator enrolled for this principal |
+| `mcpip authenticator enroll --out FILE` | `MCPIPClient.authenticator_enroll()`; writes the `otpauth://` URI to `FILE` (`O_EXCL 0600`) and prints only the path — **the URI embeds the secret**. Returned exactly once; re-enrolling over a live authenticator is refused |
+| `mcpip authenticator confirm --code DIGITS` | `MCPIPClient.authenticator_confirm()` — proves possession and activates the enrollment |
+| `mcpip authenticator reveal --challenge ID --code DIGITS [--out FILE] [--credential-out FILE]` | `MCPIPClient.authenticator_reveal()`; releases the payload-bound OTP and completes the staged challenge **inline**, never echoing it. `--out` captures the code instead of completing |
+| `mcpip authenticator disable --code DIGITS` | `MCPIPClient.authenticator_disable()` — retires the authenticator; needs a valid current code, so a stolen bearer alone cannot swap someone's second factor |
+
+Two distinct secrets are in play, and conflating them is the usual mistake: the
+**TOTP code** proves a human is present, and the **OTP** it releases is bound to the
+canonical hash of *this* payload. Proving presence does not authorize an action —
+it only unseals the lock for the one action already staged.
+
+```console
+$ mcpip authorize skill_wire_transfer --arg amount=9000
+step-up required: envelope persisted. Resume with:
+  sandbox     mcpip sandbox authenticator c3640d741971455aad5c9321013f3b91
+  production  mcpip authenticator reveal --challenge c3640d741971455aad5c9321013f3b91 --code <6 digits from your enrolled authenticator>
+
+$ mcpip authenticator reveal --challenge c3640d741971455aad5c9321013f3b91 --code 314159
+decision              : allow
+status                : committed
+transaction_ref       : txn_d8b39ef4a1774a73baee8acd478e05da
+worm_sequence         : 22
+```
+
 ### Sandbox (404 opaque in production → exit `7`)
 
 | Command | Wraps |

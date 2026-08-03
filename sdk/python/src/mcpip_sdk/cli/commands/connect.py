@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import base64
 import json
+import time
 from typing import Any
 
 from mcpip_sdk.cli import config as cfg
@@ -124,7 +125,17 @@ def cmd_whoami(rt: Runtime, args: argparse.Namespace) -> int:
         version = client.version()
         gateway_running = version.running
 
+    # A raw epoch is not an answer to "why is everything denied?". An expired dev
+    # token denies EVERY call with the same opaque body as a policy refusal — so
+    # the one command that decodes the bearer locally has to say so plainly.
+    expires_in = None
+    raw_exp = claims.get("exp")
+    if isinstance(raw_exp, (int, float)):
+        expires_in = int(raw_exp - time.time())
+
     model: dict[str, Any] = {
+        "expires_in_s": expires_in,
+        "expired": expires_in is not None and expires_in <= 0,
         "tenant_id": claims.get("tenant_id"),
         "agent_id": claims.get("agent_id") or claims.get("sub"),
         "role": claims.get("role"),
@@ -144,7 +155,7 @@ def cmd_whoami(rt: Runtime, args: argparse.Namespace) -> int:
                 ("agent_id", model["agent_id"]),
                 ("role", model["role"]),
                 ("session_id", model["session_id"]),
-                ("exp", model["exp"]),
+                ("exp", _expiry_label(expires_in, model["exp"])),
                 ("capabilities", model["capabilities"]),
                 ("gateway_accepts", accepted),
                 ("gateway_running", gateway_running),
@@ -153,6 +164,23 @@ def cmd_whoami(rt: Runtime, args: argparse.Namespace) -> int:
         quiet_id=str(model["agent_id"] or ""),
     )
     return ExitCode.OK
+
+
+def _expiry_label(expires_in: int | None, raw_exp: Any) -> str:
+    """Render `exp` as something a human can act on, not a Unix epoch.
+
+    An expired bearer is the single most confusing state in the CLI: the gateway
+    denies every call with the same opaque body it uses for a real policy refusal,
+    so a developer reads "request denied by policy" and goes looking for a missing
+    capability. Saying EXPIRED here ends that search in one command.
+    """
+    if expires_in is None:
+        return str(raw_exp)
+    if expires_in <= 0:
+        return f"EXPIRED {-expires_in}s ago — re-mint: mcpip sandbox dev-token"
+    if expires_in < 120:
+        return f"{expires_in}s left — expiring"
+    return f"{expires_in // 60}m left"
 
 
 def _decode_claims_unverified(token: str) -> dict[str, Any]:

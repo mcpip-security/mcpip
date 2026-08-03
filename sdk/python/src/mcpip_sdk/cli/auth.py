@@ -127,8 +127,14 @@ def resolve_otp(*, otp_stdin: bool, otp_prompt: bool) -> str:
         return _read_stdin_line("one-time code")
     if otp_prompt or sys.stdin.isatty():
         return getpass.getpass("one-time code: ")
+    # Naming only the mechanism (--otp-stdin) left the caller with nowhere to GET
+    # a code. Name the source; both commands fetch and complete in one step.
     raise CLIConfigError(
-        "no OTP available non-interactively; pass --otp-stdin or run in a TTY"
+        "no OTP available non-interactively. Fetch and complete in one command "
+        "instead:\n"
+        "  sandbox     mcpip sandbox authenticator <challenge>\n"
+        "  production  mcpip authenticator reveal --challenge <id> --code <digits>\n"
+        "Or pipe a code you already hold with --otp-stdin, or run in a TTY."
     )
 
 
