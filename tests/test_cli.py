@@ -882,3 +882,92 @@ def test_verify_reports_an_honest_absence_without_the_gateway_package(
     assert "mcpip-verify" in captured.err and "python -m mcpip_verify" in captured.err
     # It must not claim anything about the artifact it never read.
     assert "verified" not in captured.err.lower()
+
+
+def test_cli_doc_documents_every_shipped_command() -> None:
+    """docs/start/CLI.md must not omit a command the CLI ships.
+
+    Three admin groups (`users`, `compliance`, `publishers`) shipped undocumented,
+    so the only way to discover them was `--help`. A reference that silently
+    lags the binary teaches people the binary cannot be trusted.
+    """
+    doc_path = os.path.join(_REPO_ROOT, "docs", "start", "CLI.md")
+    with open(doc_path, encoding="utf-8") as handle:
+        doc = handle.read()
+
+    parser = build_parser()
+    groups = [a for a in parser._actions if isinstance(a, argparse._SubParsersAction)]
+    top = set(groups[0].choices)
+    missing_top = sorted(name for name in top if f"mcpip {name}" not in doc)
+    assert not missing_top, f"CLI.md omits top-level commands: {missing_top}"
+
+    admin = groups[0].choices["admin"]
+    admin_subs = [a for a in admin._actions if isinstance(a, argparse._SubParsersAction)]
+    admin_groups = set(admin_subs[0].choices) if admin_subs else set()
+    missing_admin = sorted(g for g in admin_groups if f"mcpip admin {g}" not in doc)
+    assert not missing_admin, f"CLI.md omits admin groups: {missing_admin}"
+
+
+def test_sandbox_capabilities_lists_the_real_uuids(
+    cli_env: dict[str, str], capsys: Any
+) -> None:
+    """`mcpip sandbox capabilities` closes the "what do I pass to --cap?" gap.
+
+    Every privileged action gates on a capability UUID, and Getting Started points
+    at /v1/dev/capabilities to discover them — but there was no command, so the
+    CLI path ended at curl.
+    """
+    from interfaces import CAP_CATALOG_REVIEWER, CAP_DIRECTORY_ADMIN, CAP_FORENSIC_READ
+
+    code, out, _ = _run(["--json", "sandbox", "capabilities"], capsys)
+    assert code == ExitCode.OK
+    rows = {row["name"]: row["uuid"] for row in json.loads(out)}
+    assert rows["CAP_DIRECTORY_ADMIN"] == CAP_DIRECTORY_ADMIN
+    assert rows["CAP_FORENSIC_READ"] == CAP_FORENSIC_READ
+    assert rows["CAP_CATALOG_REVIEWER"] == CAP_CATALOG_REVIEWER
+
+
+def test_sandbox_capabilities_mints_a_working_admin_token(
+    cli_env: dict[str, str], capsys: Any, monkeypatch: Any
+) -> None:
+    """The documented flow end to end: discover the UUID, then mint with it.
+
+    MCPIP_TOKEN is cleared first because it outranks the context the mint wires —
+    documented precedence, and the reason `dev-token` now warns when it applies.
+    """
+    monkeypatch.delenv("MCPIP_TOKEN", raising=False)
+    code, out, _ = _run(["--json", "sandbox", "capabilities"], capsys)
+    admin_uuid = next(
+        row["uuid"] for row in json.loads(out) if row["name"] == "CAP_DIRECTORY_ADMIN"
+    )
+    code, _, _ = _run(
+        ["sandbox", "dev-token", "--agent", "ops-admin", "--cap", admin_uuid], capsys
+    )
+    assert code == ExitCode.OK
+    # The minted token must actually satisfy an admin-gated read.
+    code, out, _ = _run(["--json", "admin", "skills", "ls"], capsys)
+    assert code == ExitCode.OK, out
+
+
+def test_dev_token_warns_when_a_higher_precedence_source_shadows_it(
+    cli_env: dict[str, str], capsys: Any
+) -> None:
+    """Minting into a context that MCPIP_TOKEN outranks must say so.
+
+    `dev-token` reports `context_wired: true`, which is accurate — but with
+    MCPIP_TOKEN set, the very next command uses a different identity, and the
+    mismatch surfaces as an opaque 403 with nothing pointing at the cause. The
+    precedence is correct and documented; the silence was the problem.
+    """
+    # cli_env sets MCPIP_TOKEN to a plain agent bearer.
+    code, out, _ = _run(["sandbox", "dev-token", "--agent", "shadowed"], capsys)
+    assert code == ExitCode.OK
+    assert "MCPIP_TOKEN" in out and "outranks" in out
+
+    code, out, _ = _run(["--json", "sandbox", "dev-token", "--agent", "shadowed"], capsys)
+    assert code == ExitCode.OK
+    payload = json.loads(out)
+    assert payload["context_wired"] is True
+    assert "MCPIP_TOKEN" in (payload["shadowed_by"] or "")
+    # The token itself must never be printed, warning or not.
+    assert "eyJ" not in out

@@ -37,7 +37,7 @@ dependencies = [
 mcpip = "mcpip_sdk.cli:main"
 
 [project.urls]
-Documentation = "https://github.com/mcpip/mcpip/blob/main/docs/SDK.md"
+Documentation = "https://github.com/mcpip-security/mcpip/blob/main/docs/start/SDK.md"
 
 [tool.setuptools.packages.find]
 where = ["src"]

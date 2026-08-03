@@ -313,6 +313,11 @@ def _build_sandbox(sub: argparse._SubParsersAction[argparse.ArgumentParser], par
     )
     dev.add_argument("--out", metavar="FILE", help="write the token to FILE (O_EXCL 0600) instead")
 
+    # The capability UUIDs gate every privileged action, and GETTING_STARTED points at
+    # /v1/dev/capabilities to discover them — but there was no command, so the CLI path
+    # ended at curl. needs_resolve=False: the endpoint is unauthenticated.
+    _leaf(ssub, "capabilities", sandbox.cmd_sandbox_capabilities, help="the well-known capability UUIDs, by name", needs_resolve=False, parent=parent)
+
     auth = _leaf(ssub, "authenticator", sandbox.cmd_sandbox_authenticator, help="fetch a step-up OTP and complete inline (never echoed)", parent=parent)
     auth.add_argument("challenge")
     auth.add_argument("--out", metavar="FILE", help="write the OTP to FILE (O_EXCL 0600) instead of completing")
