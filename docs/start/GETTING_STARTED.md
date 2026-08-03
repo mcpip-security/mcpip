@@ -121,6 +121,7 @@ sleep 2 && curl -s http://localhost:8080/healthz
 
 ```bash
 python main.py                       # 29 checks: 7 allow-paths + 22 attacks — exits 0 iff every one holds
+                                     # (runs in its own Redis db 15; it RESETS what it uses)
 docker compose --profile demo up     # the same demo, containerized
 cd dashboard && npm install && npm run dev     # operator console → :5173
 ```

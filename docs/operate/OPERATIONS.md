@@ -10,7 +10,9 @@ backup/restore, incident response, audit verify/export, monitoring, upgrades), t
 non-bypassability / network-enforcement story, deploying behind a service mesh or
 identity-aware proxy, the operator console and its desktop packaging, and multi-region
 topology with data residency. Every command below is copy-paste runnable from the repository
-root (substitute your checkout path) and references only files that ship in this repository.
+root (substitute your checkout path). The one exception is release verification: the signed
+manifest names build outputs (`dist/*`) that a git checkout does not carry, so those commands
+need an unpacked release or air-gap bundle — see [Release](RELEASE.md).
 Deeper, still-authoritative references are linked where they stay separate:
 [`ARCHITECTURE.md`](../integrate/ARCHITECTURE.md) (components, invariants, SPIFFE / workload-identity model,
 OAuth resource-server surface), [`TELEMETRY.md`](TELEMETRY.md) (opt-in telemetry + privacy
@@ -398,9 +400,28 @@ runs there.
    is not `"active"` — the air-gap `INSTALL.md` instructs enclave operators to check
    `keys/rotation.json` explicitly.
 
-The audit epoch key rotates independently through your secret-management process
-(update the `mcpip-keys` Secret / mounted PEM and redeploy); previously sealed epochs
-remain verifiable because each epoch header records its signature at sealing time.
+> **The audit epoch key is NOT hot-rotatable.** Every epoch signature is verified against
+> the single currently-loaded public key (`audit/worm_logger.py`, `verify_chain`), so
+> swapping the PEM and redeploying makes the **entire pre-rotation chain** report
+> `intact: false` at epoch 0 — permanently, and indistinguishably from real tampering.
+> `verify_chain`, `export-audit --verify`, `GET /v1/audit/verify` and the compliance
+> evidence bundle all report TAMPERED afterwards. Reproduced: sign three events and seal
+> under key A → `(True, None)`; load key B → `(False, 0)`.
+>
+> **The honest procedure is seal-and-archive, not rotate:**
+>
+> 1. Stop writing: drain the gateway or take it out of rotation.
+> 2. `close_epoch()`, then `export-audit --verify --pubkey <OLD public key>` and store the
+>    export **with that public key** — it is the only thing that can ever verify the archive.
+> 3. Start a **new chain** under the new key (a fresh Redis WORM keyspace and a fresh
+>    anchor file). Do not point a new key at an existing chain.
+> 4. Retain both public keys for as long as your retention policy covers the old archive.
+>
+> Verification then spans two chains, each under its own key. Treat the boundary as a
+> documented gap in the record, not a break.
+
+The **release** signing root and the **audit epoch** key are separate; the paragraph above
+applies only to the audit epoch key.
 
 **WORM content key (opt-in at-rest encryption).** When `MCPIP_ENCRYPT_WORM_AT_REST` is
 on, each event body is sealed with AES-256-GCM under a fresh random 96-bit nonce
@@ -805,8 +826,14 @@ chain prints `audit chain: TAMPERED — <check> failed at epoch <k>` to stderr a
 against their signed root and are reported separately — never folded into the verified
 count. In sandbox mode the same checks are reachable over HTTP (`GET /v1/audit/verify`,
 `GET /v1/audit/proof/{event_id}`); those endpoints return `404` in production —
-use `export-audit` there. The self-contained proof also runs as part of
-`./.venv/bin/python main.py` (gate C9), which exits `0` only with the chain INTACT.
+use `export-audit` there.
+
+> **`main.py` is NOT read-only — do not run it here.** The proof RESETS the WORM chain,
+> grants, pin locks, step-ups and policies in its target Redis before it runs. It now
+> defaults to its own database (`/15`) and its own ledger path so it cannot reach a
+> gateway's, and it refuses to wipe a populated database you point it at explicitly unless
+> you pass `--reset`. Its gate C9 verifies a chain the proof itself just built, so it says
+> nothing about your deployment. To check a real chain, use `export-audit --verify` above.
 
 One deliberate difference from the in-gateway `verify_chain`: the exporter takes **no
 epoch lock** (that is what makes it production-safe), so it cannot distinguish a
@@ -897,8 +924,12 @@ plan renewals with your redeploy cadence.
 3. Publish the new fingerprint out-of-band; instruct all enclaves to re-verify their
    deployed bundles against it and hard-stop on the old key.
 4. Audit-epoch key compromise does **not** let an attacker rewrite history silently:
-   sealed epochs are chained and anchored; rotate the key and re-verify the chain against
-   the anchor.
+   sealed epochs are chained and anchored, and the out-of-tamper-domain anchor catches
+   rollback or truncation. **Do not rotate the audit-epoch key here.** Rotation orphans the
+   existing chain — every sealed epoch then fails verification, destroying exactly the
+   evidence this incident needs. Verify the chain against the anchor **under the current
+   key** first, preserve it, and only then follow the seal-and-archive procedure in
+   [Key generation & rotation](#key-generation--rotation-offline-ed25519-roots).
 
 #### Sustained `503` shedding / overload
 

@@ -1,8 +1,18 @@
 # ◐ MCPIP — Release Ceremony Runbook
 
 **Audience:** the release engineer cutting a signed, verifiable MCPIP release, and the
-customer verifying a deploy. Every command is copy-paste runnable from the repository
-root and references only files that ship in this repository.
+customer verifying a deploy. Every command is copy-paste runnable from the repository root.
+
+> **Verification needs a release, and a git checkout is not one.** The signed manifest
+> lists build outputs (`dist/*.whl`, `dist/*.tar.gz`) that are gitignored and therefore
+> absent from a fresh clone, so running the verify step here fails closed with the opaque
+> `verification failed` / exit 2 — correctly, because the artifacts really are missing.
+> Verify against a **downloaded release or air-gap bundle** — that is what the command is
+> for. Building locally does not substitute: the committed `release/manifest.json` is signed
+> for `2.0.0` while `VERSION` reads `3.0.0`, so a fresh build produces artifacts the manifest
+> does not name. Re-signing at the current version is an owner offline-key step (CI's
+> integrity-manifest drift check is warn-only for exactly this reason). The verifier's
+> opacity is deliberate, so it will not tell you which of these it hit.
 
 **What a release IS:** a set of SHA-256 artifact digests signed with an **offline
 Ed25519 release-root key**, plus a signed **source integrity manifest** the gateway
@@ -190,7 +200,9 @@ Verification is pure local cryptography — no network, no TLS dependency.
 # 1) Confirm the release public-key fingerprint against your out-of-band copy
 #    (the key id printed by the signer, e.g. ed25519:<16 hex>).
 
-# 2) Verify the release manifest + every listed artifact on disk:
+# 2) Verify the release manifest + every listed artifact on disk.
+#    --base-dir must contain the artifacts the manifest names: an unpacked release or
+#    air-gap bundle, or a checkout where `python -m build` has populated dist/.
 ./.venv/bin/python -m mcpip_verify.cli verify \
   --manifest release/manifest.json \
   --pubkey release/keys/release_root_ed25519.pub.pem \
