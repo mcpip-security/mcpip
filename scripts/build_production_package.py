@@ -98,6 +98,8 @@ INCLUDE_DIRS: tuple[str, ...] = (
     "dashboard",
     "deploy",        # chart/ + k8s/ + redis.conf + the production env template
     "docs",
+    "integrations",  # host-side adapters (OpenClaw, …) — distribution surface, and the
+                     # skill file IS the artifact people install, so it must ship.
     "load",          # k6 suite behind docs/evidence/LOAD_AT_SCALE.md — the numbers must be re-runnable.
     "mcpip_verify",
     "models",

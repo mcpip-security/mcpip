@@ -144,6 +144,15 @@ direct form and has no vendor alias. Every id is listed in [API.md](docs/start/A
 The format is declared because sniffing lets a caller pick the parser that validates least. An
 unknown vendor is an opaque `403`; a request declaring neither field is a `422`.
 
+### Host integrations
+
+Because the gateway *is* an MCP server, any MCP client can put its tool calls behind it with
+no new code. [`integrations/openclaw/`](integrations/openclaw/) is that, packaged as a
+drop-in skill for [OpenClaw](https://docs.openclaw.ai) — a local-first assistant that holds
+real credentials, acts on a heartbeat, and runs community-authored markdown skills. It also
+tells the agent how to behave when it is refused, which is the half that usually goes
+missing: do not retry, do not route around, report the correlation id and stop.
+
 MCPIP is an authorization **interceptor, not a proxy**. Your application calls its model
 directly, with its own keys and its own billing. MCPIP receives only the resulting tool call.
 Every connector is a pure parser: no LLM SDKs, no credentials, no outbound network. That is
