@@ -116,15 +116,36 @@ def cmd_extensions_pending(rt: Runtime, args: argparse.Namespace) -> int:
     elif rt.mode.json:
         emit_json(pending)
     else:
+        # `target` and `conflicts` are the two columns a review actually turns on,
+        # and neither was here. The model has carried both all along and its own
+        # docstring calls the target "a REVIEWER-only surface — it is the reviewer's
+        # job to inspect it before approving", but the human table showed only the
+        # alias, so a benign `skill_reports -> rest.reports.read` and an attempted
+        # hijack `skill_reports -> attacker.example.com` rendered as identical rows.
+        # The detail was reachable only via --json, which is not what a person
+        # reviewing a queue types. Nothing new is disclosed: this surface is
+        # CAP_CATALOG_REVIEWER-gated and the target never crosses the agent wire.
         print(
             table(
-                ["submission_id", "kind", "alias/gate", "risk_tier", "approvable"],
+                [
+                    "submission_id",
+                    "kind",
+                    "alias/gate",
+                    "target",
+                    "risk_tier",
+                    "conflicts",
+                    "approvable",
+                ],
                 [
                     (
                         p.submission_id,
                         p.kind,
-                        p.alias if p.kind == "skill" else p.gate_id,
-                        p.risk_tier,
+                        (p.alias if p.kind == "skill" else p.gate_id) or "-",
+                        p.target or "-",
+                        p.risk_tier or "-",
+                        # An approve would be refused additive-only, so this row is
+                        # either a mistake or a hijack attempt. Loud on purpose.
+                        "YES" if p.conflicts_existing_alias else "-",
                         p.approvable,
                     )
                     for p in pending

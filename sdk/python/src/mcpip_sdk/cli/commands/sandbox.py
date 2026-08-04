@@ -11,6 +11,8 @@ into an inline ``complete`` or written to a 0600 file, NEVER echoed.
 from __future__ import annotations
 
 import argparse
+import base64
+import json
 import os
 import uuid
 from dataclasses import replace
@@ -20,6 +22,24 @@ from mcpip_sdk.cli._runtime import Runtime
 from mcpip_sdk.cli.commands.agent import _discard_staged, _load_staged, _render_receipt
 from mcpip_sdk.cli.errors import CLIConfigError, ExitCode
 from mcpip_sdk.cli.render import block, emit_list, emit_object, table
+
+
+def _agent_id_of_token_file(path: str) -> str | None:
+    """The ``agent_id`` in an existing token file, or ``None`` if unreadable.
+
+    Display only, and deliberately forgiving: this exists to name whose bearer is
+    about to be rotated away, so anything unparseable simply means the note is
+    skipped. It never gates the mint.
+    """
+    try:
+        with open(path, encoding="utf-8") as handle:
+            token = handle.read().strip()
+        segment = token.split(".")[1]
+        claims = json.loads(base64.urlsafe_b64decode(segment + "=" * (-len(segment) % 4)))
+    except Exception:  # noqa: BLE001 — a missing or malformed file is not an error here
+        return None
+    agent = claims.get("agent_id") or claims.get("sub")
+    return str(agent) if agent else None
 
 
 def cmd_sandbox_dev_token(rt: Runtime, args: argparse.Namespace) -> int:
@@ -49,14 +69,38 @@ def cmd_sandbox_dev_token(rt: Runtime, args: argparse.Namespace) -> int:
         cfg.write_secret_file(args.out, token, exclusive=True)  # O_EXCL 0600
         path = args.out
         wired = False
+        replaced_agent = None
     else:
         path = cfg.default_token_path(name)
+        # One bearer per context. Overwriting is the intended behaviour (a re-mint
+        # must rotate), but doing it silently makes command ORDER load-bearing in a
+        # way nothing announces: mint an admin identity, mint an agent identity,
+        # and the admin token is simply gone — the next `admin` call answers an
+        # opaque 403 that reads exactly like a missing capability. Read who is
+        # about to be displaced so it can be said out loud.
+        replaced_agent = _agent_id_of_token_file(path)
         cfg.write_secret_file(path, token, exclusive=False)  # atomic 0600 rotate
         # Wire the context's token-source at file:PATH so later commands use it,
         # and persist the session id so the next mint reuses it.
+        #
+        # The gateway recorded here MUST be the one the token was actually minted
+        # against. It used to keep `existing.base_url` whenever the context already
+        # existed, so `mcpip sandbox dev-token --gateway http://other:8080` minted
+        # from `other`, wired the context to the OLD gateway, and reported
+        # `context_wired: true` — after which every command sent one gateway's
+        # token to another and got an opaque 403 with nothing pointing at the
+        # cause. An explicit --gateway is a statement about which gateway this
+        # context means; honour it, since `rt.resolved.base_url` is exactly the
+        # URL the mint above used.
+        explicit_gateway = getattr(args, "gateway", None)
+        base_url = (
+            rt.resolved.base_url
+            if explicit_gateway is not None or existing is None
+            else existing.base_url
+        )
         ctx = cfg.Context(
             name=name,
-            base_url=existing.base_url if existing else rt.resolved.base_url,
+            base_url=base_url,
             sandbox=existing.sandbox if existing else rt.resolved.sandbox,
             token_source=f"file:{path}",
             session_id=session_id,
@@ -78,6 +122,17 @@ def cmd_sandbox_dev_token(rt: Runtime, args: argparse.Namespace) -> int:
             shadow = "an explicit --token-* flag outranks the context for this invocation"
     if shadow is not None and not rt.mode.quiet and not rt.mode.json:
         print(f"warning: {shadow}")
+    if (
+        replaced_agent is not None
+        and replaced_agent != args.agent
+        and not rt.mode.quiet
+        and not rt.mode.json
+    ):
+        print(
+            f"note: replaced the bearer for {replaced_agent!r} in context "
+            f"{name!r} — one token per context. Keep both with "
+            f"--out FILE, or a second context."
+        )
 
     # NEVER print the token — only where it landed.
     emit_object(
@@ -86,7 +141,9 @@ def cmd_sandbox_dev_token(rt: Runtime, args: argparse.Namespace) -> int:
             "token_written": True,
             "path": path,
             "context_wired": wired,
+            "gateway": ctx.base_url if wired else None,  # noqa: F821 — bound iff wired
             "shadowed_by": shadow,
+            "replaced_agent_id": replaced_agent if replaced_agent != args.agent else None,
             "agent_id": args.agent,
             "session_id": session_id,
         },
@@ -95,6 +152,10 @@ def cmd_sandbox_dev_token(rt: Runtime, args: argparse.Namespace) -> int:
                 ("token_written", True),
                 ("path", path),
                 ("context_wired", wired),
+                # The gateway the token was minted against AND the one the context
+                # now points at — they were allowed to disagree; naming it makes a
+                # future divergence visible rather than a silent 403.
+                *([("gateway", ctx.base_url)] if wired else []),
                 ("agent_id", args.agent),
                 ("session_id", session_id),
             ]
