@@ -44,6 +44,7 @@ and neither of those identities can read the decision feed. There is no super-ad
 
 | document | question it answers |
 |---|---|
+| [**TIME_TO_FIRST_CALL.md**](TIME_TO_FIRST_CALL.md) | How long from nothing to a governed allow *and* a governed deny — 13 s cold-clone to nine decisions on the sandbox path, and ≈15 s to a first authorized call in full fail-closed production posture, including registering an alias of your own. |
 | [**E2E_WALKTHROUGH.md**](E2E_WALKTHROUGH.md) | One production cycle end to end: key ceremony · signed license · the four gates that refuse a production boot · governed Cloudflare and GitHub calls with full request/response · the PIN step-up cycle including replay denial · WORM trace and tamper detection · period SOC 2 reporting. |
 | [**ORGANIZATION_AT_SCALE.md**](ORGANIZATION_AT_SCALE.md) | A whole org at once: concurrent multi-agent traffic from separate client hosts, the persona matrix, and a live revocation mid-traffic. |
 | [**LOAD_AT_SCALE.md**](LOAD_AT_SCALE.md) | Cross-type comparison under load: which surface degrades **first** (the auditor's `verify_chain`), and the direction of failure past the knee. |

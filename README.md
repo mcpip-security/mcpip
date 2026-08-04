@@ -26,6 +26,12 @@ git clone https://github.com/mcpip-security/mcpip.git && cd mcpip
 ./scripts/quickstart.sh
 ```
 
+**13 seconds** from a cold clone to nine real decisions — five allowed, four denied
+opaquely — and about **15** to a first authorized call in full fail-closed production
+posture, self-issued keys and signed license included. Measured, with transcripts and the
+caveats, in [Time to first authorized call](docs/evidence/TIME_TO_FIRST_CALL.md); the
+script prints *your* number rather than ours.
+
 On macOS the script installs Redis via Homebrew if it is missing. On Linux, install it
 first — `sudo apt-get install redis-server`, or the equivalent for your distribution.
 
@@ -229,7 +235,7 @@ compliance evidence bundle. Desktop builds are in [Operations](docs/operate/OPER
 | **Operate** | [Operations](docs/operate/OPERATIONS.md) · [Compliance](docs/operate/COMPLIANCE.md) · [Response playbook](docs/operate/RESPONSE_PLAYBOOK.md) · [Telemetry](docs/operate/TELEMETRY.md) · [Release](docs/operate/RELEASE.md) |
 | **Build** | [Architecture](docs/integrate/ARCHITECTURE.md) · [Repository reference](docs/integrate/REPOSITORY.md) · [Integrations](docs/integrate/INTEGRATIONS.md) · [Extensibility](docs/integrate/EXTENSIBILITY.md) · [Workspace generate](docs/integrate/WORKSPACE_GENERATE.md) · [Local model](docs/integrate/LOCAL_MODEL.md) |
 | **Understand** | [Whitepaper](docs/background/WHITEPAPER.md) · [Threat model](docs/SECURITY_THREAT_MODEL.md) · [Session delegation](docs/SESSION_DELEGATION_DESIGN.md) |
-| **Verify** | [Evidence](docs/evidence/README.md) — real runs, with transcripts, including what each run did *not* prove |
+| **Verify** | [Evidence](docs/evidence/README.md) — real runs, with transcripts, including what each run did *not* prove · [Time to first call](docs/evidence/TIME_TO_FIRST_CALL.md) |
 
 Everything is indexed in [`docs/`](docs/README.md).
 
