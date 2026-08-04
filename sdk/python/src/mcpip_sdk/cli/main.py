@@ -16,6 +16,7 @@ import sys
 from typing import Callable, Sequence
 
 from mcpip_sdk import __version__ as _sdk_version
+from mcpip_sdk.admin import DECISION_FILTER_FIELDS
 from mcpip_sdk.cli import config as cfg
 from mcpip_sdk.cli._runtime import Runtime
 from mcpip_sdk.cli.errors import CLIConfigError, ExitCode, map_exception
@@ -444,13 +445,17 @@ def _build_admin(sub: argparse._SubParsersAction[argparse.ArgumentParser], paren
     dhist.add_argument("--to-ms", dest="to_ms", type=int, default=None, help="inclusive upper bound (epoch ms)")
     dhist.add_argument("--cursor", default=None, help="resume token from a prior page's next_cursor")
     dhist.add_argument("--limit", type=int, default=100, help="rows per page (clamped server-side)")
+    # The facet list is generated, never transcribed: it was written out by hand
+    # here and drifted two fields behind the gateway (session_id and
+    # delegation_id shipped filterable but undiscoverable). An unknown key is now
+    # a hard error, so a stale help string would refuse a facet that works.
     dhist.add_argument(
         "--filter",
         action="append",
         metavar="KEY=VALUE",
-        help="facet filter, repeatable; VALUE may be comma-separated "
-        "(decision/deny_reason/alias/transport/risk_tier/classification/"
-        "agent_id/source_format/correlation_id/transaction_ref)",
+        help="facet filter, repeatable; VALUE may be comma-separated ("
+        + "/".join(sorted(DECISION_FILTER_FIELDS))
+        + ")",
     )
     dhist.add_argument("--all", action="store_true", help="walk the whole window (export all; pipe --json)")
 

@@ -17,6 +17,7 @@ import time
 from datetime import datetime, timezone
 from typing import Any
 
+from mcpip_sdk.admin import DECISION_FILTER_FIELDS, _reject_unknown_filter_field
 from mcpip_sdk.cli._runtime import Runtime
 from mcpip_sdk.cli.args import load_document
 from mcpip_sdk.cli.auth import resolve_material
@@ -385,14 +386,27 @@ def _parse_decision_filters(pairs: list[str] | None) -> dict[str, str]:
 
     Repeating a key ORs its values (``--filter decision=allow --filter
     decision=deny`` → ``decision=allow,deny``); a value may itself be comma-
-    separated. Malformed pairs (no ``=``, empty side) are dropped.
+    separated.
+
+    Both failure modes are LOUD, and that is the whole point. A malformed pair
+    used to be dropped and an unknown key used to be forwarded; the gateway
+    ignores query parameters outside its whitelist, so ``--filter agentid=x``
+    printed *every* row in the window with exit 0 and no warning. An operator
+    filtering an audit to one agent silently got the whole tenant — the answer
+    was not merely wrong, it looked authoritative.
     """
     filters: dict[str, str] = {}
     for pair in pairs or []:
         key, sep, value = pair.partition("=")
         key, value = key.strip(), value.strip()
         if not sep or not key or not value:
-            continue
+            raise CLIConfigError(
+                f"--filter expects KEY=VALUE with both sides non-empty; got {pair!r}"
+            )
+        try:
+            _reject_unknown_filter_field(key)
+        except ValueError as exc:
+            raise CLIConfigError(str(exc)) from None
         filters[key] = f"{filters[key]},{value}" if key in filters else value
     return filters
 
@@ -603,7 +617,25 @@ def cmd_quarantine(rt: Runtime, args: argparse.Namespace) -> int:
     elif rt.mode.json:
         emit_json(rows)
     else:
-        print(table(["agent_id", "ttl_seconds"], [(r.agent_id, r.ttl_seconds) for r in rows]))
+        # `tripped_alias` is the column an operator actually triages on: one agent
+        # frozen on one alias is a mistake, five agents frozen on five different
+        # decoys is an enumeration sweep, and the roster is where that shape shows
+        # up first. `correlation_id` is carried so `mcpip why <id>` and the WORM
+        # lookup are a copy-paste away rather than a separate hunt.
+        print(
+            table(
+                ["agent_id", "ttl_seconds", "tripped_alias", "correlation_id"],
+                [
+                    (
+                        r.agent_id,
+                        r.ttl_seconds,
+                        r.tripped_alias or "-",
+                        r.correlation_id or "-",
+                    )
+                    for r in rows
+                ],
+            )
+        )
     return ExitCode.OK
 
 

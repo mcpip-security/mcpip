@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import json
 import time
+from dataclasses import dataclass
 from typing import Any
 
 import redis.asyncio as redis
@@ -35,6 +36,38 @@ from redis.exceptions import RedisError
 
 from auth import LockError
 from interfaces import MAX_QUARANTINE_ROSTER, QUARANTINE_TTL_SECONDS
+
+
+@dataclass(frozen=True, slots=True)
+class QuarantineRecord:
+    """One frozen principal, as the operator roster sees it.
+
+    ``agent_id`` and ``ttl_seconds`` are always present. The three forensic fields
+    come from the mark written at trip time and are ``None`` only if that mark is
+    unreadable or predates this shape — never a reason to omit the row.
+
+    Nothing here is agent-reachable: the roster is ``CAP_DIRECTORY_ADMIN``-gated and
+    tenant-scoped, and every field is already in the WORM record for the same
+    correlation id. The opacity boundary is the *agent's* wire, not the operator's.
+    """
+
+    agent_id: str
+    ttl_seconds: int
+    tripped_alias: str | None = None
+    correlation_id: str | None = None
+    quarantined_at_ns: int | None = None
+
+
+def _decode_mark(raw: Any) -> dict[str, Any]:
+    """Best-effort decode of a stored mark; ``{}`` for anything unusable."""
+    if raw is None:
+        return {}
+    try:
+        text = raw.decode() if isinstance(raw, (bytes, bytearray)) else str(raw)
+        loaded = json.loads(text)
+    except (ValueError, UnicodeDecodeError):
+        return {}
+    return loaded if isinstance(loaded, dict) else {}
 
 
 def _glob_escape(text: str) -> str:
@@ -115,9 +148,9 @@ class QuarantineStore:
 
     async def list_quarantined(
         self, tenant_id: str, *, limit: int = MAX_QUARANTINE_ROSTER
-    ) -> list[tuple[str, int]]:
+    ) -> list[QuarantineRecord]:
         """
-        Return ``(agent_id, ttl_seconds)`` for every agent currently frozen in
+        Return a :class:`QuarantineRecord` for every agent currently frozen in
         ``tenant_id`` — the operator's roster view, bounded to ``limit`` rows.
 
         Uses non-blocking ``SCAN`` over the tenant-scoped key prefix (glob-escaped, so
@@ -127,9 +160,20 @@ class QuarantineStore:
         Fail-soft (mirrors ``RevocationStore.list_revoked``): a transport error yields
         ``[]`` rather than raising — this backs a read-only admin listing, never an
         authorization decision; enforcement stays the fail-closed ``is_quarantined``.
+
+        **Why the payload is read and not just the TTL.** ``quarantine`` has always
+        written ``tripped_alias`` / ``correlation_id`` / ``quarantined_at_ns``, and its
+        docstring calls them "operator forensics" — but this method only ever read the
+        TTL, so the roster answered ``{agent_id, ttl_seconds}`` and the forensics were
+        write-only. An operator seeing a frozen agent could not tell an enumeration
+        sweep from one fat-fingered alias without going to the WORM log for a
+        correlation id the roster already had in hand. The mark is read with the same
+        ``GET`` the key already needs; a mark that is unreadable or malformed degrades
+        to ``None`` fields rather than dropping the row, because *which* agent is frozen
+        is the load-bearing part and must never be hidden by a decoding failure.
         """
         prefix = self._key(tenant_id, "")
-        found: list[tuple[str, int]] = []
+        found: list[QuarantineRecord] = []
         try:
             async for key in self._redis.scan_iter(match=_glob_escape(prefix) + "*"):
                 text = key.decode() if isinstance(key, bytes) else str(key)
@@ -137,14 +181,24 @@ class QuarantineStore:
                 remaining = int(ttl)
                 if remaining == -2:
                     continue  # vanished between SCAN and TTL — no longer frozen.
+                raw: Any = await self._redis.get(text)
+                mark = _decode_mark(raw)
                 # -1 (no expiry) cannot arise from ``quarantine`` (it always sets EX);
                 # pass it through verbatim rather than hide a frozen principal.
-                found.append((text[len(prefix):], remaining))
+                found.append(
+                    QuarantineRecord(
+                        agent_id=text[len(prefix):],
+                        ttl_seconds=remaining,
+                        tripped_alias=mark.get("tripped_alias"),
+                        correlation_id=mark.get("correlation_id"),
+                        quarantined_at_ns=mark.get("quarantined_at_ns"),
+                    )
+                )
                 if len(found) >= limit:
                     break
         except RedisError:
             return []
-        return found
+        return sorted(found, key=lambda record: record.agent_id)
 
 
-__all__ = ["QuarantineStore"]
+__all__ = ["QuarantineRecord", "QuarantineStore"]

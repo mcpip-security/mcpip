@@ -475,7 +475,25 @@ def test_quarantine_roster_shows_tripped_agent_then_expires(
     assert len(rows) == 1, roster
     ttl = rows[0]["ttl_seconds"]
     assert isinstance(ttl, int) and 0 < ttl <= QUARANTINE_TTL_SECONDS
-    assert set(rows[0].keys()) == {"agent_id", "ttl_seconds"}
+
+    # STRICT projection: exactly these keys, no more. The roster is the operator's
+    # triage screen, so it names WHICH decoy tripped and under WHICH correlation id —
+    # without those it could say an agent was frozen but not whether this was one
+    # mistyped alias or an enumeration sweep. Both fields are already in the WORM
+    # record for the same id and the caller has proven CAP_DIRECTORY_ADMIN, so nothing
+    # new is disclosed; the agent's wire stayed opaque above (`_assert_opaque_denial`).
+    assert set(rows[0].keys()) == {
+        "agent_id",
+        "ttl_seconds",
+        "tripped_alias",
+        "correlation_id",
+        "quarantined_at_ns",
+    }
+    # The alias named is the DECOY the agent called, never a real backend target.
+    assert rows[0]["tripped_alias"] == _CANARY_ALIAS
+    # The correlation id is the tripping request's, so `mcpip why` resolves it.
+    assert rows[0]["correlation_id"] == _json(tripped)["correlation_id"]
+    assert isinstance(rows[0]["quarantined_at_ns"], int)
 
     # Tenant-scoped: another tenant's admin sees an empty roster, not this freeze.
     other = _json(client.get("/v1/admin/quarantine", headers=_admin(idp, "tenant-globex")))

@@ -882,16 +882,30 @@ class PendingExtension:
 
 @dataclass(frozen=True, slots=True)
 class QuarantinedAgent:
-    """One canary-tripwire freeze — clears when its Redis TTL expires."""
+    """One canary-tripwire freeze — clears when its Redis TTL expires.
+
+    ``tripped_alias`` and ``correlation_id`` say *why* the freeze exists: which
+    decoy the agent called, and the id under which that request is in the WORM
+    log. They are ``None`` only against a gateway older than the roster change
+    that began returning them, or if the stored mark was unreadable — a row is
+    never withheld for want of them, because which agent is frozen is the part
+    an operator acts on.
+    """
 
     agent_id: str
     ttl_seconds: int
+    tripped_alias: str | None = None
+    correlation_id: str | None = None
+    quarantined_at_ns: int | None = None
 
     @classmethod
     def from_wire(cls, payload: Mapping[str, Any]) -> "QuarantinedAgent":
         return cls(
             agent_id=_str_of(payload, "agent_id"),
             ttl_seconds=_int_of(payload, "ttl_seconds"),
+            tripped_alias=_opt_str(payload, "tripped_alias"),
+            correlation_id=_opt_str(payload, "correlation_id"),
+            quarantined_at_ns=_opt_int(payload, "quarantined_at_ns"),
         )
 
 

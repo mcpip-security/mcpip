@@ -5340,13 +5340,20 @@ async def query_decisions(request: Request) -> Response:
 
     Query params (all optional): ``from_ms``/``to_ms`` (inclusive epoch-millisecond window),
     ``cursor`` (opaque resume token = the prior page's ``next_cursor``; overrides ``to_ms``),
-    ``limit`` (rows per page, clamped to ``MAX_DECISIONS_PAGE``), and any of the whitelist
-    facets (``decision``/``deny_reason``/``alias``/``transport``/``risk_tier``/
-    ``classification``/``agent_id``/``source_format``/``correlation_id``/``transaction_ref``)
-    as comma-separated value lists (OR within a facet, AND across facets). Malformed bounds /
-    cursor are ignored (fail toward a wider, never a wrong, window; a bad cursor never reaches
-    Redis). Returns ``{decisions, next_cursor, scanned, exhausted}``. Any auth failure is an
-    opaque ``MCPIPDenied``.
+    ``limit`` (rows per page, clamped to ``MAX_DECISIONS_PAGE``), and any of the twelve
+    whitelist facets in ``_DECISION_FILTER_FIELDS`` as comma-separated value lists (OR within
+    a facet, AND across facets). Malformed bounds / cursor are ignored (fail toward a wider,
+    never a wrong, window; a bad cursor never reaches Redis). Returns
+    ``{decisions, next_cursor, scanned, exhausted}``. Any auth failure is an opaque
+    ``MCPIPDenied``.
+
+    An unrecognised query parameter is IGNORED here, which is correct for a server —
+    echoing it back would be an input oracle, and rejecting it would break forward
+    compatibility. The cost lands on the client: an unknown facet means the range comes
+    back UNFILTERED, not empty. That is why the SDK refuses the key before it is sent
+    (``mcpip_sdk.admin.DECISION_FILTER_FIELDS``), and why the two lists are pinned to each
+    other by ``tests/test_decision_filter_contract.py`` rather than kept in step by hand —
+    this docstring itself had drifted two fields behind the tuple below.
     """
     identity = await _require_directory_admin(request)
     params = request.query_params
@@ -5410,17 +5417,34 @@ async def query_decisions(request: Request) -> Response:
 async def list_quarantined_agents(request: Request) -> Response:
     """
     List the agents currently frozen by the canary tripwire in the admin's OWN tenant,
-    each with the seconds remaining on its TTL-bounded freeze. Requires
-    ``CAP_DIRECTORY_ADMIN``; any failure is an opaque ``MCPIPDenied``. Read-only —
-    the freeze is written only by the pipeline's canary gate and expiry is Redis's
-    clock (there is no un-quarantine mutation; a false trip self-heals at TTL, and a
-    deliberate persistent block is the SEPARATE revocation kill-switch).
+    each with the seconds remaining on its TTL-bounded freeze, **which alias tripped it,
+    and the correlation id of the tripping request**. Requires ``CAP_DIRECTORY_ADMIN``;
+    any failure is an opaque ``MCPIPDenied``. Read-only — the freeze is written only by
+    the pipeline's canary gate and expiry is Redis's clock (there is no un-quarantine
+    mutation; a false trip self-heals at TTL, and a deliberate persistent block is the
+    SEPARATE revocation kill-switch).
+
+    The roster used to answer ``{agent_id, ttl_seconds}`` only, while the store had been
+    recording the trip details all along — so the one screen that tells an operator an
+    agent is frozen could not tell them *why*, and distinguishing a credential-theft
+    enumeration sweep from one mistyped alias meant leaving for the WORM log to look up a
+    correlation id this response was already holding. Nothing new is disclosed: the
+    caller has proven ``CAP_DIRECTORY_ADMIN``, the scan is tenant-scoped, and the same
+    fields sit in the WORM record for that correlation id. The opacity boundary is the
+    AGENT's wire — the tripping request and every subsequent one still receive the same
+    generic deny — not the operator's console.
     """
     identity = await _require_directory_admin(request)
     roster = await _components.quarantine.list_quarantined(identity.tenant_id)
     rows = [
-        {"agent_id": agent_id, "ttl_seconds": ttl_seconds}
-        for agent_id, ttl_seconds in sorted(roster)
+        {
+            "agent_id": record.agent_id,
+            "ttl_seconds": record.ttl_seconds,
+            "tripped_alias": record.tripped_alias,
+            "correlation_id": record.correlation_id,
+            "quarantined_at_ns": record.quarantined_at_ns,
+        }
+        for record in roster
     ]
     return JSONResponse(status_code=200, content={"quarantined": rows})
 

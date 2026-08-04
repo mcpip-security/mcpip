@@ -23,7 +23,7 @@ returns a secret value or a real target.
 
 from __future__ import annotations
 
-from typing import Any, Iterator, Mapping, Sequence
+from typing import Any, Final, Iterator, Mapping, Sequence
 from urllib.parse import quote
 
 from mcpip_sdk._transport import _BaseClient, _json_object
@@ -58,6 +58,53 @@ from mcpip_sdk.models import (
 def _segment(value: str) -> str:
     """URL-encode one path segment (aliases/ids are operator input)."""
     return quote(value, safe="")
+
+
+#: The facets ``GET /v1/admin/decisions`` will filter on.
+#:
+#: This MIRRORS ``_DECISION_FILTER_FIELDS`` in the gateway's ``app/main.py`` and is
+#: duplicated on purpose: the SDK is a separate distribution whose only runtime
+#: dependency is httpx, so it cannot import the gateway to ask. The two copies are
+#: pinned together by ``tests/test_decision_filter_contract.py``, which fails the
+#: build if either side gains or loses a field.
+#:
+#: The gateway *ignores* an unrecognised query parameter, which is the right
+#: server behaviour and the wrong client behaviour: a caller who writes
+#: ``agentid=`` or ``Agent_Id=`` gets the range back UNFILTERED with a ``200``,
+#: and nothing anywhere says the filter did not apply. That is why the client
+#: refuses the key instead of forwarding it.
+DECISION_FILTER_FIELDS: Final[frozenset[str]] = frozenset(
+    {
+        "decision",
+        "deny_reason",
+        "alias",
+        "transport",
+        "risk_tier",
+        "classification",
+        "agent_id",
+        "source_format",
+        "correlation_id",
+        "transaction_ref",
+        "session_id",
+        "delegation_id",
+    }
+)
+
+
+def _reject_unknown_filter_field(field: str) -> None:
+    """Raise unless ``field`` is a facet the gateway actually filters on."""
+    if field in DECISION_FILTER_FIELDS:
+        return
+    known = ", ".join(sorted(DECISION_FILTER_FIELDS))
+    lowered = field.strip().lower()
+    hint = ""
+    if lowered in DECISION_FILTER_FIELDS:
+        hint = f" — did you mean {lowered!r}? facet names are case-sensitive"
+    raise ValueError(
+        f"unknown decision filter {field!r}{hint}. The gateway ignores query "
+        f"parameters outside its whitelist, so sending this would return the range "
+        f"UNFILTERED rather than empty. Known facets: {known}"
+    )
 
 
 class MCPIPAdminClient(_BaseClient):
@@ -454,13 +501,17 @@ class MCPIPAdminClient(_BaseClient):
         /v1/admin/decisions``) — date-ranged, multi-filtered, cursor-paged over
         the SAME whitelist projection ``decisions_recent`` serves (targets /
         arguments never appear). ``from_ms``/``to_ms`` bound an inclusive
-        epoch-millisecond window; ``filters`` maps a whitelist facet
-        (``decision``/``deny_reason``/``alias``/``transport``/``risk_tier``/
-        ``classification``/``agent_id``/``source_format``/``correlation_id``/
-        ``transaction_ref``) to one value or a list (OR within a facet, AND across
-        facets). Pass the returned ``next_cursor`` back as ``cursor=`` for the
-        next page; ``None`` means the range is fully walked. ``limit`` is clamped
-        server-side to ``MAX_DECISIONS_PAGE``.
+        epoch-millisecond window; ``filters`` maps one of
+        :data:`DECISION_FILTER_FIELDS` to a single value or a list (OR within a
+        facet, AND across facets). Pass the returned ``next_cursor`` back as
+        ``cursor=`` for the next page; ``None`` means the range is fully walked.
+        ``limit`` is clamped server-side to ``MAX_DECISIONS_PAGE``.
+
+        An unrecognised facet raises :class:`ValueError` rather than being sent.
+        The gateway ignores query parameters outside its whitelist, so a typo'd
+        or miscased key would otherwise return the range **unfiltered** with a
+        ``200`` — an auditor asking for one agent's decisions and silently
+        receiving everyone's.
         """
         params: dict[str, str] = {"limit": str(limit)}
         if from_ms is not None:
@@ -470,6 +521,7 @@ class MCPIPAdminClient(_BaseClient):
         if cursor is not None:
             params["cursor"] = cursor
         for field, value in (filters or {}).items():
+            _reject_unknown_filter_field(field)
             joined = value if isinstance(value, str) else ",".join(str(v) for v in value)
             if joined:
                 params[field] = joined
