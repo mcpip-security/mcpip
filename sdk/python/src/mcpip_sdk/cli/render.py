@@ -218,9 +218,15 @@ def render_error(mode: OutputMode, exc: BaseException) -> None:
     if isinstance(exc, StepUpPending):
         _error(
             mode,
+            # The hint used to name `mcpip complete --challenge <id>` alone, which
+            # fails in any non-TTY with "no OTP available" — it needs a code no
+            # command could fetch. Both working paths are named instead, because
+            # the renderer cannot see whether this gateway is a sandbox.
             human=(
-                "step-up required: envelope persisted; resume with "
-                f"`mcpip complete --challenge {exc.challenge_id}`"
+                "step-up required: envelope persisted. Resume with:\n"
+                f"  sandbox     mcpip sandbox authenticator {exc.challenge_id}\n"
+                f"  production  mcpip authenticator reveal --challenge {exc.challenge_id} "
+                "--code <6 digits from your enrolled authenticator>"
             ),
             payload={
                 "error": "step_up_pending",

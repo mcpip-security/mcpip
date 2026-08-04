@@ -20,7 +20,17 @@ from mcpip_sdk.cli import config as cfg
 from mcpip_sdk.cli._runtime import Runtime
 from mcpip_sdk.cli.errors import CLIConfigError, ExitCode, map_exception
 from mcpip_sdk.cli.render import OutputMode, render_error
-from mcpip_sdk.cli.commands import admin, agent, connect, reads, sandbox, up, verify, why
+from mcpip_sdk.cli.commands import (
+    admin,
+    agent,
+    authenticator,
+    connect,
+    reads,
+    sandbox,
+    up,
+    verify,
+    why,
+)
 
 _S = argparse.SUPPRESS
 
@@ -108,6 +118,7 @@ def build_parser() -> argparse.ArgumentParser:
     _build_connect(sub, parent)
     _build_agent(sub, parent)
     _build_reads(sub, parent)
+    _build_authenticator(sub, parent)
     _build_sandbox(sub, parent)
     _build_admin(sub, parent)
 
@@ -295,6 +306,39 @@ def _version_dispatch(rt: Runtime, args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 # sandbox: dev-token, authenticator, audit verify/proof
 # ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# authenticator: the PRODUCTION step-up channel
+# ---------------------------------------------------------------------------
+
+
+def _build_authenticator(sub: argparse._SubParsersAction[argparse.ArgumentParser], parent: argparse.ArgumentParser) -> None:
+    """
+    The five ``/v1/authenticator/*`` endpoints had no CLI, so completing a step-up
+    outside the sandbox meant hand-rolled HTTP — for the feature the product leads
+    with. ``reveal`` mirrors ``sandbox authenticator``: one command from staged
+    challenge to receipt, with the code never crossing a terminal.
+    """
+    grp = _leaf(sub, "authenticator", _needs_group, help="enrolled step-up device (RFC 6238)", parent=parent)
+    gsub = grp.add_subparsers(dest="_sub", metavar="<action>", required=True)
+
+    _leaf(gsub, "status", authenticator.cmd_authenticator_status, help="is an authenticator enrolled for this principal", parent=parent)
+
+    enroll = _leaf(gsub, "enroll", authenticator.cmd_authenticator_enroll, help="begin enrollment; provisioning material to a 0600 file (never printed)", parent=parent)
+    enroll.add_argument("--out", metavar="FILE", required=True, help="write the otpauth:// URI here (O_EXCL 0600); it embeds the secret")
+
+    confirm = _leaf(gsub, "confirm", authenticator.cmd_authenticator_confirm, help="finish enrollment with a live code", parent=parent)
+    confirm.add_argument("--code", required=True, metavar="DIGITS", help="a current code from the authenticator")
+
+    reveal = _leaf(gsub, "reveal", authenticator.cmd_authenticator_reveal, help="release a staged challenge's OTP and complete it inline", parent=parent)
+    reveal.add_argument("--challenge", required=True, metavar="ID", help="the staged challenge id")
+    reveal.add_argument("--code", required=True, metavar="DIGITS", help="a current code from the authenticator")
+    reveal.add_argument("--out", metavar="FILE", help="write the OTP to FILE (O_EXCL 0600) instead of completing")
+    reveal.add_argument("--credential-out", metavar="FILE", dest="credential_out", help="capture a vended cloud credential to FILE (O_EXCL 0600); never printed")
+
+    disable = _leaf(gsub, "disable", authenticator.cmd_authenticator_disable, help="retire the enrolled authenticator", parent=parent)
+    disable.add_argument("--code", required=True, metavar="DIGITS", help="a current code from the authenticator")
 
 
 def _build_sandbox(sub: argparse._SubParsersAction[argparse.ArgumentParser], parent: argparse.ArgumentParser) -> None:

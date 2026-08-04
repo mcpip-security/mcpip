@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import base64
 import json
+import time
 from typing import Any
 
 from mcpip_sdk.cli import config as cfg
@@ -31,11 +32,21 @@ from mcpip_sdk.cli import _runtime
 
 
 def cmd_login(rt: Runtime, args: argparse.Namespace) -> int:
-    name = args.context or "default"
-    base_url = args.gateway or (
-        rt.resolved.base_url if args.context is None else "http://localhost:8080"
+    # Every global is attached with `default=argparse.SUPPRESS` so it may appear
+    # before OR after the subcommand without a later default clobbering an earlier
+    # value — which also means the attribute DOES NOT EXIST unless the flag was
+    # typed. Reading it directly made bare `mcpip login` die with a naked
+    # AttributeError, and the README only ever showed the four-token form that
+    # happens to pass all three, so nothing caught it.
+    context = getattr(args, "context", None)
+    gateway = getattr(args, "gateway", None)
+    sandbox_flag = getattr(args, "sandbox", None)
+
+    name = context or "default"
+    base_url = gateway or (
+        rt.resolved.base_url if context is None else "http://localhost:8080"
     )
-    sandbox = bool(args.sandbox) if args.sandbox is not None else rt.resolved.sandbox
+    sandbox = bool(sandbox_flag) if sandbox_flag is not None else rt.resolved.sandbox
     token_source = args.token_source
     if token_source is not None:
         cfg.validate_token_source(token_source)
@@ -124,7 +135,17 @@ def cmd_whoami(rt: Runtime, args: argparse.Namespace) -> int:
         version = client.version()
         gateway_running = version.running
 
+    # A raw epoch is not an answer to "why is everything denied?". An expired dev
+    # token denies EVERY call with the same opaque body as a policy refusal — so
+    # the one command that decodes the bearer locally has to say so plainly.
+    expires_in = None
+    raw_exp = claims.get("exp")
+    if isinstance(raw_exp, (int, float)):
+        expires_in = int(raw_exp - time.time())
+
     model: dict[str, Any] = {
+        "expires_in_s": expires_in,
+        "expired": expires_in is not None and expires_in <= 0,
         "tenant_id": claims.get("tenant_id"),
         "agent_id": claims.get("agent_id") or claims.get("sub"),
         "role": claims.get("role"),
@@ -144,7 +165,7 @@ def cmd_whoami(rt: Runtime, args: argparse.Namespace) -> int:
                 ("agent_id", model["agent_id"]),
                 ("role", model["role"]),
                 ("session_id", model["session_id"]),
-                ("exp", model["exp"]),
+                ("exp", _expiry_label(expires_in, model["exp"])),
                 ("capabilities", model["capabilities"]),
                 ("gateway_accepts", accepted),
                 ("gateway_running", gateway_running),
@@ -153,6 +174,23 @@ def cmd_whoami(rt: Runtime, args: argparse.Namespace) -> int:
         quiet_id=str(model["agent_id"] or ""),
     )
     return ExitCode.OK
+
+
+def _expiry_label(expires_in: int | None, raw_exp: Any) -> str:
+    """Render `exp` as something a human can act on, not a Unix epoch.
+
+    An expired bearer is the single most confusing state in the CLI: the gateway
+    denies every call with the same opaque body it uses for a real policy refusal,
+    so a developer reads "request denied by policy" and goes looking for a missing
+    capability. Saying EXPIRED here ends that search in one command.
+    """
+    if expires_in is None:
+        return str(raw_exp)
+    if expires_in <= 0:
+        return f"EXPIRED {-expires_in}s ago — re-mint: mcpip sandbox dev-token"
+    if expires_in < 120:
+        return f"{expires_in}s left — expiring"
+    return f"{expires_in // 60}m left"
 
 
 def _decode_claims_unverified(token: str) -> dict[str, Any]:
@@ -297,10 +335,10 @@ def cmd_context_set(rt: Runtime, args: argparse.Namespace) -> int:
         cfg.validate_token_source(token_source)
     ctx = cfg.Context(
         name=args.name,
-        base_url=args.gateway
+        base_url=getattr(args, "gateway", None)
         or (existing.base_url if existing else "http://localhost:8080"),
-        sandbox=bool(args.sandbox)
-        if args.sandbox is not None
+        sandbox=bool(getattr(args, "sandbox", None))
+        if getattr(args, "sandbox", None) is not None
         else (existing.sandbox if existing else False),
         token_source=token_source or (existing.token_source if existing else None),
     )
