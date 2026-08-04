@@ -3,6 +3,16 @@
   "version": "0.1.0",
   "description": "Zero-dependency TypeScript/ESM client for the MCPIP authorization gateway: authorize, PIN step-up ceremony, MCP edge, catalog, audit, and the operator admin surface. Opaque, fail-closed, never retries an authorize.",
   "license": "Apache-2.0",
+  "author": "MCPIP",
+  "homepage": "https://mcpip.ai",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mcpip-security/mcpip.git",
+    "directory": "sdk/typescript"
+  },
+  "bugs": {
+    "url": "https://github.com/mcpip-security/mcpip/issues"
+  },
   "type": "module",
   "sideEffects": false,
   "engines": {

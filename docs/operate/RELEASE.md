@@ -167,6 +167,81 @@ base64-encoded.
 
 ---
 
+## 2a. Public distribution — PyPI, npm, GHCR
+
+Everything above is the **signed** ceremony: what an auditor verifies. This section is
+the **reachable** half — how someone who has never heard of MCPIP obtains it without a
+`git clone`. Both matter; neither substitutes for the other.
+
+Until `.github/workflows/release.yml` existed the only tag this repository had ever cut
+was `desktop-v3.0.0`, so every documented install was a git URL. Four independent trains
+now exist, each triggered by its own tag prefix and each **checked against the manifest
+it claims** by `scripts/check_release_tag.py` before a single artifact is built:
+
+| Tag | Publishes | Where | Version truth |
+|---|---|---|---|
+| `sdk-py-v<semver>` | `mcpip-sdk` | PyPI | `sdk/python/pyproject.toml` |
+| `sdk-ts-v<semver>` | `@mcpip/sdk` | npm, with build provenance | `sdk/typescript/package.json` |
+| `v<semver>` | gateway image + a **draft** GitHub Release | GHCR | `VERSION` |
+| `desktop-v<semver>` | console installers (`desktop-release.yml`) | GitHub Release | `dashboard/package.json` |
+
+The four versions are **independent by design** — the SDKs do not track the gateway (see
+`scripts/preflight_version_consistency.py`), so each tag is compared only to its own file.
+
+**The gateway Release is created as a draft, deliberately.** A release, as §2 defines it,
+is a set of digests signed with the offline release-root key. CI does not hold that key
+and must never hold it. The workflow therefore assembles the source bundle and
+`SHA256SUMS` and stops: attach the offline-signed `manifest.json` / `integrity_manifest.json`,
+then publish. A workflow that published on its own would quietly redefine what an MCPIP
+release is.
+
+**No third-party actions in the release path**, same rule `desktop-release.yml` states.
+`gh`, `docker buildx`, `twine`, `npm` and `jq` are preinstalled on the runner, so nothing
+outside GitHub's own `actions/*` gets a foothold in a job holding a publish token. That is
+why PyPI Trusted Publishing is two `curl` calls rather than a delegated action.
+
+### One-time setup (owner, before the first tag)
+
+1. **PyPI.** Create a *pending publisher* at <https://pypi.org/manage/account/publishing/>:
+   owner `mcpip-security`, repository `mcpip`, workflow `release.yml`. No token is stored
+   anywhere — GitHub mints a short-lived OIDC assertion per run and PyPI exchanges it. If
+   this is not configured the job fails loudly rather than falling back to something weaker.
+2. **npm.** Create an automation token on npmjs.com and store it as the repository secret
+   `NPM_TOKEN`. The scope `@mcpip` must exist and the publishing account must own it.
+3. **GHCR.** Nothing to configure — the job authenticates with the run's own `GITHUB_TOKEN`.
+   After the first push, set the package visibility to public, or anonymous `docker pull`
+   will 403 and the install line in the README will not work for anyone but you.
+
+`mcpip-sdk`, `mcpip`, `@mcpip/sdk` and `mcpip` were all unclaimed on PyPI and npm when this
+was written. Claiming the bare `mcpip` name on both registries — even as a placeholder that
+points at the real package — costs nothing and cannot be undone later by anyone else.
+
+### Rehearsing without publishing
+
+`workflow_dispatch` runs every build, every check and every packaging guard and publishes
+nothing. Use it before the first real tag:
+
+```bash
+gh workflow run release.yml --repo mcpip-security/mcpip
+```
+
+The Python job builds the sdist and wheel, runs `twine check`, then installs the wheel into
+an empty virtualenv and executes `mcpip --version` — so a missing `py.typed`, a broken entry
+point, or an import that only ever resolved because the source tree was on `sys.path` fails
+here rather than in the first user's terminal. The npm job asserts the tarball carries
+`dist/`, `LICENSE` and `README.md` and does **not** carry sources.
+
+### After the first successful publish
+
+The install lines in `README.md` and on the website still say `pipx install ./sdk/python`,
+which is correct today and wrong the moment the package exists. Update them to
+`pipx install mcpip-sdk`, `npm i @mcpip/sdk` and
+`docker run --rm -p 8080:8080 ghcr.io/mcpip-security/mcpip:<version>` **after** the
+registries confirm, never before — a documented command that 404s costs more trust than a
+clone that works.
+
+---
+
 ## 3. Verified boot — how the running gateway proves itself
 
 The gateway wires the integrity check via two env vars (both required in production;

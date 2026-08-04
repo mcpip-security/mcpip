@@ -16,12 +16,45 @@ name = "mcpip-sdk"
 version = "0.1.0"
 description = "Typed Python client for the MCPIP authorization gateway — authorize every AI action before execution"
 readme = "README.md"
+authors = [{ name = "MCPIP" }]
 # The SDK is permissively licensed (Apache-2.0), independent of the gateway
 # core's source-available BSL 1.1 — integration surfaces stay frictionless.
 license = { text = "Apache-2.0" }
 # The gateway itself is 3.12-only, but agent hosts vary; 3.10 is the floor for
 # the modern typing the SDK uses (PEP 604 unions, dataclass slots).
 requires-python = ">=3.10"
+# Every classifier here is a facet PyPI lets someone filter on, and the floor and
+# ceiling must track `requires-python` above — a version listed here that the
+# floor excludes is a claim the wheel does not honour.
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: System Administrators",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Security",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: System :: Systems Administration :: Authentication/Directory",
+    "Typing :: Typed",
+]
+keywords = [
+    "mcpip",
+    "mcp",
+    "model-context-protocol",
+    "authorization",
+    "authz",
+    "ai-agents",
+    "agent",
+    "tool-calling",
+    "gateway",
+    "zero-trust",
+    "audit",
+]
 dependencies = [
     "httpx>=0.27,<1",
     # The CLI parses its TOML config with the stdlib `tomllib` on 3.11+. On the
@@ -36,8 +69,17 @@ dependencies = [
 [project.scripts]
 mcpip = "mcpip_sdk.cli:main"
 
+# PyPI renders these as the project sidebar — the only navigation a reader gets
+# from a package page back to the product. Every link is to a path that exists on
+# the public repository, so none of them can rot into a 404 without the file
+# moving first.
 [project.urls]
+Homepage = "https://mcpip.ai"
+Repository = "https://github.com/mcpip-security/mcpip"
 Documentation = "https://github.com/mcpip-security/mcpip/blob/main/docs/start/SDK.md"
+Changelog = "https://github.com/mcpip-security/mcpip/blob/main/CHANGELOG.md"
+Issues = "https://github.com/mcpip-security/mcpip/issues"
+"Security policy" = "https://github.com/mcpip-security/mcpip/blob/main/SECURITY.md"
 
 [tool.setuptools.packages.find]
 where = ["src"]

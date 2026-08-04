@@ -1,0 +1,357 @@
+name: Release (PyPI · npm · GHCR · GitHub Release)
+
+# Distribution, which MCPIP had none of. The only tag this repository has ever cut
+# is `desktop-v3.0.0`, so every documented way to obtain the gateway or either SDK
+# was a `git clone` — no `pip install mcpip-sdk`, no `npm i @mcpip/sdk`, no
+# `docker run ghcr.io/...`. A reader who arrives from a link and finds a git URL
+# where an install line should be mostly leaves.
+#
+# One workflow, four independent release trains, each selected by its own tag
+# prefix and each guarded against the manifest it claims:
+#
+#     sdk-py-v0.1.0   -> PyPI          mcpip-sdk
+#     sdk-ts-v0.1.0   -> npm           @mcpip/sdk   (with build provenance)
+#     v3.0.0          -> GHCR image + a DRAFT GitHub Release
+#     desktop-v3.0.0  -> handled by desktop-release.yml, not here
+#
+# `workflow_dispatch` runs the whole path WITHOUT publishing, so the release
+# machinery can be exercised before anyone burns a version number on it.
+#
+# ── Deliberately no third-party actions in the release path ──────────────────
+# Same rule desktop-release.yml states: `gh`, `docker buildx`, `twine`, `npm` and
+# `jq` are all preinstalled on the runner, so nothing outside GitHub's own
+# first-party `actions/*` gets a foothold in the step that signs or uploads. That
+# is why PyPI Trusted Publishing is done with two `curl` calls below rather than
+# by handing the job to `pypa/gh-action-pypi-publish`.
+
+on:
+  push:
+    tags:
+      - "v*"
+      - "sdk-py-v*"
+      - "sdk-ts-v*"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  # Never two releases of the same ref at once, and NEVER cancel one in flight:
+  # a half-cancelled publish can leave a version burned on PyPI with no artifact.
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Gate. Runs first, everything else `needs:` it. A tag that disagrees with its
+  # manifest never reaches a build step, let alone an upload.
+  # ---------------------------------------------------------------------------
+  guard:
+    name: Tag matches its manifest
+    runs-on: ubuntu-latest
+    outputs:
+      publish: ${{ steps.mode.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Verify the tag against the manifest it claims
+        if: github.event_name == 'push'
+        run: python scripts/check_release_tag.py "${GITHUB_REF_NAME}"
+
+      # A manual run builds and checks everything and publishes nothing. This is
+      # the only supported way to rehearse a release.
+      - name: Decide publish vs rehearse
+        id: mode
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT" = "push" ]; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::Tag ${GITHUB_REF_NAME} — artifacts WILL be published."
+          else
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Manual run — full build and checks, nothing published."
+          fi
+
+  # ---------------------------------------------------------------------------
+  # PyPI — mcpip-sdk (Apache-2.0, independent of the BSL core).
+  # ---------------------------------------------------------------------------
+  pypi:
+    name: PyPI · mcpip-sdk
+    needs: guard
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/sdk-py-v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write        # Trusted Publishing only; no long-lived PyPI token
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build sdist + wheel
+        working-directory: sdk/python
+        run: |
+          python -m pip install --upgrade build twine
+          python -m build --outdir dist
+
+      # `twine check` catches the failure mode that is invisible locally: a README
+      # that renders on GitHub but is rejected by PyPI's stricter parser, which
+      # fails the upload AFTER the version is already reserved.
+      - name: twine check
+        working-directory: sdk/python
+        run: python -m twine check dist/*
+
+      # The wheel is installed into an empty venv and the console script is run.
+      # A packaging mistake — a missing package-data file, a broken entry point,
+      # an import that only resolved because the source tree was on sys.path —
+      # shows up here rather than in the first user's terminal.
+      - name: Smoke the built wheel in a clean interpreter
+        working-directory: sdk/python
+        run: |
+          set -euo pipefail
+          python -m venv /tmp/smoke
+          /tmp/smoke/bin/pip install --quiet dist/*.whl
+          /tmp/smoke/bin/mcpip --version
+          /tmp/smoke/bin/mcpip --help > /dev/null
+          /tmp/smoke/bin/python -c "
+          import mcpip_sdk, os, sys
+          marker = os.path.join(os.path.dirname(mcpip_sdk.__file__), 'py.typed')
+          sys.exit(0 if os.path.exists(marker) else 'py.typed missing from the wheel')
+          "
+
+      # Trusted Publishing: GitHub mints a short-lived OIDC token for this exact
+      # workflow, PyPI exchanges it for an API token valid for minutes. Nothing
+      # long-lived exists to leak, and a stolen repo secret cannot publish.
+      #
+      # ONE-TIME SETUP on PyPI (Manage project -> Publishing, or "pending
+      # publisher" for the very first upload):
+      #     owner mcpip-security · repo mcpip · workflow release.yml
+      # Until that exists the mint returns an error and this step fails loudly
+      # rather than silently falling back to something weaker.
+      - name: Publish to PyPI (Trusted Publishing)
+        if: needs.guard.outputs.publish == 'true'
+        working-directory: sdk/python
+        run: |
+          set -euo pipefail
+          oidc="$(curl -sS -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=pypi" | jq -r '.value')"
+          test -n "$oidc" && test "$oidc" != "null" \
+            || { echo "::error::no OIDC token — is id-token: write set?"; exit 1; }
+          minted="$(curl -sS -X POST https://pypi.org/_/oidc/mint-token \
+            -H 'content-type: application/json' \
+            -d "$(jq -nc --arg t "$oidc" '{token:$t}')")"
+          token="$(printf '%s' "$minted" | jq -r '.token // empty')"
+          if [ -z "$token" ]; then
+            echo "::error::PyPI refused the OIDC exchange. Configure the trusted publisher"
+            echo "::error::(owner mcpip-security, repo mcpip, workflow release.yml) on PyPI first."
+            printf '%s\n' "$minted" | jq -r '.message? // .' >&2 || true
+            exit 1
+          fi
+          TWINE_USERNAME=__token__ TWINE_PASSWORD="$token" \
+            python -m twine upload --non-interactive dist/*
+
+      - name: Rehearsal summary
+        if: needs.guard.outputs.publish != 'true'
+        working-directory: sdk/python
+        run: |
+          echo "### PyPI rehearsal — built and checked, not uploaded" >> "$GITHUB_STEP_SUMMARY"
+          ls -la dist >> "$GITHUB_STEP_SUMMARY"
+
+  # ---------------------------------------------------------------------------
+  # npm — @mcpip/sdk, published with build provenance.
+  # ---------------------------------------------------------------------------
+  npm:
+    name: npm · @mcpip/sdk
+    needs: guard
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/sdk-ts-v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write        # required for `npm publish --provenance`
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org
+
+      # No lockfile in sdk/typescript (the package ships zero runtime deps), so
+      # the toolchain is installed unsaved — same as the CI job builds it.
+      - name: Build
+        working-directory: sdk/typescript
+        run: |
+          npm i --no-save typescript @types/node
+          ./node_modules/.bin/tsc -p tsconfig.json
+
+      - name: Pack and inspect the tarball
+        working-directory: sdk/typescript
+        run: |
+          set -euo pipefail
+          npm pack --dry-run
+          # The published tarball must carry dist/, the licence and the readme —
+          # and must NOT carry sources or the smoke script.
+          files="$(npm pack --dry-run --json | jq -r '.[0].files[].path')"
+          for required in dist/index.js dist/index.d.ts LICENSE README.md; do
+            printf '%s\n' "$files" | grep -qx "$required" \
+              || { echo "::error::$required missing from the npm tarball"; exit 1; }
+          done
+          if printf '%s\n' "$files" | grep -qE '^(src/|smoke\.mjs$|tsconfig\.json$)'; then
+            echo "::error::the tarball leaks sources; check the \"files\" allowlist"
+            exit 1
+          fi
+
+      # --provenance attaches a signed, verifiable statement of which workflow at
+      # which commit produced the tarball. For a security product that is the
+      # whole point: `npm audit signatures` can prove the package came from here.
+      - name: Publish to npm (with provenance)
+        if: needs.guard.outputs.publish == 'true'
+        working-directory: sdk/typescript
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          test -n "${NODE_AUTH_TOKEN}" \
+            || { echo "::error::secret NPM_TOKEN is not set — create an automation token on npmjs.com"; exit 1; }
+          npm publish --provenance --access public
+
+      - name: Rehearsal summary
+        if: needs.guard.outputs.publish != 'true'
+        run: echo "### npm rehearsal — built and packed, not published" >> "$GITHUB_STEP_SUMMARY"
+
+  # ---------------------------------------------------------------------------
+  # GHCR — the gateway image. This is the try-it-in-one-line path: the gateway is
+  # self-hosted infrastructure, so a container is its natural distribution, not a
+  # Python package on a user's PATH.
+  # ---------------------------------------------------------------------------
+  image:
+    name: GHCR · gateway image
+    needs: guard
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write        # push to ghcr.io/<owner>/mcpip
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version and image name
+        id: meta
+        run: |
+          set -euo pipefail
+          {
+            echo "version=$(tr -d '[:space:]' < VERSION)"
+            echo "image=ghcr.io/${GITHUB_REPOSITORY,,}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Set up buildx
+        run: docker buildx create --use --name mcpip-release --driver docker-container
+
+      - name: Log in to GHCR
+        if: needs.guard.outputs.publish == 'true'
+        run: echo "${{ github.token }}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+
+      # linux/amd64 only, deliberately. arm64 needs either QEMU — whose canonical
+      # installer is a third-party binfmt image, which the no-third-party rule at
+      # the top of this file excludes from the release path — or a second job on an
+      # arm runner joined by `docker buildx imagetools create`. Until that exists,
+      # Apple-silicon users get the amd64 image, which Docker Desktop runs under
+      # Rosetta transparently. Shipping one architecture that works beats
+      # advertising two where the second fails on the first real tag.
+      #
+      # Values reach the shell through env, never through `${{ }}` interpolation
+      # into the script body: a workflow that pastes expressions into bash is one
+      # crafted ref away from arbitrary execution in a job holding a push token.
+      - name: Build (and push on a tag)
+        env:
+          IMAGE: ${{ steps.meta.outputs.image }}
+          VERSION: ${{ steps.meta.outputs.version }}
+          PUBLISH: ${{ needs.guard.outputs.publish }}
+        run: |
+          set -euo pipefail
+          args=(--platform linux/amd64)
+          if [ "$PUBLISH" = "true" ]; then
+            # `latest` moves only on a real tag push, never on a rehearsal.
+            args+=(-t "$IMAGE:$VERSION" -t "$IMAGE:latest" --push)
+            args+=(--provenance=true --sbom=true)
+          else
+            args+=(-t "$IMAGE:rehearsal")
+          fi
+          docker buildx build "${args[@]}" \
+            --label "org.opencontainers.image.revision=${GITHUB_SHA}" \
+            --label "org.opencontainers.image.source=https://github.com/${GITHUB_REPOSITORY}" \
+            --label "org.opencontainers.image.version=${VERSION}" \
+            .
+
+      - name: Summary
+        env:
+          IMAGE: ${{ steps.meta.outputs.image }}
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          {
+            echo "### Gateway image"
+            echo '```'
+            echo "docker run --rm -p 8080:8080 ${IMAGE}:${VERSION}"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ---------------------------------------------------------------------------
+  # GitHub Release for the gateway — created as a DRAFT, on purpose.
+  #
+  # docs/operate/RELEASE.md defines a release as artifact digests signed with an
+  # OFFLINE Ed25519 release-root key held on an air-gapped signer. CI does not
+  # have that key and must never have it. So this job assembles and checksums
+  # everything a release needs and stops one step short: the owner attaches the
+  # signed manifest from the offline signer and publishes. A workflow that
+  # published on its own would quietly redefine what an MCPIP release means.
+  # ---------------------------------------------------------------------------
+  release:
+    name: Draft GitHub Release
+    needs: [guard, image]
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write        # only this job writes; the workflow default is read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0     # `git archive` and the changelog slice need history
+
+      - name: Assemble the source bundle and checksums
+        run: |
+          set -euo pipefail
+          version="$(tr -d '[:space:]' < VERSION)"
+          mkdir -p out
+          git archive --format=tar.gz --prefix="mcpip-${version}/" \
+            -o "out/mcpip-${version}-source.tar.gz" "${GITHUB_REF_NAME}"
+          cd out && sha256sum ./* > SHA256SUMS && cat SHA256SUMS
+
+      - name: Create the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          version="$(tr -d '[:space:]' < VERSION)"
+          gh release create "${GITHUB_REF_NAME}" out/* \
+            --repo "${GITHUB_REPOSITORY}" \
+            --title "MCPIP ${version}" \
+            --draft \
+            --verify-tag \
+            --notes "Gateway ${version}, built from \`${GITHUB_SHA}\`.
+
+          Run it:
+
+              docker run --rm -p 8080:8080 ghcr.io/${GITHUB_REPOSITORY,,}:${version}
+
+          Verify what you downloaded:
+
+              sha256sum -c SHA256SUMS
+
+          **This release is a DRAFT and is not yet signed.** An MCPIP release is a set of
+          artifact digests signed with the offline Ed25519 release-root key (see
+          \`docs/operate/RELEASE.md\`). That key is not present in CI and never will be.
+          Attach the signed release manifest and integrity manifest from the offline
+          signer, then publish."
