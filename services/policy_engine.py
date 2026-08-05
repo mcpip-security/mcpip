@@ -78,6 +78,11 @@ _VELOCITY_LUA: Final[str] = (
 # window is at least a second and at most a day; an action cap is at least one.
 _MIN_WINDOW_SECONDS: Final[int] = 1
 _MAX_WINDOW_SECONDS: Final[int] = 86400
+#: Bounds on an ``argument`` rule's lists. The whole document is already capped by
+#: MAX_POLICY_RULES + MAX_POLICY_DOC_BYTES; these keep any SINGLE rule's per-request
+#: work bounded too, since every value is compared on the hot path.
+_MAX_ARGUMENT_VALUES: Final[int] = 64
+_MAX_ARGUMENT_VALUE_LEN: Final[int] = 256
 
 
 class PolicyDocumentError(ValueError):
@@ -96,17 +101,30 @@ class PolicyRule(BaseModel):
     """
     One deny-only policy rule (frozen). A rule MATCHES a request by ``scope`` +
     ``scope_value`` (the request's alias or coarse transport class) and, per ``kind``,
-    enforces either a fixed-window velocity cap or a numeric amount ceiling.
+    enforces a fixed-window velocity cap, a numeric amount ceiling, or a constraint on
+    a named STRING argument.
 
-    A single model carries both kinds' fields (the off-kind fields default None); a
+    A single model carries every kind's fields (the off-kind fields default None); a
     strict ``model_validator`` enforces that a rule of each kind carries exactly the
     fields it needs, so a half-specified rule is a fail-closed validation error at write
     time (the console can never store one) rather than a silently-ignored rule.
+
+    **Why ``argument`` exists.** Everything the alias model buys assumes an alias names a
+    NARROW action. Point one at ``run_shell(cmd)`` or ``execute_sql(query)`` and per-call
+    authorization collapses into "may this agent shell at all" — the alias is one catalog
+    entry and the payload is arbitrary. ``velocity`` and ``amount`` could not reach that:
+    both are numeric. An ``argument`` rule constrains the free-text field itself, which is
+    the only place that class of tool can be governed at all.
+
+    **No regex, deliberately.** A tenant-supplied pattern compiled inside the
+    authorization path is a ReDoS vector, and Python's ``re`` has no timeout — one
+    catastrophic pattern would hang the choke point every request. Exact-match and
+    literal-substring are linear in the input and cannot be made pathological.
     """
 
     model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
 
-    kind: str  # "velocity" | "amount" — validated below.
+    kind: str  # "velocity" | "amount" | "argument" — validated below.
     scope: str  # "alias" | "transport_class" — what field the rule keys on.
     scope_value: str = Field(min_length=1, max_length=256)
     # velocity fields (required iff kind == "velocity"):
@@ -119,27 +137,68 @@ class PolicyRule(BaseModel):
     # Decimal-from-STRING (no float drift). Stored/validated as a string; parsed to
     # Decimal at compare time.
     max_amount: Optional[str] = Field(default=None, min_length=1, max_length=64)
+    # argument fields (required iff kind == "argument"; at least one constraint):
+    argument_field: Optional[str] = Field(default=None, min_length=1, max_length=256)
+    allowed_values: Optional[list[str]] = Field(
+        default=None, max_length=_MAX_ARGUMENT_VALUES
+    )
+    forbidden_substrings: Optional[list[str]] = Field(
+        default=None, max_length=_MAX_ARGUMENT_VALUES
+    )
 
     @model_validator(mode="after")
     def _validate_kind_shape(self) -> "PolicyRule":
         if self.scope not in ("alias", "transport_class"):
             raise ValueError("scope must be 'alias' or 'transport_class'")
+        argument_fields = (
+            self.argument_field,
+            self.allowed_values,
+            self.forbidden_substrings,
+        )
         if self.kind == "velocity":
             if self.max_actions is None or self.window_seconds is None:
                 raise ValueError("velocity rule requires max_actions and window_seconds")
             if self.amount_field is not None or self.max_amount is not None:
                 raise ValueError("velocity rule must not carry amount fields")
+            if any(field is not None for field in argument_fields):
+                raise ValueError("velocity rule must not carry argument fields")
         elif self.kind == "amount":
             if self.amount_field is None or self.max_amount is None:
                 raise ValueError("amount rule requires amount_field and max_amount")
             if self.max_actions is not None or self.window_seconds is not None:
                 raise ValueError("amount rule must not carry velocity fields")
+            if any(field is not None for field in argument_fields):
+                raise ValueError("amount rule must not carry argument fields")
             try:
                 Decimal(self.max_amount)
             except InvalidOperation as exc:
                 raise ValueError("max_amount is not a valid decimal") from exc
+        elif self.kind == "argument":
+            if self.argument_field is None:
+                raise ValueError("argument rule requires argument_field")
+            if self.allowed_values is None and self.forbidden_substrings is None:
+                # A rule that constrains nothing would read as protection while
+                # permitting everything — the exact failure this kind exists to stop.
+                raise ValueError(
+                    "argument rule requires allowed_values or forbidden_substrings"
+                )
+            for values in (self.allowed_values, self.forbidden_substrings):
+                if values is None:
+                    continue
+                if not values:
+                    raise ValueError("argument rule lists must not be empty")
+                for value in values:
+                    if not 1 <= len(value) <= _MAX_ARGUMENT_VALUE_LEN:
+                        raise ValueError(
+                            "argument rule values must be 1.."
+                            f"{_MAX_ARGUMENT_VALUE_LEN} characters"
+                        )
+            if self.max_actions is not None or self.window_seconds is not None:
+                raise ValueError("argument rule must not carry velocity fields")
+            if self.amount_field is not None or self.max_amount is not None:
+                raise ValueError("argument rule must not carry amount fields")
         else:
-            raise ValueError("kind must be 'velocity' or 'amount'")
+            raise ValueError("kind must be 'velocity', 'amount' or 'argument'")
         return self
 
     def matches(self, ctx: PolicyContext) -> bool:
@@ -296,11 +355,16 @@ class VelocityAmountPolicyEngine(PolicyProvider):
             # No policy configured — honest no-limits state (opt-in, no fabricated rule).
             return PolicyDecision(outcome="continue")
 
-        # Pure amount ceilings FIRST, so an over-ceiling request denies WITHOUT
-        # consuming any velocity budget (the ceiling check mutates no state).
+        # Pure checks FIRST, so a rejected request denies WITHOUT consuming any
+        # velocity budget (neither the ceiling nor the argument check mutates state).
         for rule in ruleset.rules:
             if rule.kind == "amount" and rule.matches(ctx):
                 decision = self._check_amount(rule, ctx)
+                if decision.outcome == "deny":
+                    return decision
+        for rule in ruleset.rules:
+            if rule.kind == "argument" and rule.matches(ctx):
+                decision = self._check_argument(rule, ctx)
                 if decision.outcome == "deny":
                     return decision
 
@@ -355,6 +419,56 @@ class VelocityAmountPolicyEngine(PolicyProvider):
                 outcome="deny",
                 detail=f"amount {amount} exceeds ceiling {ceiling}",
             )
+        return PolicyDecision(outcome="continue")
+
+    @staticmethod
+    def _check_argument(rule: PolicyRule, ctx: PolicyContext) -> PolicyDecision:
+        """
+        String-argument constraint, fail-closed against evasion.
+
+        This is the only rule kind that can govern an OPEN-ENDED alias — one whose
+        payload is free text (``cmd``, ``query``, ``path``) rather than a number. It
+        cannot make such an alias safe; it can bound it.
+
+        Semantics, deliberately mirroring ``_check_amount``:
+
+        * Absent field → ``continue``. A rule scoped to a transport class matches many
+          aliases, most of which will not carry the field, and denying those would make
+          a narrow rule act as a blanket one.
+        * Present but NOT a string → **deny**. A dict/list/number where a string was
+          expected is precisely how a constraint gets smuggled past; refuse to interpret
+          rather than coerce.
+        * ``allowed_values`` and the value is not exactly one of them → deny.
+        * ``forbidden_substrings`` and any appears (case-insensitive) → deny.
+
+        Both lists are literal — no regex anywhere on this path. See ``PolicyRule``.
+        """
+        value = ctx.arguments.get(rule.argument_field)  # type: ignore[arg-type]
+        if value is None:
+            return PolicyDecision(outcome="continue")
+        if not isinstance(value, str):
+            return PolicyDecision(
+                outcome="deny",
+                detail=f"argument field '{rule.argument_field}' is not a string",
+            )
+        if rule.allowed_values is not None and value not in rule.allowed_values:
+            # The value itself is NOT echoed: this detail reaches the WORM record and
+            # the operator console, and an argument can carry customer data.
+            return PolicyDecision(
+                outcome="deny",
+                detail=f"argument '{rule.argument_field}' is not in the allowed set",
+            )
+        if rule.forbidden_substrings is not None:
+            lowered = value.lower()
+            for needle in rule.forbidden_substrings:
+                if needle.lower() in lowered:
+                    return PolicyDecision(
+                        outcome="deny",
+                        detail=(
+                            f"argument '{rule.argument_field}' contains a forbidden "
+                            f"substring"
+                        ),
+                    )
         return PolicyDecision(outcome="continue")
 
     async def _check_velocity(

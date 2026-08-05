@@ -23,6 +23,7 @@ from mcpip_sdk.cli._runtime import Runtime
 from mcpip_sdk.cli.errors import CLIConfigError, ExitCode
 from mcpip_sdk.cli.render import block, emit_object, table
 from mcpip_sdk.client import MCPIPClient
+from mcpip_sdk.errors import MCPIPDenied, MCPIPUnavailable
 from mcpip_sdk.cli import _runtime
 
 
@@ -129,11 +130,31 @@ def cmd_whoami(rt: Runtime, args: argparse.Namespace) -> int:
     claims = _decode_claims_unverified(token)
 
     # Confirm the gateway actually accepts this identity (never prints the token).
+    #
+    # A REFUSAL IS AN ANSWER, NOT AN ERROR. This used to let the deny propagate, so
+    # `whoami` exited 3 with "request denied by policy" — the very message the
+    # `exp` rendering below exists to stop a developer chasing — precisely when the
+    # bearer was expired or rejected. The local decode is the whole value of this
+    # command in that state, and it was being thrown away to report the failure it
+    # was supposed to explain. Verified: a token 807s past `exp` printed the opaque
+    # deny and nothing else, because 807s is far outside the 60s JWT leeway that
+    # kept `/v1/version` answering for the first minute.
     accepted = True
     gateway_running = None
-    with rt.agent_client() as client:
-        version = client.version()
-        gateway_running = version.running
+    gateway_error: str | None = None
+    try:
+        with rt.agent_client() as client:
+            version = client.version()
+            gateway_running = version.running
+    except MCPIPDenied:
+        accepted = False
+        gateway_error = "denied"
+    except MCPIPUnavailable:
+        # Distinct from a refusal: "I could not ask" is not "you were rejected",
+        # and conflating them would send someone hunting for a bad token when the
+        # gateway is simply down.
+        accepted = False
+        gateway_error = "unreachable"
 
     # A raw epoch is not an answer to "why is everything denied?". An expired dev
     # token denies EVERY call with the same opaque body as a policy refusal — so
@@ -153,6 +174,7 @@ def cmd_whoami(rt: Runtime, args: argparse.Namespace) -> int:
         "exp": claims.get("exp"),
         "capabilities": claims.get("capabilities", []),
         "gateway_accepts": accepted,
+        "gateway_error": gateway_error,
         "context": rt.resolved.context_name,
     }
     emit_object(
@@ -168,12 +190,36 @@ def cmd_whoami(rt: Runtime, args: argparse.Namespace) -> int:
                 ("exp", _expiry_label(expires_in, model["exp"])),
                 ("capabilities", model["capabilities"]),
                 ("gateway_accepts", accepted),
-                ("gateway_running", gateway_running),
+                ("gateway_running", gateway_running if gateway_running is not None else "-"),
+                *(
+                    [("why", _refusal_hint(gateway_error, expires_in))]
+                    if gateway_error is not None
+                    else []
+                ),
             ]
         ),
         quiet_id=str(model["agent_id"] or ""),
     )
     return ExitCode.OK
+
+
+def _refusal_hint(gateway_error: str, expires_in: int | None) -> str:
+    """Say why the gateway would not confirm this identity.
+
+    The bearer being expired is by far the most common cause and the least
+    obvious, because the gateway answers it with the same opaque body as a real
+    policy refusal. When the local decode already proves expiry, say so outright
+    rather than making the reader correlate two lines.
+    """
+    if gateway_error == "unreachable":
+        return "gateway unreachable — check --gateway / the context's base_url"
+    if expires_in is not None and expires_in <= 0:
+        return "the bearer is EXPIRED — that is why every call denies; re-mint it"
+    return (
+        "gateway refused this bearer (opaque by design). Common causes: wrong "
+        "issuer/audience, a revoked or quarantined principal, or a token minted "
+        "for a different gateway"
+    )
 
 
 def _expiry_label(expires_in: int | None, raw_exp: Any) -> str:

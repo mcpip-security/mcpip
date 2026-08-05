@@ -26,6 +26,12 @@ git clone https://github.com/mcpip-security/mcpip.git && cd mcpip
 ./scripts/quickstart.sh
 ```
 
+**13 seconds** from a cold clone to nine real decisions — five allowed, four denied
+opaquely — and about **15** to a first authorized call in full fail-closed production
+posture, self-issued keys and signed license included. Measured, with transcripts and the
+caveats, in [Time to first authorized call](docs/evidence/TIME_TO_FIRST_CALL.md); the
+script prints *your* number rather than ours.
+
 On macOS the script installs Redis via Homebrew if it is missing. On Linux, install it
 first — `sudo apt-get install redis-server`, or the equivalent for your distribution.
 
@@ -138,6 +144,15 @@ direct form and has no vendor alias. Every id is listed in [API.md](docs/start/A
 The format is declared because sniffing lets a caller pick the parser that validates least. An
 unknown vendor is an opaque `403`; a request declaring neither field is a `422`.
 
+### Host integrations
+
+Because the gateway *is* an MCP server, any MCP client can put its tool calls behind it with
+no new code. [`integrations/openclaw/`](integrations/openclaw/) is that, packaged as a
+drop-in skill for [OpenClaw](https://docs.openclaw.ai) — a local-first assistant that holds
+real credentials, acts on a heartbeat, and runs community-authored markdown skills. It also
+tells the agent how to behave when it is refused, which is the half that usually goes
+missing: do not retry, do not route around, report the correlation id and stop.
+
 MCPIP is an authorization **interceptor, not a proxy**. Your application calls its model
 directly, with its own keys and its own billing. MCPIP receives only the resulting tool call.
 Every connector is a pure parser: no LLM SDKs, no credentials, no outbound network. That is
@@ -170,6 +185,32 @@ agent.
 - Model hosting, inference, or any LLM credential — the gateway never calls a model
 - A memory or vector store
 - An LLM proxy. Tool calls cross the authorization boundary; prompts and completions never do.
+- **Meaningful constraint on an open-ended alias** — see below. This is the sharpest limit here.
+
+### The open-ended tool problem
+
+Everything above works because an alias names a *narrow* action. Point one at `run_shell(cmd)`
+or `execute_sql(query)` and most of it stops paying: the alias is a single catalog entry, the
+payload is arbitrary, and per-call authorization collapses into a binary "may this agent shell
+at all." That is one alias away from allow-everything, and no policy language fixes it — the
+tool is the problem, not the expression.
+
+Three honest positions, in order of how much they actually buy:
+
+1. **Don't expose the open-ended tool.** The indirection is exactly the instrument for this:
+   replace `run_shell` with `skill_restart_service`, `skill_tail_log`, `skill_rollback_deploy`.
+   That converts an ungovernable surface into a governable one. It is real work, and it is the
+   only option here that *prevents* anything.
+2. **Where you cannot, the gate stops being prevention and becomes attribution.** The payload is
+   still bound and written to the signed ledger before execution, so every command is
+   non-repudiably tied to an identity, a session and a correlation id. That is a genuinely
+   weaker claim and is labelled weaker on purpose.
+3. **Where an agent truly needs arbitrary shell, this is the wrong layer.** Use OS confinement —
+   seccomp, an LSM, a container boundary. Complementary to MCPIP, not competing with it.
+
+The same asymmetry applies upstream: MCPIP does nothing about *where a skill came from*. What it
+does is make provenance less load-bearing, since a malicious skill still cannot call what the
+identity was never granted. Both, not either.
 
 ## Status
 
@@ -229,7 +270,7 @@ compliance evidence bundle. Desktop builds are in [Operations](docs/operate/OPER
 | **Operate** | [Operations](docs/operate/OPERATIONS.md) · [Compliance](docs/operate/COMPLIANCE.md) · [Response playbook](docs/operate/RESPONSE_PLAYBOOK.md) · [Telemetry](docs/operate/TELEMETRY.md) · [Release](docs/operate/RELEASE.md) |
 | **Build** | [Architecture](docs/integrate/ARCHITECTURE.md) · [Repository reference](docs/integrate/REPOSITORY.md) · [Integrations](docs/integrate/INTEGRATIONS.md) · [Extensibility](docs/integrate/EXTENSIBILITY.md) · [Workspace generate](docs/integrate/WORKSPACE_GENERATE.md) · [Local model](docs/integrate/LOCAL_MODEL.md) |
 | **Understand** | [Whitepaper](docs/background/WHITEPAPER.md) · [Threat model](docs/SECURITY_THREAT_MODEL.md) · [Session delegation](docs/SESSION_DELEGATION_DESIGN.md) |
-| **Verify** | [Evidence](docs/evidence/README.md) — real runs, with transcripts, including what each run did *not* prove |
+| **Verify** | [Evidence](docs/evidence/README.md) — real runs, with transcripts, including what each run did *not* prove · [Time to first call](docs/evidence/TIME_TO_FIRST_CALL.md) |
 
 Everything is indexed in [`docs/`](docs/README.md).
 

@@ -138,6 +138,20 @@ def _opt_str(payload: Mapping[str, Any], key: str) -> str | None:
     return value if isinstance(value, str) else None
 
 
+def _opt_str_tuple(payload: Mapping[str, Any], key: str) -> tuple[str, ...] | None:
+    """An optional JSON array of strings → a frozen tuple, or ``None``.
+
+    ``None`` and a present-but-wrong-shaped value are BOTH ``None`` here: this backs a
+    read-only operator view, and a rule whose list did not survive the round trip should
+    read as absent rather than as a silently shortened constraint. Non-string members are
+    dropped for the same reason — the authoritative validator is the gateway's.
+    """
+    value = payload.get(key)
+    if not isinstance(value, list):
+        return None
+    return tuple(item for item in value if isinstance(item, str))
+
+
 def _int_of(payload: Mapping[str, Any], key: str, default: int = 0) -> int:
     value = payload.get(key)
     # bool is an int subclass — a JSON true/false must not read as 1/0 here.
@@ -735,18 +749,28 @@ class PolicyRule:
     mirrors ``models/schemas.py`` ``PolicyRuleModel`` / ``services/policy_engine.py``
     ``PolicyRule`` verbatim. A rule MATCHES a request by ``scope`` + ``scope_value``
     (an opaque alias name or a coarse transport class) and, per ``kind``, carries
-    EITHER the velocity fields (``max_actions`` + ``window_seconds``) OR the amount
-    fields (``amount_field`` + ``max_amount`` — a decimal STRING, no float drift). A
-    stored rule read back here carries all keys with the off-kind ones ``None``.
+    the velocity fields (``max_actions`` + ``window_seconds``), the amount fields
+    (``amount_field`` + ``max_amount`` — a decimal STRING, no float drift), or the
+    argument fields (``argument_field`` plus ``allowed_values`` and/or
+    ``forbidden_substrings``). A stored rule read back here carries all keys with the
+    off-kind ones ``None``.
+
+    ``argument`` is the only kind that can bound an OPEN-ENDED alias — one whose payload
+    is free text (``cmd``, ``query``, ``path``) rather than a number. Both lists are
+    LITERAL: exact match and case-insensitive substring, never a regex, because a
+    tenant-supplied pattern evaluated in the authorization path is a ReDoS vector.
     """
 
-    kind: str  # "velocity" | "amount"
+    kind: str  # "velocity" | "amount" | "argument"
     scope: str  # "alias" | "transport_class"
     scope_value: str
     max_actions: int | None = None
     window_seconds: int | None = None
     amount_field: str | None = None
     max_amount: str | None = None
+    argument_field: str | None = None
+    allowed_values: tuple[str, ...] | None = None
+    forbidden_substrings: tuple[str, ...] | None = None
 
     @classmethod
     def from_wire(cls, payload: Mapping[str, Any]) -> "PolicyRule":
@@ -758,6 +782,9 @@ class PolicyRule:
             window_seconds=_opt_int(payload, "window_seconds"),
             amount_field=_opt_str(payload, "amount_field"),
             max_amount=_opt_str(payload, "max_amount"),
+            argument_field=_opt_str(payload, "argument_field"),
+            allowed_values=_opt_str_tuple(payload, "allowed_values"),
+            forbidden_substrings=_opt_str_tuple(payload, "forbidden_substrings"),
         )
 
 
@@ -766,8 +793,8 @@ class PolicyDocument:
     """
     A tenant's deny-only policy document (``GET /v1/admin/policy`` → the body
     under ``policy``) — mirrors ``models/schemas.py`` ``PolicyDocumentRequest`` /
-    ``services/policy_engine.py`` ``PolicyRuleSet``. Holds ONLY velocity/amount
-    rules — never an alias→target mapping or identity — so it can never repoint a
+    ``services/policy_engine.py`` ``PolicyRuleSet``. Holds ONLY
+    velocity/amount/argument rules — never an alias→target mapping or identity — so it can never repoint a
     skill or mint a principal. A gateway with NO stored document answers with the
     honest empty ``{"schema": "mcpip-policy/1", "rules": []}`` (no limits — opt-in),
     so :meth:`~mcpip_sdk.admin.MCPIPAdminClient.policy_get` ALWAYS resolves to a
@@ -882,16 +909,30 @@ class PendingExtension:
 
 @dataclass(frozen=True, slots=True)
 class QuarantinedAgent:
-    """One canary-tripwire freeze — clears when its Redis TTL expires."""
+    """One canary-tripwire freeze — clears when its Redis TTL expires.
+
+    ``tripped_alias`` and ``correlation_id`` say *why* the freeze exists: which
+    decoy the agent called, and the id under which that request is in the WORM
+    log. They are ``None`` only against a gateway older than the roster change
+    that began returning them, or if the stored mark was unreadable — a row is
+    never withheld for want of them, because which agent is frozen is the part
+    an operator acts on.
+    """
 
     agent_id: str
     ttl_seconds: int
+    tripped_alias: str | None = None
+    correlation_id: str | None = None
+    quarantined_at_ns: int | None = None
 
     @classmethod
     def from_wire(cls, payload: Mapping[str, Any]) -> "QuarantinedAgent":
         return cls(
             agent_id=_str_of(payload, "agent_id"),
             ttl_seconds=_int_of(payload, "ttl_seconds"),
+            tripped_alias=_opt_str(payload, "tripped_alias"),
+            correlation_id=_opt_str(payload, "correlation_id"),
+            quarantined_at_ns=_opt_int(payload, "quarantined_at_ns"),
         )
 
 
