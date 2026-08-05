@@ -1,0 +1,57 @@
+Script started on 2026-08-05 19:39:06+00:00 [COMMAND="./scripts/quickstart.sh" <not executed on terminal>]
+[1m◐ checking prerequisites[0m
+[2m  python3 · redis-server ✓[0m
+[2m  venv: /home/user/mcpip/.venv ✓[0m
+[2m  redis already answering on :63790 — reusing it[0m
+[1m◐ starting sandbox gateway on :8080[0m
+[2m  log: /tmp/mcpip-gateway.log[0m
+[32m{"status":"live","glyph":"◐","loop":"uvloop","version":"3.0.0","region":null}[0m
+[1m◐ running the live company walkthrough (mcpip-inc)[0m
+[1mMCPIP — live company walkthrough[0m  [2m◐ http://localhost:8080 · v3.0.0[0m
+[2mEvery line below is a real /v1/mcp round-trip through the zero-trust pipeline.[0m
+
+[36mCompany[0m mcpip-inc   [36mTeams[0m team-engineering · team-finance
+
+[1mScenario 1 — Engineering agent  ("I'm on the mcpip team")[0m
+  [2midentity agent-eng-1 @ mcpip-inc · team-engineering[0m
+  [2mtools/list → skill_company_overview, skill_data_lake, skill_engineering_roadmap, skill_aws_s3, skill_aws_dynamodb, skill_email_send[0m
+    [32mALLOW[0m  skill_company_overview            [32m✓[0m
+    [32mALLOW[0m  skill_engineering_roadmap         [32m✓[0m
+    [31mDENY [0m  skill_financial_wage_sheet        [2mopaque · correlation df2abd35a0854c6e80a178b8b6c930a2[0m  [32m✓[0m
+
+[1mScenario 2 — Finance agent[0m
+  [2midentity agent-fin-1 @ mcpip-inc · team-finance[0m
+  [2mtools/list → skill_company_overview, skill_data_lake, skill_financial_wage_sheet, skill_financial_ledger_post, skill_email_send[0m
+    [32mALLOW[0m  skill_financial_wage_sheet        [32m✓[0m
+    [31mDENY [0m  skill_engineering_roadmap         [2mopaque · correlation 1090a244e8444df19e9ce433b6083195[0m  [32m✓[0m
+
+[1mScenario 3 — Company agent, no team[0m
+  [2midentity agent-visitor-1 @ mcpip-inc · no team (company-wide only)[0m
+  [2mtools/list → skill_company_overview, skill_data_lake, skill_email_send[0m
+    [32mALLOW[0m  skill_company_overview            [32m✓[0m
+    [32mALLOW[0m  skill_data_lake                   [32m✓[0m
+    [31mDENY [0m  skill_financial_wage_sheet        [2mopaque · correlation 6aded05af9054971bfbfd4fd68b59063[0m  [32m✓[0m
+    [31mDENY [0m  skill_engineering_roadmap         [2mopaque · correlation 7a6b8b24f2f241a1927e532babd0168b[0m  [32m✓[0m
+
+[32m[1m✓ All decisions matched — team separation enforced at the choke point.[0m
+[2mThe finance wage sheet never appeared in Engineering's tools/list, and every cross-team
+call was denied opaquely. The real targets never left the gateway; every decision is WORM-logged.[0m
+[1m◐ zero → first governed calls: 2s (north star: < 300s)[0m
+
+[1mNext steps[0m
+  [2mLive MCP terminal:[0m  python scripts/mcp_terminal.py
+                      (an interactive MCP session — login per team, tools, call; allow/deny live)
+  [2mOperator console:[0m   cd dashboard && npm install && npm run dev   → http://localhost:5173
+                      (first run shows the setup flow; Test & Connect → http://localhost:8080)
+  [2mClaude Code MCP:[0m    just run 'claude' inside this repo — .mcp.json registers the
+                      mcpip stdio bridge (auto token refresh). Guide: docs/start/GETTING_STARTED.md
+  [2mWorkspace model:[0m   ./scripts/provision_workspace_model.sh
+                      (slim, local, air-gapped model for workspace generation — needs Ollama; training/README.md)
+  [2mStop everything:[0m    kill %1 2>/dev/null; redis-cli -p 63790 shutdown nosave
+  [2mReset the audit chain:[0m  after stopping, delete the AOF dir AND the anchor together —
+                      redis-cli -p 63790 flushall; rm -f mcpip_worm.jsonl.anchor
+                      (the anchor is the out-of-tamper-domain witness for the chain; wiping one
+                      without the other is exactly what a rollback looks like, so verify reports
+                      intact:false — correctly — until they agree again)
+
+Script done on 2026-08-05 19:39:08+00:00 [COMMAND_EXIT_CODE="0"]

@@ -7,6 +7,15 @@
 [![Core license](https://img.shields.io/badge/core-BSL%201.1-blue)](#license)
 [![SDK license](https://img.shields.io/badge/SDKs-Apache--2.0-blue)](#license)
 
+![Two agents on one gateway: engineering never sees the finance wage sheet in its tool
+list, asks for it anyway, and gets an opaque deny](docs/evidence/images/quickstart.gif)
+
+<sub>Recorded from `./scripts/quickstart.sh` on an ordinary laptop. The raw capture is
+[`quickstart.ansi`](docs/evidence/images/quickstart.ansi) and the frames are drawn from it by
+[`scripts/render_quickstart_gif.py`](scripts/render_quickstart_gif.py) — lines are omitted for
+length, none are reworded. Run it yourself and the correlation ids will differ; nothing else
+should.</sub>
+
 MCPIP is a self-hosted authorization gateway that sits between an AI agent's tool call and the
 system that runs it. The agent proposes an action; MCPIP decides whether it is allowed; your
 systems execute. Nothing reaches production without a signed, immutable record written first.
