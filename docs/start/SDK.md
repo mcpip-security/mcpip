@@ -47,16 +47,12 @@ transliterate between the two.
 **Install**
 
 ```bash
-npm install @mcpip/sdk              # PUBLISHED — ESM-only, zero runtime dependencies
-
-pip install ./sdk/python            # or: pipx install ./sdk/python (also puts `mcpip` on PATH)
-                                    # NOT on PyPI yet — the git/checkout form is the only one
+pip install mcpip-sdk               # or: pipx install mcpip-sdk (also puts `mcpip` on PATH)
+npm install @mcpip/sdk              # ESM-only, zero runtime dependencies
 ```
 
-The asymmetry is real and deliberate rather than an oversight: `@mcpip/sdk` is on npm, and
-`mcpip-sdk` is not yet on PyPI. Until it is, the Python install stays a path or a git URL —
-documenting `pip install mcpip-sdk` before the name resolves would send every reader to an
-error.
+Both are published. To run an unreleased change, install from a checkout instead
+(`pip install ./sdk/python`, `npm install ./sdk/typescript`).
 
 ```python
 from mcpip_sdk import MCPIPClient

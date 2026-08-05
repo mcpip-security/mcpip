@@ -57,7 +57,7 @@ curl -s -X POST http://localhost:8080/v1/authorize \
 Through the CLI:
 
 ```bash
-pipx install ./sdk/python
+pipx install mcpip-sdk
 mcpip login --gateway http://localhost:8080 --sandbox --context sbx
 mcpip --context sbx sandbox dev-token --agent ops-1
 mcpip --context sbx authorize skill_spend_summary --arg period=2026-Q2

@@ -30,8 +30,11 @@ mcpip [global options] <command> [args]
 install from this checkout:
 
 ```bash
-pipx install ./sdk/python        # isolated, puts mcpip on PATH — recommended
-pip install ./sdk/python         # into the active environment (venv or otherwise)
+pipx install mcpip-sdk           # isolated, puts mcpip on PATH — recommended
+pip install mcpip-sdk            # into the active environment (venv or otherwise)
+
+# from a checkout instead, e.g. to run an unreleased change:
+#   pipx install ./sdk/python
 ```
 
 No pipx? `python3 -m pip install --user ./sdk/python` needs nothing but Python and puts
