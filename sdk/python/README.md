@@ -11,8 +11,11 @@ AI action before execution.
 - Ships the `mcpip` CLI on your PATH (see below)
 
 ```bash
-pipx install ./sdk/python       # isolated install, `mcpip` on PATH (recommended)
-pip  install ./sdk/python       # into the active environment
+pipx install mcpip-sdk          # isolated install, `mcpip` on PATH (recommended)
+pip  install mcpip-sdk          # into the active environment
+
+# from a checkout instead, to run an unreleased change:
+#   pipx install ./sdk/python
 pipx install mcpip-sdk          # once published to PyPI
 
 # Homebrew (works TODAY from git, no published release needed):

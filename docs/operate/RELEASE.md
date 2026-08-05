@@ -237,14 +237,19 @@ why PyPI Trusted Publishing is two `curl` calls rather than a delegated action.
 |---|---|---|
 | `@mcpip/sdk` | npm | **published** — `0.1.0`, owned by the `mcpip` account |
 | `mcpip` | npm | unclaimed |
-| `mcpip-sdk` | PyPI | unclaimed |
+| `mcpip-sdk` | PyPI | **published** — `0.1.0`, via Trusted Publishing on `sdk-py-v0.1.0` |
 | `mcpip` | PyPI | unclaimed |
 | `ghcr.io/mcpip-security/mcpip` | GHCR | not pushed (needs a `v*` tag) |
 
-`@mcpip/sdk 0.1.0` was published **by hand**, not by this workflow, so it carries no build
-provenance — a local publish cannot produce one, since `--provenance` needs the OIDC identity
-that only exists inside GitHub Actions. Every subsequent version must go through the workflow
-so the attestation starts at `0.1.1` and `npm audit signatures` has something to verify.
+`mcpip-sdk 0.1.0` went out through this workflow on the `sdk-py-v0.1.0` tag: tag guard →
+build → `twine check` → clean-interpreter smoke → Trusted Publishing. No token was stored
+anywhere; GitHub minted a short-lived OIDC assertion and PyPI exchanged it. Verified after the
+fact by installing from PyPI into an empty virtualenv and running `mcpip --version`.
+
+`@mcpip/sdk 0.1.0`, by contrast, was published **by hand** and carries no build provenance — a
+local publish cannot produce one, since `--provenance` needs the OIDC identity that exists only
+inside GitHub Actions. Every subsequent npm version must go through the workflow so the
+attestation starts at `0.1.1` and `npm audit signatures` has something to verify.
 
 Claiming the bare `mcpip` name on both registries — even as a placeholder pointing at the real
 package — costs nothing and cannot be undone later by anyone else.
@@ -273,7 +278,7 @@ release is half-done, and reviewers should expect that rather than "fix" it:
 | Line | Change to | When |
 |---|---|---|
 | `npm install ./sdk/typescript` | `npm install @mcpip/sdk` | **done** — npm resolves |
-| `pipx install ./sdk/python` | `pipx install mcpip-sdk` | not yet — PyPI is unclaimed |
+| `pipx install ./sdk/python` | `pipx install mcpip-sdk` | **done** — PyPI resolves |
 | `git clone … && ./scripts/quickstart.sh` | `docker run … ghcr.io/mcpip-security/mcpip:<version>` | not yet — no `v*` tag pushed |
 
 The npm row is applied in `docs/start/SDK.md`, `sdk/typescript/README.md` and the website's
