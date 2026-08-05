@@ -199,7 +199,8 @@ class ErrorResponse(BaseModel):
 # Deny-only policy overlay — the ``/v1/admin/policy`` wire contract (SDK/console
 # parity). These describe the strict document shape; the authoritative validator is
 # ``services.policy_engine.PolicyDocStore.validate`` (the endpoint validates via the
-# store and denies opaquely). The document holds ONLY velocity/amount rules — never an
+# store and denies opaquely). The document holds ONLY velocity/amount/argument rules —
+# never an
 # alias→target mapping or identity, so it can never repoint a skill or mint a principal.
 # ---------------------------------------------------------------------------
 
@@ -208,19 +209,30 @@ class PolicyRuleModel(BaseModel):
     """
     One deny-only policy rule on the wire. A rule MATCHES a request by ``scope`` +
     ``scope_value`` (an alias name or coarse transport class) and, per ``kind``, carries
-    either the velocity fields (``max_actions`` + ``window_seconds``) or the amount
-    fields (``amount_field`` + ``max_amount`` — a decimal STRING, no float drift).
+    the velocity fields (``max_actions`` + ``window_seconds``), the amount fields
+    (``amount_field`` + ``max_amount`` — a decimal STRING, no float drift), or the
+    argument fields (``argument_field`` plus ``allowed_values`` and/or
+    ``forbidden_substrings`` — the only kind that can bound an OPEN-ENDED alias whose
+    payload is free text rather than a number).
+
+    This model is the WIRE shape only; the authoritative cross-field validator is
+    ``services.policy_engine.PolicyRule``. Both must know every field: anything absent
+    here is rejected by ``extra="forbid"`` before the real validator ever sees it, which
+    is how a new rule kind silently becomes unreachable through the API.
     """
 
     model_config = _STRICT
 
-    kind: str  # "velocity" | "amount"
+    kind: str  # "velocity" | "amount" | "argument"
     scope: str  # "alias" | "transport_class"
     scope_value: str = Field(min_length=1, max_length=256)
     max_actions: Optional[int] = Field(default=None, ge=1)
     window_seconds: Optional[int] = Field(default=None, ge=1, le=86400)
     amount_field: Optional[str] = Field(default=None, min_length=1, max_length=256)
     max_amount: Optional[str] = Field(default=None, min_length=1, max_length=64)
+    argument_field: Optional[str] = Field(default=None, min_length=1, max_length=256)
+    allowed_values: Optional[list[str]] = Field(default=None, max_length=64)
+    forbidden_substrings: Optional[list[str]] = Field(default=None, max_length=64)
 
 
 class PolicyDocumentRequest(BaseModel):
