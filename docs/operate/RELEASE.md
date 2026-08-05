@@ -212,9 +212,23 @@ why PyPI Trusted Publishing is two `curl` calls rather than a delegated action.
    After the first push, set the package visibility to public, or anonymous `docker pull`
    will 403 and the install line in the README will not work for anyone but you.
 
-`mcpip-sdk`, `mcpip`, `@mcpip/sdk` and `mcpip` were all unclaimed on PyPI and npm when this
-was written. Claiming the bare `mcpip` name on both registries — even as a placeholder that
-points at the real package — costs nothing and cannot be undone later by anyone else.
+### Claim status
+
+| Name | Registry | Status |
+|---|---|---|
+| `@mcpip/sdk` | npm | **published** — `0.1.0`, owned by the `mcpip` account |
+| `mcpip` | npm | unclaimed |
+| `mcpip-sdk` | PyPI | unclaimed |
+| `mcpip` | PyPI | unclaimed |
+| `ghcr.io/mcpip-security/mcpip` | GHCR | not pushed (needs a `v*` tag) |
+
+`@mcpip/sdk 0.1.0` was published **by hand**, not by this workflow, so it carries no build
+provenance — a local publish cannot produce one, since `--provenance` needs the OIDC identity
+that only exists inside GitHub Actions. Every subsequent version must go through the workflow
+so the attestation starts at `0.1.1` and `npm audit signatures` has something to verify.
+
+Claiming the bare `mcpip` name on both registries — even as a placeholder pointing at the real
+package — costs nothing and cannot be undone later by anyone else.
 
 ### Rehearsing without publishing
 
@@ -231,14 +245,20 @@ point, or an import that only ever resolved because the source tree was on `sys.
 here rather than in the first user's terminal. The npm job asserts the tarball carries
 `dist/`, `LICENSE` and `README.md` and does **not** carry sources.
 
-### After the first successful publish
+### After each successful publish, update the install lines — and only those
 
-The install lines in `README.md` and on the website still say `pipx install ./sdk/python`,
-which is correct today and wrong the moment the package exists. Update them to
-`pipx install mcpip-sdk`, `npm i @mcpip/sdk` and
-`docker run --rm -p 8080:8080 ghcr.io/mcpip-security/mcpip:<version>` **after** the
-registries confirm, never before — a documented command that 404s costs more trust than a
-clone that works.
+A documented command that 404s costs more trust than a clone that works, so an install line
+moves only once its registry answers. That makes the docs deliberately **asymmetric** while a
+release is half-done, and reviewers should expect that rather than "fix" it:
+
+| Line | Change to | When |
+|---|---|---|
+| `npm install ./sdk/typescript` | `npm install @mcpip/sdk` | **done** — npm resolves |
+| `pipx install ./sdk/python` | `pipx install mcpip-sdk` | not yet — PyPI is unclaimed |
+| `git clone … && ./scripts/quickstart.sh` | `docker run … ghcr.io/mcpip-security/mcpip:<version>` | not yet — no `v*` tag pushed |
+
+The npm row is applied in `docs/start/SDK.md`, `sdk/typescript/README.md` and the website's
+Download and Docs pages. The other two rows stay as they are until their registries confirm.
 
 ---
 

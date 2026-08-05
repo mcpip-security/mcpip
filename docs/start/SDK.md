@@ -47,9 +47,16 @@ transliterate between the two.
 **Install**
 
 ```bash
+npm install @mcpip/sdk              # PUBLISHED — ESM-only, zero runtime dependencies
+
 pip install ./sdk/python            # or: pipx install ./sdk/python (also puts `mcpip` on PATH)
-npm install ./sdk/typescript        # @mcpip/sdk — ESM-only, zero runtime dependencies
+                                    # NOT on PyPI yet — the git/checkout form is the only one
 ```
+
+The asymmetry is real and deliberate rather than an oversight: `@mcpip/sdk` is on npm, and
+`mcpip-sdk` is not yet on PyPI. Until it is, the Python install stays a path or a git URL —
+documenting `pip install mcpip-sdk` before the name resolves would send every reader to an
+error.
 
 ```python
 from mcpip_sdk import MCPIPClient
