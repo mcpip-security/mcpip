@@ -84,14 +84,15 @@ jobs:
     needs: guard
     if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/sdk-py-v')
     runs-on: ubuntu-latest
-    # Declared because the PyPI trusted publisher is registered WITH an environment
-    # name. PyPI checks the `environment` claim in the OIDC token, so if the publisher
-    # names one and the job does not declare it, the mint is refused and the release
-    # fails at the last step — after the version is already tagged. The environment
-    # also earns its keep on its own: publishing rights can be gated (reviewers,
-    # branch restrictions) separately from commit access, so someone who can merge
-    # cannot necessarily ship to PyPI.
-    environment: pypi
+    # NO `environment:` here, deliberately — the registered trusted publisher has
+    # "Environment name: (Any)", so PyPI does not check that claim and declaring one
+    # would only add a repo-settings dependency that fails at tag time if missing.
+    #
+    # Worth hardening later, as its own deliberate change: create a `pypi` environment
+    # with required reviewers, add `environment: pypi` here, AND narrow the publisher on
+    # PyPI to that same name. All three, or none — an environment while the publisher
+    # still says "(Any)" gates who can *run* the job but binds nothing at PyPI's end, so
+    # any other workflow in this repo could still mint a publishing token.
     permissions:
       contents: read
       id-token: write        # Trusted Publishing only; no long-lived PyPI token
