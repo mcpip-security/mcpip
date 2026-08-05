@@ -84,6 +84,14 @@ jobs:
     needs: guard
     if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/sdk-py-v')
     runs-on: ubuntu-latest
+    # Declared because the PyPI trusted publisher is registered WITH an environment
+    # name. PyPI checks the `environment` claim in the OIDC token, so if the publisher
+    # names one and the job does not declare it, the mint is refused and the release
+    # fails at the last step — after the version is already tagged. The environment
+    # also earns its keep on its own: publishing rights can be gated (reviewers,
+    # branch restrictions) separately from commit access, so someone who can merge
+    # cannot necessarily ship to PyPI.
+    environment: pypi
     permissions:
       contents: read
       id-token: write        # Trusted Publishing only; no long-lived PyPI token

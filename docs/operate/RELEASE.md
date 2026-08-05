@@ -202,10 +202,26 @@ why PyPI Trusted Publishing is two `curl` calls rather than a delegated action.
 
 ### One-time setup (owner, before the first tag)
 
-1. **PyPI.** Create a *pending publisher* at <https://pypi.org/manage/account/publishing/>:
-   owner `mcpip-security`, repository `mcpip`, workflow `release.yml`. No token is stored
-   anywhere — GitHub mints a short-lived OIDC assertion per run and PyPI exchanges it. If
-   this is not configured the job fails loudly rather than falling back to something weaker.
+1. **PyPI.** Create a *pending publisher* at <https://pypi.org/manage/account/publishing/>
+   with EXACTLY these values — three of the five are easy to get wrong:
+
+   | Field | Value | Why |
+   |---|---|---|
+   | PyPI Project Name | `mcpip-sdk` | the distribution the workflow uploads. **Not** `mcpip` — that is the gateway package, which nothing publishes. |
+   | Owner | `mcpip-security` | |
+   | Repository name | `mcpip` | the repo, not a placeholder |
+   | Workflow name | `release.yml` | the filename under `.github/workflows/` |
+   | Environment name | `pypi` | must match the `environment:` on the pypi job |
+
+   No token is stored anywhere — GitHub mints a short-lived OIDC assertion per run and PyPI
+   exchanges it. If this is not configured the job fails loudly rather than falling back to
+   something weaker.
+
+   **Create the `pypi` environment** under repo Settings → Environments before the first
+   tag. PyPI validates the `environment` claim in the OIDC token, so a publisher registered
+   with an environment name and a job that does not declare one is refused at the mint —
+   which happens *after* the tag exists. The environment is worth having regardless: it
+   gates publishing rights separately from commit access.
 2. **npm.** Create an automation token on npmjs.com and store it as the repository secret
    `NPM_TOKEN`. The scope `@mcpip` must exist and the publishing account must own it.
 3. **GHCR.** Nothing to configure — the job authenticates with the run's own `GITHUB_TOKEN`.
