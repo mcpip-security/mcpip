@@ -109,6 +109,9 @@ ${BOLD}Next steps${RESET}
                       (first run shows the setup flow; Test & Connect → http://localhost:${GATEWAY_PORT})
   ${DIM}Claude Code MCP:${RESET}    just run 'claude' inside this repo — .mcp.json registers the
                       mcpip stdio bridge (auto token refresh). Guide: docs/start/GETTING_STARTED.md
+  ${DIM}Break the audit log:${RESET} ./scripts/audit_tamper_demo.sh
+                      (deletes a sealed record straight out of Redis, bypassing the gateway,
+                      then re-verifies the chain — destructive, and prints how to reset)
   ${DIM}Workspace model:${RESET}   ./scripts/provision_workspace_model.sh
                       (slim, local, air-gapped model for workspace generation — needs Ollama; training/README.md)
   ${DIM}Stop everything:${RESET}    kill %1 2>/dev/null; redis-cli -p ${REDIS_PORT} shutdown nosave

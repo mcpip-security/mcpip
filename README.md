@@ -12,7 +12,7 @@ list, asks for it anyway, and gets an opaque deny](docs/evidence/images/quicksta
 
 <sub>Recorded from `./scripts/quickstart.sh` on an ordinary laptop. The raw capture is
 [`quickstart.ansi`](docs/evidence/images/quickstart.ansi) and the frames are drawn from it by
-[`scripts/render_quickstart_gif.py`](scripts/render_quickstart_gif.py) — lines are omitted for
+[`scripts/render_demo_gifs.py`](scripts/render_demo_gifs.py) — lines are omitted for
 length, none are reworded. Run it yourself and the correlation ids will differ; nothing else
 should.</sub>
 
@@ -261,6 +261,22 @@ check holds, then re-reads the audit log and asserts the signed Merkle chain is 
 It exercises the engine directly rather than over HTTP, so it proves the authorization logic,
 not a running deployment. To check a deployment, use `mcpip verify` for the release and
 `GET /readyz` plus a real authorize call for the gateway.
+
+### Delete a record and see what happens
+
+"Agent actions are logged" is the easy claim. The one that decides whether the log is worth
+anything is the next one: *if someone with production access deletes a record, does anything
+notice?* `./scripts/audit_tamper_demo.sh` answers it by doing it — reaching past the gateway
+to delete a sealed record straight out of Redis, then asking the gateway to re-verify.
+
+![Verify reports the chain intact; one record is deleted directly in Redis; verify then reports
+intact false and names the epoch](docs/evidence/images/tamper.gif)
+
+The epoch's Merkle root is recomputed from the surviving records and compared against the root
+Ed25519-signed when the epoch closed. Re-signing a root that matches what was left behind needs
+the signing key, which is not in Redis — so a deletion is detectable rather than deniable. The
+script is destructive on purpose and prints the two lines that reset the chain. If it ever
+reports *not* caught, that is a finding and it says so.
 
 ## Operator console
 

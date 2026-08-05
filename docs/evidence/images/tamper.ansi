@@ -1,0 +1,25 @@
+Script started on 2026-08-05 20:09:08+00:00 [COMMAND="./scripts/audit_tamper_demo.sh" <not executed on terminal>]
+[1mMCPIP — can you tell if someone deleted an audit record?[0m
+[2mThe gateway signs a Merkle root per epoch. The key is not in Redis.[0m
+
+[1m1. Verify the signed chain as it stands[0m
+  [2m$[0m [36mcurl -s http://localhost:8080/v1/audit/verify[0m
+  [32m{"intact":true,"first_bad_epoch":null}[0m
+
+[1m2. Delete one sealed record — straight in Redis, bypassing the gateway[0m
+  [2m$[0m [36mredis-cli -p 63790 XDEL mcpip:worm:events 1785960540041-0[0m
+  (integer) 1
+
+[1m3. Ask the gateway to verify the chain again[0m
+  [2m$[0m [36mcurl -s http://localhost:8080/v1/audit/verify[0m
+  [31m{"intact":false,"first_bad_epoch":6}[0m
+
+[32m[1m✓ Caught.[0m [1mThe gateway names the epoch the missing record was in.[0m
+[2mThe root is recomputed from the surviving records and compared against the one
+Ed25519-signed at epoch close. Re-signing a root that matches what was left behind
+needs the signing key, which is not in Redis — so deletion is detectable, not deniable.[0m
+
+[2mReset:  redis-cli -p 63790 flushall && rm -f mcpip_worm.jsonl.anchor[0m
+[2m        then ./scripts/quickstart.sh[0m
+
+Script done on 2026-08-05 20:09:08+00:00 [COMMAND_EXIT_CODE="0"]
