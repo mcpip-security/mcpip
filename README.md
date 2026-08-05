@@ -185,6 +185,32 @@ agent.
 - Model hosting, inference, or any LLM credential — the gateway never calls a model
 - A memory or vector store
 - An LLM proxy. Tool calls cross the authorization boundary; prompts and completions never do.
+- **Meaningful constraint on an open-ended alias** — see below. This is the sharpest limit here.
+
+### The open-ended tool problem
+
+Everything above works because an alias names a *narrow* action. Point one at `run_shell(cmd)`
+or `execute_sql(query)` and most of it stops paying: the alias is a single catalog entry, the
+payload is arbitrary, and per-call authorization collapses into a binary "may this agent shell
+at all." That is one alias away from allow-everything, and no policy language fixes it — the
+tool is the problem, not the expression.
+
+Three honest positions, in order of how much they actually buy:
+
+1. **Don't expose the open-ended tool.** The indirection is exactly the instrument for this:
+   replace `run_shell` with `skill_restart_service`, `skill_tail_log`, `skill_rollback_deploy`.
+   That converts an ungovernable surface into a governable one. It is real work, and it is the
+   only option here that *prevents* anything.
+2. **Where you cannot, the gate stops being prevention and becomes attribution.** The payload is
+   still bound and written to the signed ledger before execution, so every command is
+   non-repudiably tied to an identity, a session and a correlation id. That is a genuinely
+   weaker claim and is labelled weaker on purpose.
+3. **Where an agent truly needs arbitrary shell, this is the wrong layer.** Use OS confinement —
+   seccomp, an LSM, a container boundary. Complementary to MCPIP, not competing with it.
+
+The same asymmetry applies upstream: MCPIP does nothing about *where a skill came from*. What it
+does is make provenance less load-bearing, since a malicious skill still cannot call what the
+identity was never granted. Both, not either.
 
 ## Status
 
