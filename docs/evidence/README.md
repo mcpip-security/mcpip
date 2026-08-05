@@ -60,4 +60,20 @@ The k6 suite is [`load/k6/by-client-type.js`](../../load/k6/by-client-type.js) �
 `{kind:invariant}` and thresholded at `rate==1.0`, so a run that gets faster by
 allowing something it should have denied fails rather than scores well.
 
-`images/` holds the console screenshots referenced from the scenario documents.
+## Runnable — evidence you produce yourself
+
+The documents above are records of runs we did. These two you run:
+
+| command | what it settles |
+|---|---|
+| `python main.py` | The authorization logic, in-process: 29 checks — 7 allow-paths and 22 attacks — then a re-read of the audit log asserting the signed Merkle chain is intact. Exits `0` only if every check holds. |
+| `./scripts/audit_tamper_demo.sh` | Whether the ledger notices tampering. It deletes a sealed record straight out of Redis, bypassing the gateway entirely, then asks the gateway to re-verify: `{"intact":false,"first_bad_epoch":N}`. Needs a gateway from `scripts/quickstart.sh`; destructive on purpose, and prints the two lines that reset the chain. |
+
+The tamper demo refuses to run against an already-broken chain rather than claim a catch it
+did not make, and exits non-zero calling it a **finding** — not a demo glitch — if the deletion
+is ever *not* caught. A demo that can only succeed is not evidence of anything.
+
+`images/` holds the console screenshots referenced from the scenario documents, plus the two
+README GIFs (`quickstart.gif`, `tamper.gif`) plus the `script(1)` captures they were rendered
+from — so a reader can diff the picture against the run. See
+[`scripts/render_demo_gifs.py`](../../scripts/render_demo_gifs.py).
