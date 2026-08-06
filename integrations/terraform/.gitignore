@@ -1,0 +1,8 @@
+# Built provider binary — never committed; see README (dev override).
+terraform-provider-mcpip
+
+# Local Terraform working state from examples/.
+.terraform/
+.terraform.lock.hcl
+terraform.tfstate
+terraform.tfstate.backup
