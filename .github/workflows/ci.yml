@@ -140,3 +140,33 @@ jobs:
         run: |
           npm i --no-save typescript @types/node
           ./node_modules/.bin/tsc -p tsconfig.json
+
+  terraform-provider:
+    name: Terraform provider (go vet + test + build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: integrations/terraform/go.mod
+          cache-dependency-path: integrations/terraform/go.sum
+      # No acceptance tests here: those need a live gateway, and standing one up per
+      # CI run to exercise four resources would cost more than it catches. What this
+      # gates is everything that does not need one — the policy-document equivalence
+      # (a regression there gives every operator a permanent diff, silently) and the
+      # schemas, which the framework validates by panicking at provider startup.
+      - name: Vet, test and build
+        working-directory: integrations/terraform
+        run: |
+          go vet ./...
+          go test ./...
+          go build ./...
+      - name: Formatting is not a matter of opinion
+        working-directory: integrations/terraform
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "gofmt would rewrite these files:"
+            echo "$unformatted"
+            exit 1
+          fi
