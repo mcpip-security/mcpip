@@ -1,0 +1,133 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Return xmlns="http://www.irs.gov/efile" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.irs.gov/efile" returnVersion="2020v1.1">
+  <ReturnHeader binaryAttachmentCnt="0">
+    <ReturnTs>2021-11-15T12:36:40-06:00</ReturnTs>
+    <TaxPeriodEndDt>2020-12-31</TaxPeriodEndDt>
+    <PreparerFirmGrp>
+      <PreparerFirmEIN>362985770</PreparerFirmEIN>
+      <PreparerFirmName>
+        <BusinessNameLine1Txt>SELDEN FOX LTD</BusinessNameLine1Txt>
+      </PreparerFirmName>
+      <PreparerUSAddress>
+        <AddressLine1Txt>619 ENTERPRISE DRIVE</AddressLine1Txt>
+        <CityNm>OAK BROOK</CityNm>
+        <StateAbbreviationCd>IL</StateAbbreviationCd>
+        <ZIPCd>605238835</ZIPCd>
+      </PreparerUSAddress>
+    </PreparerFirmGrp>
+    <ReturnTypeCd>990T</ReturnTypeCd>
+    <TaxPeriodBeginDt>2020-01-01</TaxPeriodBeginDt>
+    <Filer>
+      <EIN>132937225</EIN>
+      <BusinessName>
+        <BusinessNameLine1Txt>ACADEMY OF SPINAL CORD INJURY</BusinessNameLine1Txt>
+        <BusinessNameLine2Txt>PROFESSIONALS INC</BusinessNameLine2Txt>
+      </BusinessName>
+      <BusinessNameControlTxt>ACAD</BusinessNameControlTxt>
+      <PhoneNum>2173212488</PhoneNum>
+      <USAddress>
+        <AddressLine1Txt>6 LAWRENCE SQUARE</AddressLine1Txt>
+        <CityNm>SPRINGFIELD</CityNm>
+        <StateAbbreviationCd>IL</StateAbbreviationCd>
+        <ZIPCd>62704</ZIPCd>
+      </USAddress>
+    </Filer>
+    <BusinessOfficerGrp>
+      <PersonNm>DENNY O'MALLEY</PersonNm>
+      <PersonTitleTxt>EXECUTIVE VICE PRESIDENT</PersonTitleTxt>
+      <PhoneNum>2173212488</PhoneNum>
+      <SignatureDt>2021-11-15</SignatureDt>
+      <DiscussWithPaidPreparerInd>1</DiscussWithPaidPreparerInd>
+    </BusinessOfficerGrp>
+    <SigningOfficerGrp>
+      <PersonFullName>
+        <PersonFirstNm>DENNY</PersonFirstNm>
+        <PersonLastNm>OMALLEY</PersonLastNm>
+      </PersonFullName>
+      <SSN>999009999</SSN>
+    </SigningOfficerGrp>
+    <PreparerPersonGrp>
+      <PreparerPersonNm>ROBERT G WUJEK</PreparerPersonNm>
+      <PTIN>P01367472</PTIN>
+      <PhoneNum>6309541400</PhoneNum>
+    </PreparerPersonGrp>
+    <AdditionalFilerInformation>
+      <TrustedCustomerGrp>
+        <TrustedCustomerCd>0</TrustedCustomerCd>
+        <AuthenticationAssuranceLevelCd>AAL1</AuthenticationAssuranceLevelCd>
+        <IdentityAssuranceLevelCd>IAL1</IdentityAssuranceLevelCd>
+      </TrustedCustomerGrp>
+    </AdditionalFilerInformation>
+    <TaxYr>2020</TaxYr>
+    <BuildTS>2022-09-23 18:48:47Z</BuildTS>
+  </ReturnHeader>
+  <ReturnData documentCnt="2">
+    <IRS990T documentId="RetDoc1237100001">
+      <Organization501IndicatorGrp>
+        <Organization501Ind>X</Organization501Ind>
+        <Organization501cTypeTxt>c3</Organization501cTypeTxt>
+      </Organization501IndicatorGrp>
+      <BookValueAssetsEOYAmt>701816</BookValueAssetsEOYAmt>
+      <Organization501cCorporationInd>X</Organization501cCorporationInd>
+      <Form990TScheduleAAttachedCnt>1</Form990TScheduleAAttachedCnt>
+      <SubsidiaryCorporationInd>0</SubsidiaryCorporationInd>
+      <BooksInCareOfDetail>
+        <PersonNm>FURTURES IN REHABILITATION MANAGEM</PersonNm>
+        <USAddress>
+          <AddressLine1Txt>6 LAWRENCE SQUARE</AddressLine1Txt>
+          <CityNm>SPRINGFIELD</CityNm>
+          <StateAbbreviationCd>IL</StateAbbreviationCd>
+          <ZIPCd>62704</ZIPCd>
+        </USAddress>
+        <PhoneNum>2177531190</PhoneNum>
+      </BooksInCareOfDetail>
+      <TotalUBTIComputedAmt>0</TotalUBTIComputedAmt>
+      <CharitableContributionsDedAmt>0</CharitableContributionsDedAmt>
+      <NetOperatingLossDeductionAmt>0</NetOperatingLossDeductionAmt>
+      <SpecificDeductionAmt>1000</SpecificDeductionAmt>
+      <TotalDeductionAmt>1000</TotalDeductionAmt>
+      <TotalUBTIAmt>0</TotalUBTIAmt>
+      <TaxableCorporationAmt>0</TaxableCorporationAmt>
+      <TotalTaxComputationAmt>0</TotalTaxComputationAmt>
+      <TaxLessCreditsAmt>0</TaxLessCreditsAmt>
+      <TotalTaxAmt>0</TotalTaxAmt>
+      <PaidTaxLiabilityAmt>0</PaidTaxLiabilityAmt>
+      <ForeignAccountsQuestionInd>0</ForeignAccountsQuestionInd>
+      <ForeignTrustQuestionInd>0</ForeignTrustQuestionInd>
+      <ChangeInMethodOfAccountingInd>0</ChangeInMethodOfAccountingInd>
+    </IRS990T>
+    <IRS990TScheduleA documentId="RetDoc1087300001">
+      <PrincipalBusinessActivityCd>541800</PrincipalBusinessActivityCd>
+      <SequenceReferenceNum>1</SequenceReferenceNum>
+      <SequenceTotalNum>1</SequenceTotalNum>
+      <TradeOrBusinessDesc>ADVERTISING ROYALTIES</TradeOrBusinessDesc>
+      <NetExploitedActivityIncomeAmt>31007</NetExploitedActivityIncomeAmt>
+      <TotUnrltTrdBusIncmAmt>31007</TotUnrltTrdBusIncmAmt>
+      <TotUnrltTrdBusIncmExpnssAmt>0</TotUnrltTrdBusIncmExpnssAmt>
+      <TotNetUnrltTrdBusIncmAmt>31007</TotNetUnrltTrdBusIncmAmt>
+      <TotalDeductionsAmt>31007</TotalDeductionsAmt>
+      <UBIBeforeNOLDedAmt>0</UBIBeforeNOLDedAmt>
+      <NetOperatingLossDeductionAmt>0</NetOperatingLossDeductionAmt>
+      <TotalRentIncomeAmt>0</TotalRentIncomeAmt>
+      <TotalRentDeductionsAmt>0</TotalRentDeductionsAmt>
+      <TotalGrossDebtFinancedIncmAmt>0</TotalGrossDebtFinancedIncmAmt>
+      <TotalAllocableDeductionsAmt>0</TotalAllocableDeductionsAmt>
+      <TotalDividendsReceivedDedAmt>0</TotalDividendsReceivedDedAmt>
+      <TotalCtrlOrgPymtGrossIncmAmt>0</TotalCtrlOrgPymtGrossIncmAmt>
+      <TotalCtrlOrgDeductionAmt>0</TotalCtrlOrgDeductionAmt>
+      <TotalInvestmentIncomeAmt>0</TotalInvestmentIncomeAmt>
+      <TotalDeductionSetAsidesAmt>0</TotalDeductionSetAsidesAmt>
+      <ExploitedActivityDesc>EDITORIAL STIPEND</ExploitedActivityDesc>
+      <ExploitedExemptActivityIncmAmt>31007</ExploitedExemptActivityIncmAmt>
+      <ExploitedExpnssCnnctUBIAmt>0</ExploitedExpnssCnnctUBIAmt>
+      <ExploitedActivityNetIncomeAmt>31007</ExploitedActivityNetIncomeAmt>
+      <GrossIncomeActyNotUBIAmt>0</GrossIncomeActyNotUBIAmt>
+      <GrossIncomeActyNotUBIExpnsAmt>59667</GrossIncomeActyNotUBIExpnsAmt>
+      <ExploitedExcessExemptExpnssAmt>31007</ExploitedExcessExemptExpnssAmt>
+      <TotalGrossAdvertisingIncomeAmt>0</TotalGrossAdvertisingIncomeAmt>
+      <TotalDirectAdvertisingCostAmt>0</TotalDirectAdvertisingCostAmt>
+      <TotExcessReadershipCostsDedAmt>0</TotExcessReadershipCostsDedAmt>
+      <TotalUnrelatedBusinessCompAmt>0</TotalUnrelatedBusinessCompAmt>
+    </IRS990TScheduleA>
+  </ReturnData>
+</Return>

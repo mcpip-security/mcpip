@@ -1,0 +1,3 @@
+# Editable-install metadata and local outputs
+*.egg-info/
+irs-efile-html/

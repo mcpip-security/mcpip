@@ -1,0 +1,40 @@
+# irs-efile-viewer — a standalone tool, not part of the MCPIP gateway. It neither imports
+# nor is imported by the gateway packages, and has its own dependencies and CI job.
+
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "irs-efile-viewer"
+dynamic = ["version"]
+description = "Render IRS Modernized e-File (MeF) XML returns as the IRS forms they were filed on"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    # libxslt via lxml runs the IRS XSLT 1.0 stylesheets server-side.
+    "lxml>=5.2,<7",
+]
+
+[project.optional-dependencies]
+web = [
+    "fastapi>=0.111,<1",
+    "uvicorn[standard]>=0.30,<1",
+    "python-multipart>=0.0.9",
+]
+dev = [
+    "pytest>=8.3,<9",
+    "httpx>=0.27,<1",
+]
+
+[project.scripts]
+irs-efile-viewer = "irs_efile_viewer.cli:main"
+
+[tool.setuptools.dynamic]
+version = { attr = "irs_efile_viewer.__version__" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

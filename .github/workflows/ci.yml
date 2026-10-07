@@ -170,3 +170,42 @@ jobs:
             echo "$unformatted"
             exit 1
           fi
+
+  irs-efile-viewer:
+    name: IRS e-file viewer (render e2e)
+    runs-on: ubuntu-latest
+    # A standalone tool under tools/ — not part of the gateway. The backend job's
+    # repository-wide pytest runs its hermetic tests and skips the rest (no
+    # python-multipart, no stylesheet tree); this job runs all of them, including
+    # end-to-end renders of real filings through the real IRS stylesheets, where a
+    # missing stylesheet tree is a failure, not a skip.
+    env:
+      # The tax years the end-to-end fixtures need; keep in step with REQUIRED_YEARS in
+      # tools/irs-efile-viewer/tests/test_irs_efile_e2e.py.
+      MEF_YEARS: "2010 2011 2012 2014 2017 2019 2020 2021"
+      IRS_EFILE_REQUIRE_MEF: "1"
+    defaults:
+      run:
+        working-directory: tools/irs-efile-viewer
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: tools/irs-efile-viewer/pyproject.toml
+      - name: Install
+        run: pip install -e ".[web,dev]"
+      # The stylesheets are fetched at the commit pinned in sources.py, so the cache key
+      # follows that file: bump the pin and the cache refreshes with it.
+      - name: Cache IRS stylesheets
+        id: mef-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/irs-efile-viewer/mef
+          key: irs-mef-${{ hashFiles('tools/irs-efile-viewer/src/irs_efile_viewer/sources.py') }}-${{ env.MEF_YEARS }}
+      - name: Fetch IRS stylesheets
+        if: steps.mef-cache.outputs.cache-hit != 'true'
+        run: irs-efile-viewer fetch --years $MEF_YEARS
+      - name: Tests (hermetic and end-to-end)
+        run: python -m pytest -q

@@ -1,0 +1,363 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Return xmlns="http://www.irs.gov/efile" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" returnVersion="2012v2.0" xsi:schemaLocation="http://www.irs.gov/efile">
+  <ReturnHeader binaryAttachmentCount="0">
+    <Timestamp>2013-06-22T08:44:59-07:00</Timestamp>
+    <TaxPeriodEndDate>2012-12-31</TaxPeriodEndDate>
+    <PreparerFirm>
+      <PreparerFirmBusinessName>
+        <BusinessNameLine1>TERRY &amp; COMPANY PC</BusinessNameLine1>
+      </PreparerFirmBusinessName>
+      <PreparerFirmUSAddress>
+        <AddressLine1>PO Box 3896</AddressLine1>
+        <City>Greenwood Village</City>
+        <State>CO</State>
+        <ZIPCode>801553896</ZIPCode>
+      </PreparerFirmUSAddress>
+    </PreparerFirm>
+    <ReturnType>990EZ</ReturnType>
+    <TaxPeriodBeginDate>2012-01-01</TaxPeriodBeginDate>
+    <Filer>
+      <EIN>742553976</EIN>
+      <Name>
+        <BusinessNameLine1>COLORADO CHAPTER OF THE NATIONAL ASSN OF</BusinessNameLine1>
+        <BusinessNameLine2>HOUSING AND REDEVELOPMENT OFFICIALS INC</BusinessNameLine2>
+      </Name>
+      <NameControl>COLO</NameControl>
+      <Phone>3039877588</Phone>
+      <USAddress>
+        <AddressLine1>575 Union Blvd</AddressLine1>
+        <City>Lakewood</City>
+        <State>CO</State>
+        <ZIPCode>80228</ZIPCode>
+      </USAddress>
+    </Filer>
+    <Officer>
+      <Name>Carl Musso</Name>
+      <Title>Treasurer</Title>
+      <DateSigned>2013-06-22</DateSigned>
+      <AuthorizeThirdParty>true</AuthorizeThirdParty>
+    </Officer>
+    <Preparer>
+      <Name>E Alan Terry CPA</Name>
+      <PTIN>P00115110</PTIN>
+      <Phone>3036945055</Phone>
+    </Preparer>
+    <TaxYear>2012</TaxYear>
+    <BuildTS>2016-02-25 16:41:14Z</BuildTS>
+  </ReturnHeader>
+  <ReturnData documentCount="4">
+    <IRS990EZ documentId="IRS990EZ" referenceDocumentId="IRS990ScheduleO TransfersPersonalBenefitsContr" softwareId="12000229" softwareVersion="2012v2.0">
+      <MethodOfAccountingAccrual>X</MethodOfAccountingAccrual>
+      <ScheduleBNotRequired>X</ScheduleBNotRequired>
+      <WebSite>www.conahro.org</WebSite>
+      <Organization501c3 referenceDocumentId="IRS990ScheduleA">X</Organization501c3>
+      <GrossReceipts>135917</GrossReceipts>
+      <InfoInScheduleOPartI>X</InfoInScheduleOPartI>
+      <MembershipDues>19943</MembershipDues>
+      <InvestmentIncome>58</InvestmentIncome>
+      <CostOtherBasisAndSalesExpenses>0</CostOtherBasisAndSalesExpenses>
+      <FundraisingGrossIncome referenceDocumentId="IRS990ScheduleG">115916</FundraisingGrossIncome>
+      <SpecialEventsDirectExpenses>90533</SpecialEventsDirectExpenses>
+      <SpecialEventsNetIncomeLoss>25383</SpecialEventsNetIncomeLoss>
+      <CostOfGoodsSold>0</CostOfGoodsSold>
+      <TotalRevenue>45384</TotalRevenue>
+      <FeesAndOthPymtToIndContractors>42676</FeesAndOthPymtToIndContractors>
+      <PrintingPublicationsPostage>190</PrintingPublicationsPostage>
+      <OtherExpensesTotal>17537</OtherExpensesTotal>
+      <TotalExpenses>60403</TotalExpenses>
+      <ExcessOrDeficitForYear>-15019</ExcessOrDeficitForYear>
+      <NetAssetsOrFundBalancesBOY>81490</NetAssetsOrFundBalancesBOY>
+      <NetAssetsOrFundBalancesEOY>66471</NetAssetsOrFundBalancesEOY>
+      <InfoInScheduleOPartII>X</InfoInScheduleOPartII>
+      <CashSavingsAndInvestments>
+        <BOY>90705</BOY>
+        <EOY>69453</EOY>
+      </CashSavingsAndInvestments>
+      <TotalAssets>
+        <BOY>90705</BOY>
+        <EOY>69453</EOY>
+      </TotalAssets>
+      <SumOfTotalLiabilities>
+        <BOY>9215</BOY>
+        <EOY>2982</EOY>
+      </SumOfTotalLiabilities>
+      <NetAssetsOrFundBalances>
+        <BOY>81490</BOY>
+        <EOY>66471</EOY>
+      </NetAssetsOrFundBalances>
+      <PrimaryExemptPurpose>The primary purposes of the Colorado Chapter of the National Association of Housing and Redevelopment Officials, Inc.(NAHRO) is to be the leading housing and community development advocate for the provision of adequate and affordable housing and strong, viable communities for all Americans, particularly those of low to moderate incomes, and to enhance the professional development and effectiveness of NAHRO's members.</PrimaryExemptPurpose>
+      <ProgramServiceAccomplishment>
+        <DescriptionProgramServiceAccom>In 2011, Colorado NAHRO continued to fulfill its mission to provide professional development, advocacy, and networking opportunities for public housing and community development agencies as well as other individuals and organizations working to enhance the affordable housing industry and promote viable communities in Colorado. Colorado NAHRO produced its annual conference May 11-15 in Breckenridge, Colorado that provided essential and network opportunities for over 300 affordable housing maintenance and management professionals. Colorado NAHRO also sponsored four trainings at its training center in Lakewood, CO. These included: Property Management Essentials (Feb. 8-10); Capital Fund (June 14-15); Family self-Sufficiency (August 16-17); and HCV Occupancy (Sept 22-24). Colorado NAHRO also opened an additional training center in conjuction with the Colorado Springs Housing Authority and conducted one training-Public Housing manager (Nov. 15-19). Additionally, Colorado NAHRO maintains a website that provides its members with information on advocacy issues, current events, training opportunities and other relevant resources.</DescriptionProgramServiceAccom>
+      </ProgramServiceAccomplishment>
+      <OfficerDirectorTrusteeKeyEmpl>
+        <PersonName>David Martens</PersonName>
+        <Title>Service Officer</Title>
+        <AvgHoursPerWkDevotedToPosition>1.00</AvgHoursPerWkDevotedToPosition>
+        <Compensation>0</Compensation>
+      </OfficerDirectorTrusteeKeyEmpl>
+      <OfficerDirectorTrusteeKeyEmpl>
+        <PersonName>Carl Musso</PersonName>
+        <Title>Treasurer</Title>
+        <AvgHoursPerWkDevotedToPosition>1.00</AvgHoursPerWkDevotedToPosition>
+        <Compensation>0</Compensation>
+      </OfficerDirectorTrusteeKeyEmpl>
+      <OfficerDirectorTrusteeKeyEmpl>
+        <PersonName>Brian Miller</PersonName>
+        <Title>Secretary</Title>
+        <AvgHoursPerWkDevotedToPosition>1.00</AvgHoursPerWkDevotedToPosition>
+        <Compensation>0</Compensation>
+      </OfficerDirectorTrusteeKeyEmpl>
+      <OfficerDirectorTrusteeKeyEmpl>
+        <PersonName>Lori Rosendahl</PersonName>
+        <Title>Prof. Devel. VP</Title>
+        <AvgHoursPerWkDevotedToPosition>1.00</AvgHoursPerWkDevotedToPosition>
+        <Compensation>0</Compensation>
+      </OfficerDirectorTrusteeKeyEmpl>
+      <OfficerDirectorTrusteeKeyEmpl>
+        <PersonName>Wayne Taunton</PersonName>
+        <Title>VP-Housing</Title>
+        <AvgHoursPerWkDevotedToPosition>1.00</AvgHoursPerWkDevotedToPosition>
+        <Compensation>0</Compensation>
+      </OfficerDirectorTrusteeKeyEmpl>
+      <OfficerDirectorTrusteeKeyEmpl>
+        <PersonName>Kimberly Kingston</PersonName>
+        <Title>VP-Member SerMe</Title>
+        <AvgHoursPerWkDevotedToPosition>1.00</AvgHoursPerWkDevotedToPosition>
+        <Compensation>0</Compensation>
+      </OfficerDirectorTrusteeKeyEmpl>
+      <OfficerDirectorTrusteeKeyEmpl>
+        <PersonName>Craig Maraschky</PersonName>
+        <Title>President</Title>
+        <AvgHoursPerWkDevotedToPosition>1.00</AvgHoursPerWkDevotedToPosition>
+        <Compensation>0</Compensation>
+      </OfficerDirectorTrusteeKeyEmpl>
+      <OfficerDirectorTrusteeKeyEmpl>
+        <PersonName>David Martens</PersonName>
+        <Title>Service Offiice</Title>
+        <AvgHoursPerWkDevotedToPosition>1.00</AvgHoursPerWkDevotedToPosition>
+        <Compensation>0</Compensation>
+      </OfficerDirectorTrusteeKeyEmpl>
+      <OfficerDirectorTrusteeKeyEmpl>
+        <PersonName>Jacqueline Pickett</PersonName>
+        <Title>Director</Title>
+        <AvgHoursPerWkDevotedToPosition>1.00</AvgHoursPerWkDevotedToPosition>
+        <Compensation>0</Compensation>
+      </OfficerDirectorTrusteeKeyEmpl>
+      <OfficerDirectorTrusteeKeyEmpl>
+        <PersonName>Frank Pacheco</PersonName>
+        <Title>Director</Title>
+        <AvgHoursPerWkDevotedToPosition>1.00</AvgHoursPerWkDevotedToPosition>
+        <Compensation>0</Compensation>
+      </OfficerDirectorTrusteeKeyEmpl>
+      <OfficerDirectorTrusteeKeyEmpl>
+        <PersonName>Stella Madrid</PersonName>
+        <Title>Legislative VP</Title>
+        <AvgHoursPerWkDevotedToPosition>1.00</AvgHoursPerWkDevotedToPosition>
+        <Compensation>0</Compensation>
+      </OfficerDirectorTrusteeKeyEmpl>
+      <OfficerDirectorTrusteeKeyEmpl>
+        <PersonName>Janet Grimmett</PersonName>
+        <Title>VP-Com. Dev</Title>
+        <AvgHoursPerWkDevotedToPosition>1.00</AvgHoursPerWkDevotedToPosition>
+        <Compensation>0</Compensation>
+      </OfficerDirectorTrusteeKeyEmpl>
+      <OfficerDirectorTrusteeKeyEmpl>
+        <PersonName>Don May</PersonName>
+        <Title>Director</Title>
+        <AvgHoursPerWkDevotedToPosition>1.00</AvgHoursPerWkDevotedToPosition>
+        <Compensation>0</Compensation>
+      </OfficerDirectorTrusteeKeyEmpl>
+      <InfoInScheduleOPartV>X</InfoInScheduleOPartV>
+      <ActivitiesNotPreviouslyRpt>false</ActivitiesNotPreviouslyRpt>
+      <MadeChangesToOrgnzngEtcDoc>false</MadeChangesToOrgnzngEtcDoc>
+      <OrganizationHadUBI>false</OrganizationHadUBI>
+      <OrganizationFiled990T>false</OrganizationFiled990T>
+      <SubjectToProxyTax>false</SubjectToProxyTax>
+      <OrganizationDissolvedEtc>false</OrganizationDissolvedEtc>
+      <DidOrgFileForm1120POLThisYear>false</DidOrgFileForm1120POLThisYear>
+      <MadeLoansToFromOfficers>false</MadeLoansToFromOfficers>
+      <InitiationFeesAndCapitalContri>0</InitiationFeesAndCapitalContri>
+      <GrossReceiptsForPublicUse>0</GrossReceiptsForPublicUse>
+      <EngagedInExcessBenefitTrans>false</EngagedInExcessBenefitTrans>
+      <ProhibitedTaxShelterTrans>false</ProhibitedTaxShelterTrans>
+      <TheBooksAreInCareOf>
+        <NamePerson>Carl Musso</NamePerson>
+        <AddressUS>
+          <AddressLine1>575 Union Blvd Suite 100</AddressLine1>
+          <City>Lakewood</City>
+          <State>CO</State>
+          <ZIPCode>80228</ZIPCode>
+        </AddressUS>
+        <TelephoneNumber>7202512100</TelephoneNumber>
+      </TheBooksAreInCareOf>
+      <ForeignFinancialAccount>false</ForeignFinancialAccount>
+      <ForeignOffice>false</ForeignOffice>
+      <MaintainAnyDonorAdvisedFunds>false</MaintainAnyDonorAdvisedFunds>
+      <DoesOrgHaveHospital>false</DoesOrgHaveHospital>
+      <TanningServicesProvided>false</TanningServicesProvided>
+      <Form720Filed>false</Form720Filed>
+      <RelatedOrgControlledEntity>false</RelatedOrgControlledEntity>
+      <TransactionWithControlEntity>false</TransactionWithControlEntity>
+      <EngagePoliticalCmpgnActivities>false</EngagePoliticalCmpgnActivities>
+      <EngageInLobbyingActivities>false</EngageInLobbyingActivities>
+      <OperatingSchool>false</OperatingSchool>
+      <TrnsfrsExemptNonCharRelatedOrg>false</TrnsfrsExemptNonCharRelatedOrg>
+      <RelatedOrgSection527Org>false</RelatedOrgSection527Org>
+      <PartVIOfCompOfHighestPaidEmpl>NONE</PartVIOfCompOfHighestPaidEmpl>
+      <PartVIAHghstPaidCntrctProfSer>NONE</PartVIAHghstPaidCntrctProfSer>
+      <FiledScheduleA>true</FiledScheduleA>
+    </IRS990EZ>
+    <IRS990ScheduleA documentId="IRS990ScheduleA" softwareId="12000229" softwareVersion="2012v2.0">
+      <PubliclySupportedOrg509a2>X</PubliclySupportedOrg509a2>
+      <GiftsGrantsContribReceived509>
+        <CurrentTaxYearMinus4Years>17704</CurrentTaxYearMinus4Years>
+        <CurrentTaxYearMinus3Years>17044</CurrentTaxYearMinus3Years>
+        <CurrentTaxYearMinus2Years>18025</CurrentTaxYearMinus2Years>
+        <CurrentTaxYearMinus1Year>16807</CurrentTaxYearMinus1Year>
+        <CurrentTaxYear>19943</CurrentTaxYear>
+        <Total>89523</Total>
+      </GiftsGrantsContribReceived509>
+      <GrossReceiptsFromAdmissions>
+        <CurrentTaxYearMinus4Years>95278</CurrentTaxYearMinus4Years>
+        <CurrentTaxYearMinus3Years>103852</CurrentTaxYearMinus3Years>
+        <CurrentTaxYearMinus2Years>109373</CurrentTaxYearMinus2Years>
+        <CurrentTaxYearMinus1Year>104955</CurrentTaxYearMinus1Year>
+        <CurrentTaxYear>115916</CurrentTaxYear>
+        <Total>529374</Total>
+      </GrossReceiptsFromAdmissions>
+      <GrossReceiptsFromNonUBI>
+        <Total>0</Total>
+      </GrossReceiptsFromNonUBI>
+      <TaxRevLeviedForOrgBenefit509>
+        <Total>0</Total>
+      </TaxRevLeviedForOrgBenefit509>
+      <ValueOfSvcsFcltsFurnishdByGovt>
+        <Total>0</Total>
+      </ValueOfSvcsFcltsFurnishdByGovt>
+      <Total509>
+        <CurrentTaxYearMinus4Years>112982</CurrentTaxYearMinus4Years>
+        <CurrentTaxYearMinus3Years>120896</CurrentTaxYearMinus3Years>
+        <CurrentTaxYearMinus2Years>127398</CurrentTaxYearMinus2Years>
+        <CurrentTaxYearMinus1Year>121762</CurrentTaxYearMinus1Year>
+        <CurrentTaxYear>135859</CurrentTaxYear>
+        <Total>618897</Total>
+      </Total509>
+      <AmtsRecdFromDisqualPersons>
+        <Total>0</Total>
+      </AmtsRecdFromDisqualPersons>
+      <AmtsFromSubstContributors>
+        <Total>0</Total>
+      </AmtsFromSubstContributors>
+      <PublicSupportTotal509>618897</PublicSupportTotal509>
+      <GrossInvestmentIncome509>
+        <CurrentTaxYearMinus4Years>809</CurrentTaxYearMinus4Years>
+        <CurrentTaxYearMinus3Years>388</CurrentTaxYearMinus3Years>
+        <CurrentTaxYearMinus2Years>188</CurrentTaxYearMinus2Years>
+        <CurrentTaxYearMinus1Year>99</CurrentTaxYearMinus1Year>
+        <CurrentTaxYear>58</CurrentTaxYear>
+        <Total>1542</Total>
+      </GrossInvestmentIncome509>
+      <Post1975UBTI>
+        <Total>0</Total>
+      </Post1975UBTI>
+      <InvestmentIncomeAndUBTI>
+        <CurrentTaxYearMinus4Years>809</CurrentTaxYearMinus4Years>
+        <CurrentTaxYearMinus3Years>388</CurrentTaxYearMinus3Years>
+        <CurrentTaxYearMinus2Years>188</CurrentTaxYearMinus2Years>
+        <CurrentTaxYearMinus1Year>99</CurrentTaxYearMinus1Year>
+        <CurrentTaxYear>58</CurrentTaxYear>
+        <Total>1542</Total>
+      </InvestmentIncomeAndUBTI>
+      <NetIncomeFromOtherUBI>
+        <Total>0</Total>
+      </NetIncomeFromOtherUBI>
+      <OtherIncome509>
+        <Total>0</Total>
+      </OtherIncome509>
+      <TotalSupportTotal>
+        <CurrentTaxYearMinus4Years>113791</CurrentTaxYearMinus4Years>
+        <CurrentTaxYearMinus3Years>121284</CurrentTaxYearMinus3Years>
+        <CurrentTaxYearMinus2Years>127586</CurrentTaxYearMinus2Years>
+        <CurrentTaxYearMinus1Year>121861</CurrentTaxYearMinus1Year>
+        <CurrentTaxYear>135917</CurrentTaxYear>
+        <Total>620439</Total>
+      </TotalSupportTotal>
+      <PublicSupportPercentage509>0.99750</PublicSupportPercentage509>
+      <PriorYearSupportPercentage>0.99710</PriorYearSupportPercentage>
+      <InvestmentIncomePercentage>0.00250</InvestmentIncomePercentage>
+      <PriorYrInvestIncomePercentage>0.00290</PriorYrInvestIncomePercentage>
+      <ThirtyThreePercntTestsCY509>X</ThirtyThreePercntTestsCY509>
+    </IRS990ScheduleA>
+    <IRS990ScheduleG documentId="IRS990ScheduleG" softwareId="12000229" softwareVersion="2012v2.0">
+      <EventsInformation>
+        <NameOfEvent1>Conference Income</NameOfEvent1>
+        <GrossReceiptsEvent1>115916</GrossReceiptsEvent1>
+        <GrossRevenueEvent1>115916</GrossRevenueEvent1>
+        <CashPrizesEvent1>640</CashPrizesEvent1>
+        <RentFacilityCostsEvent1>47865</RentFacilityCostsEvent1>
+        <FoodAndBeverageEvent1>8384</FoodAndBeverageEvent1>
+        <OtherDirectExpensesEvent1>33644</OtherDirectExpensesEvent1>
+        <GrossReceiptsTotal>115916</GrossReceiptsTotal>
+        <GrossRevenueTotalEvents>115916</GrossRevenueTotalEvents>
+        <CashPrizesTotalEvents>640</CashPrizesTotalEvents>
+        <RentFacilityCostsTotalEvents>47865</RentFacilityCostsTotalEvents>
+        <FoodAndBeverageTotalEvents>8384</FoodAndBeverageTotalEvents>
+        <OtherDirectExpensesTotalEvents>33644</OtherDirectExpensesTotalEvents>
+        <DirectExpenseSummaryEvents>90533</DirectExpenseSummaryEvents>
+        <NetIncomeSummary>25383</NetIncomeSummary>
+      </EventsInformation>
+    </IRS990ScheduleG>
+    <IRS990ScheduleO documentId="IRS990ScheduleO" softwareId="12000229" softwareVersion="2012v2.0">
+      <GeneralExplanation>
+        <Identifier>Form 990-EZ, Part II, Line 26.1</Identifier>
+        <ReturnReference>Total Liabilities.1</ReturnReference>
+        <Explanation>Scholarship Escrow - Beginning $9215 Scholarship Escrow - Ending $2982</Explanation>
+      </GeneralExplanation>
+      <GeneralExplanation>
+        <Identifier>Form 990-EZ, Part I, Line 16.6</Identifier>
+        <ReturnReference>Other Expenses.6</ReturnReference>
+        <Explanation>DC Luncheon expense $206</Explanation>
+      </GeneralExplanation>
+      <GeneralExplanation>
+        <Identifier>Form 990-EZ, Part I, Line 16.5</Identifier>
+        <ReturnReference>Other Expenses.5</ReturnReference>
+        <Explanation>Board Meeting Expense $236</Explanation>
+      </GeneralExplanation>
+      <GeneralExplanation>
+        <Identifier>Form 990-EZ, Part I, Line 16.4</Identifier>
+        <ReturnReference>Other Expenses.4</ReturnReference>
+        <Explanation>Web Site $584</Explanation>
+      </GeneralExplanation>
+      <GeneralExplanation>
+        <Identifier>Form 990-EZ, Part I, Line 16.3</Identifier>
+        <ReturnReference>Other Expenses.3</ReturnReference>
+        <Explanation>Bonus $1000</Explanation>
+      </GeneralExplanation>
+      <GeneralExplanation>
+        <Identifier>Form 990-EZ, Part I, Line 16.2</Identifier>
+        <ReturnReference>Other Expenses.2</ReturnReference>
+        <Explanation>Housing Program $7000</Explanation>
+      </GeneralExplanation>
+      <GeneralExplanation>
+        <Identifier>Form 990-EZ, Part I, Line 16.1</Identifier>
+        <ReturnReference>Other Expenses.1</ReturnReference>
+        <Explanation>Regional Dues $7431</Explanation>
+      </GeneralExplanation>
+      <GeneralExplanation>
+        <Identifier>Form 990-EZ, Part I, Line 16.1005</Identifier>
+        <ReturnReference>Other Expenses.1005</ReturnReference>
+        <Explanation>Travel $135</Explanation>
+      </GeneralExplanation>
+      <GeneralExplanation>
+        <Identifier>Form 990-EZ, Part I, Line 16.1003</Identifier>
+        <ReturnReference>Other Expenses.1003</ReturnReference>
+        <Explanation>Information Technology $285</Explanation>
+      </GeneralExplanation>
+      <GeneralExplanation>
+        <Identifier>Form 990-EZ, Part I, Line 16.1002</Identifier>
+        <ReturnReference>Other Expenses.1002</ReturnReference>
+        <Explanation>Office Expenses $660</Explanation>
+      </GeneralExplanation>
+    </IRS990ScheduleO>
+  </ReturnData>
+</Return>

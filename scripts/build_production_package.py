@@ -111,6 +111,7 @@ INCLUDE_DIRS: tuple[str, ...] = (
     "sdk",
     "services",
     "tests",         # you should not have to trust an authorizer whose tests you cannot run.
+    "tools",         # standalone utilities (irs-efile-viewer): not imported by the gateway.
     "training",
 )
 
